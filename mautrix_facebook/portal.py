@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Optional, Union, TYPE_CHECKING
+from typing import Dict, Optional, Tuple, Union, TYPE_CHECKING
 import aiohttp
 import asyncio
 import logging
@@ -39,9 +39,10 @@ class Portal:
     loop: asyncio.AbstractEventLoop
     log: logging.Logger = logging.getLogger("mau.portal")
     by_mxid: Dict[RoomID, 'Portal'] = {}
-    by_fbid: Dict[str, 'Portal'] = {}
+    by_fbid: Dict[Tuple[str, str], 'Portal'] = {}
 
     fbid: str
+    fb_receiver: str
     fb_type: ThreadType
     mxid: Optional[RoomID]
 
@@ -54,29 +55,34 @@ class Portal:
 
     _main_intent: Optional[IntentAPI]
 
-    def __init__(self, fbid: str, fb_type: ThreadType, mxid: Optional[RoomID] = None,
-                 name: str = "", photo: str = "", avatar_uri: ContentURI = ""):
+    def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
+                 mxid: Optional[RoomID] = None,
+                 name: str = "", photo: str = "", avatar_uri: ContentURI = "") -> None:
         self.fbid = fbid
-        self.log = self.log.getChild(fbid)
+        self.fb_receiver = fb_receiver
         self.fb_type = fb_type
-        self.by_fbid[fbid] = self
         self.mxid = mxid
-        if self.mxid:
-            self.by_mxid[self.mxid] = self
+
+        self.name = name
+        self.photo = photo
+        self.avatar_uri = avatar_uri
 
         self._main_intent = None
 
         self.messages_by_fbid = {}
         self.messages_by_mxid = {}
 
-        self.name = name
-        self.photo = photo
-        self.avatar_uri = avatar_uri
+        self.log = self.log.getChild(self.fbid_log)
+
+        self.by_fbid[self.fbid_full] = self
+        if self.mxid:
+            self.by_mxid[self.mxid] = self
 
     def to_dict(self) -> Dict[str, str]:
         return {
             "fbid": self.fbid,
             "fb_type": self.fb_type.value,
+            "fb_receiver": self.fb_receiver,
             "mxid": self.mxid,
             "name": self.name,
             "photo": self.photo,
@@ -85,9 +91,20 @@ class Portal:
 
     @classmethod
     def from_dict(cls, data: Dict[str, str]) -> 'Portal':
-        return cls(fbid=data["fbid"], fb_type=ThreadType(data["fb_type"]), mxid=data["mxid"],
+        return cls(fbid=data["fbid"], fb_receiver=data["fb_receiver"],
+                   fb_type=ThreadType(data["fb_type"]), mxid=RoomID(data["mxid"]),
                    name=data["name"], photo=data["photo"],
                    avatar_uri=ContentURI(data["avatar_uri"]))
+
+    @property
+    def fbid_full(self) -> Tuple[str, str]:
+        return self.fbid, self.fb_receiver
+
+    @property
+    def fbid_log(self) -> str:
+        if self.is_direct:
+            return f"{self.fbid}<->{self.fb_receiver}"
+        return self.fbid
 
     @property
     def is_direct(self) -> bool:
@@ -134,7 +151,7 @@ class Portal:
             return
         elif not self.mxid:
             return
-        users = await source.fetchAllUsersFromThreads(info)
+        users = await source.fetchAllUsersFromThreads([info])
         puppets = {user: p.Puppet.get(user.uid) for user in users}
         await asyncio.gather(*[puppet.update_info(source=source, info=user)
                                for user, puppet in puppets.items()])
@@ -166,28 +183,20 @@ class Portal:
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
         if event_id in self.messages_by_mxid:
-            print(f"handle_matrix_message({event_id}) --> cancelled")
             return
-        print(f"handle_matrix_message({event_id}) --> sending")
         fbid = await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
-        print(f"handle_matrix_message({event_id}) --> sent")
         self.messages_by_fbid[fbid] = event_id
         self.messages_by_mxid[event_id] = fbid
-        print(f"handle_matrix_message({event_id}) --> mapped to {fbid}")
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
         if message.uid in self.messages_by_fbid:
-            print(f"handle_facebook_message({message.uid}) --> cancelled")
             return
-        print(f"handle_facebook_message({message.uid}) --> sending")
         if not self.mxid:
             await self.create_matrix_room(source)
         event_id = await sender.intent.send_text(self.mxid, message.text)
-        print(f"handle_facebook_message({message.uid}) --> sent")
         self.messages_by_mxid[event_id] = message.uid
         self.messages_by_fbid[message.uid] = event_id
-        print(f"handle_facebook_message({message.uid}) --> mapped to {event_id}")
 
     @classmethod
     def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
@@ -198,17 +207,20 @@ class Portal:
         return None
 
     @classmethod
-    def get_by_fbid(cls, fbid: str, fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
+    def get_by_fbid(cls, fbid: str, fb_receiver: Optional[str] = None,
+                    fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
+        fb_receiver = fb_receiver or fbid
+        fbid_full = (fbid, fb_receiver)
         try:
-            return cls.by_fbid[fbid]
+            return cls.by_fbid[fbid_full]
         except KeyError:
             if fb_type:
-                return cls(fbid=fbid, fb_type=fb_type)
+                return cls(fbid=fbid, fb_receiver=fb_receiver, fb_type=fb_type)
         return None
 
     @classmethod
-    def get_by_thread(cls, thread: Thread) -> 'Portal':
-        return cls.get_by_fbid(thread.uid, thread.type)
+    def get_by_thread(cls, thread: Thread, fb_receiver: Optional[str] = None) -> 'Portal':
+        return cls.get_by_fbid(thread.uid, fb_receiver, thread.type)
 
 
 def init(context: 'Context') -> None:

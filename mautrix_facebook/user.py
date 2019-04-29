@@ -52,8 +52,7 @@ class User(Client):
         self.command_status = None
         self.is_whitelisted, self.is_admin = config.get_permissions(mxid)
         self._is_logged_in = None
-        # Active pinging seems to throw HTTP 500's for some reason
-        self.setActiveStatus(False)
+        #self.setActiveStatus(False)
 
     # region Sessions
 
@@ -100,7 +99,8 @@ class User(Client):
             threads = await self.fetchThreadList(limit=10)
             for thread in threads:
                 self.log.debug(f"Syncing thread {thread.uid} {thread.name}")
-                portal = po.Portal.get_by_thread(thread)
+                fb_receiver = self.uid if thread.type == ThreadType.USER else None
+                portal = po.Portal.get_by_thread(thread, fb_receiver)
                 await portal.create_matrix_room(self, thread)
                 if isinstance(thread, FBUser):
                     puppet = pu.Puppet.get(thread.uid, create=True)
@@ -177,7 +177,8 @@ class User(Client):
                            f"{thread_id}, {thread_type})")
             return
         self.log.debug(f"onMessage({mid}, {author_id}, {message}, {thread_id}, {thread_type})")
-        portal = po.Portal.get_by_fbid(thread_id, thread_type)
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
         puppet = pu.Puppet.get(author_id)
         if not puppet.name:
             await puppet.update_info(self)
