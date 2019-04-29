@@ -185,6 +185,7 @@ class Portal:
                                     event_id: EventID) -> None:
         if event_id in self.messages_by_mxid:
             return
+        self.messages_by_mxid[event_id] = None
         fbid = await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
         self.messages_by_fbid[fbid] = event_id
         self.messages_by_mxid[event_id] = fbid
@@ -195,6 +196,7 @@ class Portal:
             return
         if not self.mxid:
             await self.create_matrix_room(source)
+        self.messages_by_fbid[message.uid] = None
         event_id = await sender.intent.send_text(self.mxid, message.text)
         self.messages_by_mxid[event_id] = message.uid
         self.messages_by_fbid[message.uid] = event_id
