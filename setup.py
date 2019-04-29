@@ -23,7 +23,7 @@ setuptools.setup(
     install_requires=[
         "aiohttp>=3.0.1,<4",
         "mautrix>=0.4.0.dev30,<0.5.0",
-        "fbchat",
+        "fbchat-asyncio>=0.1.0",
     ],
 
     classifiers=[
