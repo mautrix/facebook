@@ -85,7 +85,7 @@ class Puppet:
             await self.intent.set_displayname(self.name)
 
     async def _update_photo(self, photo: str) -> None:
-        if photo != self.photo:
+        if photo != self.photo or len(self.avatar_uri) == 0:
             self.photo = photo
             async with aiohttp.ClientSession() as session:
                 resp = await session.get(self.photo)

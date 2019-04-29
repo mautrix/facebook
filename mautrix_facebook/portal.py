@@ -49,6 +49,9 @@ class Portal:
     photo: str
     avatar_uri: ContentURI
 
+    messages_by_fbid: Dict[str, EventID]
+    messages_by_mxid: Dict[EventID, str]
+
     _main_intent: Optional[IntentAPI]
 
     def __init__(self, fbid: str, fb_type: ThreadType, mxid: Optional[RoomID] = None,
@@ -62,6 +65,9 @@ class Portal:
             self.by_mxid[self.mxid] = self
 
         self._main_intent = None
+
+        self.messages_by_fbid = {}
+        self.messages_by_mxid = {}
 
         self.name = name
         self.photo = photo
@@ -113,7 +119,7 @@ class Portal:
                 await self.main_intent.set_room_name(self.mxid, self.name)
 
     async def _update_photo(self, photo: str) -> None:
-        if self.photo != photo:
+        if self.photo != photo or len(self.avatar_uri) == 0:
             self.photo = photo
             if self.mxid and not self.is_direct:
                 async with aiohttp.ClientSession() as session:
@@ -123,10 +129,10 @@ class Portal:
                 await self.main_intent.set_room_avatar(self.mxid, self.avatar_uri)
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
-        if not self.mxid:
-            return
-        elif self.is_direct:
+        if self.is_direct:
             await p.Puppet.get(info.uid).update_info(source=source, info=info)
+            return
+        elif not self.mxid:
             return
         users = await source.fetchAllUsersFromThreads(info)
         puppets = {user: p.Puppet.get(user.uid) for user in users}
@@ -154,11 +160,34 @@ class Portal:
         if not self.mxid:
             raise Exception("Failed to create room")
         self.by_mxid[self.mxid] = self
-        await self._update_participants(source, info)
+        if not self.is_direct:
+            await self._update_participants(source, info)
 
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
-                                    event_id: EventID):
-        await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
+                                    event_id: EventID) -> None:
+        if event_id in self.messages_by_mxid:
+            print(f"handle_matrix_message({event_id}) --> cancelled")
+            return
+        print(f"handle_matrix_message({event_id}) --> sending")
+        fbid = await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
+        print(f"handle_matrix_message({event_id}) --> sent")
+        self.messages_by_fbid[fbid] = event_id
+        self.messages_by_mxid[event_id] = fbid
+        print(f"handle_matrix_message({event_id}) --> mapped to {fbid}")
+
+    async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
+                                      message: FBMessage) -> None:
+        if message.uid in self.messages_by_fbid:
+            print(f"handle_facebook_message({message.uid}) --> cancelled")
+            return
+        print(f"handle_facebook_message({message.uid}) --> sending")
+        if not self.mxid:
+            await self.create_matrix_room(source)
+        event_id = await sender.intent.send_text(self.mxid, message.text)
+        print(f"handle_facebook_message({message.uid}) --> sent")
+        self.messages_by_mxid[event_id] = message.uid
+        self.messages_by_fbid[message.uid] = event_id
+        print(f"handle_facebook_message({message.uid}) --> mapped to {event_id}")
 
     @classmethod
     def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:

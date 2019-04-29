@@ -172,11 +172,17 @@ class User(Client):
         :type message_object: models.Message
         :type thread_type: models.ThreadType
         """
+        if author_id == self.uid:
+            self.log.debug(f"Ignoring message from self ({mid}, {author_id}, {message}, "
+                           f"{thread_id}, {thread_type})")
+            return
+        self.log.debug(f"onMessage({mid}, {author_id}, {message}, {thread_id}, {thread_type})")
         portal = po.Portal.get_by_fbid(thread_id, thread_type)
         puppet = pu.Puppet.get(author_id)
-        if not portal.mxid:
-            await portal.create_matrix_room(self)
-        await puppet.intent.send_text(portal.mxid, message)
+        if not puppet.name:
+            await puppet.update_info(self)
+        message_object.uid = mid
+        await portal.handle_facebook_message(self, puppet, message_object)
 
     async def onColorChange(self, mid=None, author_id=None, new_color=None, thread_id=None,
                             thread_type=ThreadType.USER, ts=None, metadata=None, msg=None):
