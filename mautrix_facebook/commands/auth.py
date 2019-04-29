@@ -24,12 +24,15 @@ from . import command_handler, CommandEvent, SECTION_AUTH
                  help_section=SECTION_AUTH, help_text="Log in to Facebook",
                  help_args="<_email_> <_password_>")
 async def login(evt: CommandEvent) -> None:
+    if len(evt.args) < 2:
+        await evt.reply("Usage: `$cmdprefix+sp login <email> <password>`")
+        return
     evt.sender.command_status = {
         "action": "Login",
         "room_id": evt.room_id,
     }
     try:
-        await evt.sender.login(evt.args[0], " ".join(evt.args[1:]))
+        await evt.sender.login(evt.args[0], " ".join(evt.args[1:]), max_tries=1)
         evt.sender.command_status = None
     except FBchatUserError as e:
         evt.sender.command_status = None

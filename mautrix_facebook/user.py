@@ -33,10 +33,16 @@ if TYPE_CHECKING:
 config: Config
 
 
+GREEN = "\u001b[32m"
+YELLOW = "\u001b[33m"
+MAGENTA = "\u001b[35m"
+RESET = "\u001b[0m"
+
+
 class User(Client):
     az: AppService
     loop: asyncio.AbstractEventLoop
-    log: logging.Logger = logging.getLogger("mau.user")
+    log: logging.Logger = logging.getLogger(f"{GREEN}mau.user{RESET}")
     by_mxid: Dict[UserID, 'User'] = {}
 
     command_status: Optional[Dict[str, Any]]
@@ -45,14 +51,19 @@ class User(Client):
     _is_logged_in: Optional[bool]
 
     def __init__(self, mxid: UserID):
-        super(User, self).__init__(loop=self.loop)
-        self.log = self.log.getChild(mxid)
+        super().__init__(loop=self.loop)
         self.mxid = mxid
         self.by_mxid[mxid] = self
         self.command_status = None
         self.is_whitelisted, self.is_admin = config.get_permissions(mxid)
         self._is_logged_in = None
-        #self.setActiveStatus(False)
+
+        log_id = f"{YELLOW}{self.mxid}{RESET}"
+        self.log = self.log.getChild(log_id)
+        # TODO non-hacky log coloring
+        self._log = logging.getLogger(f"{MAGENTA}fbchat.client{RESET}").getChild(log_id)
+        self._req_log = logging.getLogger(f"{MAGENTA}fbchat.request{RESET}").getChild(log_id)
+        self._util_log = logging.getLogger(f"{MAGENTA}fbchat.util{RESET}").getChild(log_id)
 
     # region Sessions
 
@@ -70,7 +81,7 @@ class User(Client):
         ok = await self.setSession(session) and await self.is_logged_in()
         if ok:
             self.listen()
-            asyncio.ensure_future(self.sync_threads(), loop=self.loop)
+            asyncio.ensure_future(self.post_login(), loop=self.loop)
         return ok
 
     @staticmethod
@@ -92,6 +103,9 @@ class User(Client):
         return self._is_logged_in
 
     # endregion
+
+    async def post_login(self) -> None:
+        await self.sync_threads()
 
     async def sync_threads(self) -> None:
         try:
@@ -136,6 +150,7 @@ class User(Client):
                                              f"Successfully logged in with {email}")
             self.save()
             self.listen()
+            asyncio.ensure_future(self.post_login(), loop=self.loop)
         self.log.warn("Unexpected onLoggedIn call")
         # raise RuntimeError("No ongoing login command")
 

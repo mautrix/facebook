@@ -160,6 +160,7 @@ class Portal:
 
     async def create_matrix_room(self, source: 'u.User', info: Optional[Thread] = None) -> RoomID:
         if self.mxid:
+            await self.main_intent.invite_user(self.mxid, source.mxid)
             return self.mxid
 
         info = await self.update_info(source=source, info=info)
