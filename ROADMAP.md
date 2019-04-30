@@ -35,8 +35,8 @@
       * [x] Files
       * [x] Voice messages
       * [ ] Videos
-      * [ ] Images
-      * [ ] Locations
+      * [x] Images
+      * [x] Locations
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions

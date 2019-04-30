@@ -297,23 +297,25 @@ class Portal:
                                           info=AudioInfo(size=size, mimetype=mime,
                                                          duration=attachment.duration),
                                           file_name=attachment.filename,)
-        elif isinstance(attachment, VideoAttachment):
-            self.log.warn("Unsupported attachment type:", attachment)
-            return None
+        #elif isinstance(attachment, VideoAttachment):
+            #pass
         elif isinstance(attachment, FileAttachment):
             mxc, mime, size = await self._reupload_photo(attachment.url, intent, attachment.name)
             return await intent.send_file(self.mxid, mxc,
                                           info=FileInfo(size=size, mimetype=mime),
                                           file_name=attachment.name)
         elif isinstance(attachment, ImageAttachment):
-            self.log.warn("Unsupported attachment type:", attachment)
-            #mxc, mime, size = await self._reupload_photo(attachment, intent)
-            return None
+            mxc, mime, size = await self._reupload_photo(attachment.large_preview_url, intent)
+            return await intent.send_image(self.mxid, mxc,
+                                           file_name=f"image.{attachment.original_extension}",
+                                           info=ImageInfo(size=size, mimetype=mime,
+                                                          width=attachment.large_preview_width,
+                                                          height=attachment.large_preview_height))
         elif isinstance(attachment, LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)
             return await intent.send_message(self.mxid, content)
         else:
-            self.log.warn("Unsupported attachment type:", attachment)
+            self.log.warn(f"Unsupported attachment type: {attachment}")
             return None
 
     async def _convert_facebook_location(self, intent: IntentAPI, location: LocationAttachment
