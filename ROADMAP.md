@@ -7,7 +7,7 @@
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions
-  * [ ] Message redactions
+  * [x] Message redactions
   * [ ] Message reactions (not yet implemented in Matrix)
   * [ ] Message history
   * [ ] Presence

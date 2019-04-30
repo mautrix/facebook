@@ -221,6 +221,22 @@ class Portal:
         self.messages_by_fbid[fbid] = event_id
         self.messages_by_mxid[event_id] = fbid
 
+    async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID) -> None:
+        if not self.mxid:
+            return
+        try:
+            message_id = self.messages_by_mxid[event_id]
+        except KeyError:
+            return
+        if message_id is None:
+            return
+        self.messages_by_mxid[event_id] = None
+        self.messages_by_fbid[message_id] = None
+        try:
+            await sender.unsend(message_id)
+        except Exception:
+            self.log.exception("Unsend failed")
+
     # endregion
     # region Facebook event handling
 
@@ -246,6 +262,7 @@ class Portal:
         if event_id is None:
             return
         self.messages_by_fbid[message_id] = None
+        self.messages_by_mxid[event_id] = None
         # Facebook only allows unsending own messages, so it should be safe to use the deleter
         # intent to redact even without power level sync.
         try:

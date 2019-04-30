@@ -18,7 +18,7 @@ import logging
 import asyncio
 
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, MessageType,
-                           MessageEventContent, StateEvent, Membership)
+                           MessageEventContent, StateEvent, Membership, RedactionEvent)
 from mautrix.errors import IntentError, MatrixError
 
 from . import user as u, portal as po, puppet as pu, commands as com
@@ -102,17 +102,26 @@ class MatrixHandler:
             return
 
         if not user.is_whitelisted:
-            await portal.main_intent.kick(room_id, user.mxid, "You are not whitelisted on this "
-                                                              "Facebook Messenger bridge.")
+            await portal.main_intent.kick_user(room_id, user.mxid,
+                                               "You are not whitelisted on this "
+                                               "Facebook Messenger bridge.")
             return
         elif not await user.is_logged_in():
-            await portal.main_intent.kick(room_id, user.mxid, "You are not logged in to this "
-                                                              "Facebook Messenger bridge.")
+            await portal.main_intent.kick_user(room_id, user.mxid, "You are not logged in to this "
+                                                                   "Facebook Messenger bridge.")
             return
 
         self.log.debug(f"{user} joined {room_id}")
-        if await user.is_logged_in() or portal.has_bot:
-            await portal.join_matrix(user, event_id)
+        #await portal.join_matrix(user, event_id)
+
+    async def handle_redaction(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
+        user = u.User.get_by_mxid(user_id)
+
+        portal = po.Portal.get_by_mxid(room_id)
+        if not portal:
+            return
+
+        await portal.handle_matrix_redaction(user, event_id)
 
     def is_command(self, message: MessageEventContent) -> Tuple[bool, str]:
         text = message.body
@@ -184,3 +193,6 @@ class MatrixHandler:
             if evt.type != EventType.ROOM_MESSAGE:
                 evt.content.msgtype = MessageType(str(evt.type))
             await self.handle_message(evt.room_id, evt.sender, evt.content, evt.event_id)
+        elif evt.type == EventType.ROOM_REDACTION:
+            evt: RedactionEvent
+            await self.handle_redaction(evt.room_id, evt.sender, evt.redacts)
