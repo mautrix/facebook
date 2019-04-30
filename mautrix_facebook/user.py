@@ -409,8 +409,9 @@ class User(Client):
             )
         )
 
-    async def onMessageUnsent(self, mid=None, author_id=None, thread_id=None, thread_type=None,
-                              ts=None, msg=None):
+    async def onMessageUnsent(self, mid: str = None, author_id: str = None, thread_id: str = None,
+                              thread_type: ThreadType = None, ts: int = None,
+                              msg: Any = None) -> None:
         """
         Called when the client is listening, and someone unsends (deletes for everyone) a message
 
@@ -422,11 +423,10 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type thread_type: models.ThreadType
         """
-        self.log.info(
-            "{} unsent the message {} in {} ({}) at {}s".format(
-                author_id, repr(mid), thread_id, thread_type.name, ts / 1000
-            )
-        )
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
+        puppet = pu.Puppet.get(author_id)
+        await portal.handle_facebook_unsend(self, puppet, mid)
 
     async def onPeopleAdded(self, mid=None, added_ids=None, author_id=None, thread_id=None, ts=None,
                             msg=None):

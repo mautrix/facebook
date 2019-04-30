@@ -28,7 +28,7 @@
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions
-  * [ ] Message unsend
+  * [x] Message unsend
   * [ ] Message history
   * [ ] Presence
   * [ ] Typing notifications

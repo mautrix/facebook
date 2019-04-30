@@ -24,6 +24,7 @@ from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page a
                     Message as FBMessage)
 from mautrix.types import RoomID, EventType, ContentURI, MessageEventContent, EventID
 from mautrix.appservice import AppService, IntentAPI
+from mautrix.errors import MForbidden
 
 from .config import Config
 from . import puppet as p, user as u
@@ -209,6 +210,8 @@ class Portal:
         if not self.is_direct:
             await self._update_participants(source, info)
 
+    # region Matrix event handling
+
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
         if event_id in self.messages_by_mxid:
@@ -217,6 +220,9 @@ class Portal:
         fbid = await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
         self.messages_by_fbid[fbid] = event_id
         self.messages_by_mxid[event_id] = fbid
+
+    # endregion
+    # region Facebook event handling
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
@@ -228,6 +234,26 @@ class Portal:
         event_id = await sender.intent.send_text(self.mxid, message.text)
         self.messages_by_mxid[event_id] = message.uid
         self.messages_by_fbid[message.uid] = event_id
+
+    async def handle_facebook_unsend(self, source: 'u.User', sender: 'p.Puppet', message_id: str
+                                     ) -> None:
+        if not self.mxid:
+            return
+        try:
+            event_id = self.messages_by_fbid[message_id]
+        except KeyError:
+            return
+        if event_id is None:
+            return
+        self.messages_by_fbid[message_id] = None
+        # Facebook only allows unsending own messages, so it should be safe to use the deleter
+        # intent to redact even without power level sync.
+        try:
+            await sender.intent.redact(self.mxid, event_id)
+        except MForbidden:
+            await self.main_intent.redact(self.mxid, event_id)
+
+    # endregion
 
     @classmethod
     def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
