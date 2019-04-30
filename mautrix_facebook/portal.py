@@ -14,9 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Dict, Optional, Tuple, Union, TYPE_CHECKING
-import aiohttp
 import asyncio
 import logging
+
+from yarl import URL
+import aiohttp
 
 from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
                     Message as FBMessage)
@@ -47,27 +49,29 @@ class Portal:
     mxid: Optional[RoomID]
 
     name: str
-    photo: str
+    photo_id: str
     avatar_uri: ContentURI
 
-    messages_by_fbid: Dict[str, EventID]
-    messages_by_mxid: Dict[EventID, str]
+    messages_by_fbid: Dict[str, Optional[EventID]]
+    messages_by_mxid: Dict[EventID, Optional[str]]
 
     _main_intent: Optional[IntentAPI]
+    _create_room_lock: asyncio.Lock
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None,
-                 name: str = "", photo: str = "", avatar_uri: ContentURI = "") -> None:
+                 name: str = "", photo_id: str = "", avatar_uri: ContentURI = "") -> None:
         self.fbid = fbid
         self.fb_receiver = fb_receiver
         self.fb_type = fb_type
         self.mxid = mxid
 
         self.name = name
-        self.photo = photo
+        self.photo_id = photo_id
         self.avatar_uri = avatar_uri
 
         self._main_intent = None
+        self._create_room_lock = asyncio.Lock()
 
         self.messages_by_fbid = {}
         self.messages_by_mxid = {}
@@ -85,7 +89,7 @@ class Portal:
             "fb_receiver": self.fb_receiver,
             "mxid": self.mxid,
             "name": self.name,
-            "photo": self.photo,
+            "photo_id": self.photo_id,
             "avatar_uri": self.avatar_uri,
         }
 
@@ -93,7 +97,7 @@ class Portal:
     def from_dict(cls, data: Dict[str, str]) -> 'Portal':
         return cls(fbid=data["fbid"], fb_receiver=data["fb_receiver"],
                    fb_type=ThreadType(data["fb_type"]), mxid=RoomID(data["mxid"]),
-                   name=data["name"], photo=data["photo"],
+                   name=data["name"], photo_id=data["photo_id"],
                    avatar_uri=ContentURI(data["avatar_uri"]))
 
     @property
@@ -129,20 +133,31 @@ class Portal:
                              loop=self.loop)
         return info
 
+    @staticmethod
+    def _get_photo_id(url: str) -> str:
+        path = URL(url).path
+        return path[path.rfind("/") + 1:]
+
+    @staticmethod
+    async def _reupload_photo(url: str, client: IntentAPI) -> ContentURI:
+        async with aiohttp.ClientSession() as session:
+            resp = await session.get(url)
+            data = await resp.read()
+        return await client.upload_media(data)
+
     async def _update_name(self, name: str) -> None:
         if self.name != name:
             self.name = name
             if self.mxid and not self.is_direct:
                 await self.main_intent.set_room_name(self.mxid, self.name)
 
-    async def _update_photo(self, photo: str) -> None:
-        if self.photo != photo or len(self.avatar_uri) == 0:
-            self.photo = photo
+    async def _update_photo(self, photo_url: str) -> None:
+        photo_id = self._get_photo_id(photo_url)
+        print(photo_id, self.photo_id)
+        if self.photo_id != photo_id or len(self.avatar_uri) == 0:
+            self.photo_id = photo_id
             if self.mxid and not self.is_direct:
-                async with aiohttp.ClientSession() as session:
-                    resp = await session.get(self.photo)
-                    data = await resp.read()
-                self.avatar_uri = await self.main_intent.upload_media(data)
+                self.avatar_uri = await self._reupload_photo(photo_url, self.main_intent)
                 await self.main_intent.set_room_avatar(self.mxid, self.avatar_uri)
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
@@ -158,9 +173,22 @@ class Portal:
         await asyncio.gather(*[puppet.intent.ensure_joined(self.mxid)
                                for puppet in puppets.values()])
 
-    async def create_matrix_room(self, source: 'u.User', info: Optional[Thread] = None) -> RoomID:
+    async def _update_matrix_room(self, source: 'u.User',
+                                  info: Optional[ThreadClass] = None) -> None:
+        await self.main_intent.invite_user(self.mxid, source.mxid)
+
+    async def create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
+                                 ) -> RoomID:
         if self.mxid:
-            await self.main_intent.invite_user(self.mxid, source.mxid)
+            await self._update_matrix_room(source, info)
+            return self.mxid
+        async with self._create_room_lock:
+            await self._create_matrix_room(source, info)
+
+    async def _create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
+                                  ) -> RoomID:
+        if self.mxid:
+            await self._update_matrix_room(source, info)
             return self.mxid
 
         info = await self.update_info(source=source, info=info)
@@ -176,7 +204,7 @@ class Portal:
                                                        invitees=[source.mxid])
         self.log.debug(f"Matrix room created: {self.mxid}")
         if not self.mxid:
-            raise Exception("Failed to create room")
+            raise Exception("Failed to create room: no mxid required")
         self.by_mxid[self.mxid] = self
         if not self.is_direct:
             await self._update_participants(source, info)

@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 
 config: Config
 
-
 GREEN = "\u001b[32m"
 YELLOW = "\u001b[33m"
 MAGENTA = "\u001b[35m"
@@ -106,6 +105,10 @@ class User(Client):
 
     async def post_login(self) -> None:
         await self.sync_threads()
+        self.log.debug("Updating own puppet info")
+        own_info = (await self.fetchUserInfo(self.uid))[self.uid]
+        puppet = pu.Puppet.get(self.uid, create=True)
+        await puppet.update_info(source=self, info=own_info)
 
     async def sync_threads(self) -> None:
         try:
@@ -171,7 +174,7 @@ class User(Client):
     async def onMessage(self, mid: str = None, author_id: str = None, message: str = None,
                         message_object: Message = None, thread_id: str = None,
                         thread_type: ThreadType = ThreadType.USER, ts: int = None,
-                        metadata: Any = None, msg: Any = None):
+                        metadata: Any = None, msg: Any = None) -> None:
         """
         Called when the client is listening, and somebody sends a message
 

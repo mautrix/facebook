@@ -23,7 +23,7 @@ from mautrix.types import UserID, ContentURI
 from mautrix.appservice import AppService, IntentAPI
 
 from .config import Config
-from . import user as u
+from . import user as u, portal as p
 
 if TYPE_CHECKING:
     from .context import Context
@@ -41,15 +41,15 @@ class Puppet:
 
     fbid: str
     name: str
-    photo: str
+    photo_id: str
     avatar_uri: ContentURI
 
     intent: IntentAPI
 
-    def __init__(self, fbid: str, name: str = "", photo: str = "", avatar_uri: ContentURI = ""):
+    def __init__(self, fbid: str, name: str = "", photo_id: str = "", avatar_uri: ContentURI = ""):
         self.fbid = fbid
         self.name = name
-        self.photo = photo
+        self.photo_id = photo_id
         self.avatar_uri = avatar_uri
 
         self.mxid = self.get_mxid_from_id(fbid)
@@ -61,13 +61,13 @@ class Puppet:
         return {
             "fbid": self.fbid,
             "name": self.name,
-            "photo": self.photo,
+            "photo_id": self.photo_id,
             "avatar_uri": self.avatar_uri,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, str]) -> 'Puppet':
-        return cls(fbid=data["fbid"], name=data["name"], photo=data["photo"],
+        return cls(fbid=data["fbid"], name=data["name"], photo_id=data["photo_id"],
                    avatar_uri=ContentURI(data["avatar_uri"]))
 
     async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None
@@ -80,17 +80,17 @@ class Puppet:
 
     async def _update_name(self, info: FBUser) -> None:
         # TODO more precise name control
+        print(info.name, self.name)
         if info.name != self.name:
             self.name = info.name
             await self.intent.set_displayname(self.name)
 
-    async def _update_photo(self, photo: str) -> None:
-        if photo != self.photo or len(self.avatar_uri) == 0:
-            self.photo = photo
-            async with aiohttp.ClientSession() as session:
-                resp = await session.get(self.photo)
-                data = await resp.read()
-            self.avatar_uri = await self.intent.upload_media(data)
+    async def _update_photo(self, photo_url: str) -> None:
+        photo_id = p.Portal._get_photo_id(photo_url)
+        print(photo_id, self.photo_id)
+        if photo_id != self.photo_id or len(self.avatar_uri) == 0:
+            self.photo_id = photo_id
+            self.avatar_uri = await p.Portal._reupload_photo(photo_url, self.intent)
             await self.intent.set_avatar_url(self.avatar_uri)
 
     @classmethod
