@@ -19,10 +19,12 @@ import logging
 
 from yarl import URL
 import aiohttp
+import magic
 
 from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
-                    Message as FBMessage)
-from mautrix.types import RoomID, EventType, ContentURI, MessageEventContent, EventID
+                    Message as FBMessage, Sticker as FBSticker)
+from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
+                           MediaMessageEventContent, ImageInfo, MessageType)
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden
 
@@ -141,11 +143,12 @@ class Portal:
         return path[path.rfind("/") + 1:]
 
     @staticmethod
-    async def _reupload_photo(url: str, client: IntentAPI) -> ContentURI:
+    async def _reupload_photo(url: str, intent: IntentAPI) -> Tuple[ContentURI, str]:
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
-        return await client.upload_media(data)
+        mime = magic.from_buffer(data, mime=True)
+        return await intent.upload_media(data, mime_type=mime), mime
 
     async def _update_name(self, name: str) -> None:
         if self.name != name:
@@ -159,7 +162,7 @@ class Portal:
         if self.photo_id != photo_id or len(self.avatar_uri) == 0:
             self.photo_id = photo_id
             if self.mxid and not self.is_direct:
-                self.avatar_uri = await self._reupload_photo(photo_url, self.main_intent)
+                self.avatar_uri, _ = await self._reupload_photo(photo_url, self.main_intent)
                 await self.main_intent.set_room_avatar(self.mxid, self.avatar_uri)
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
@@ -250,11 +253,32 @@ class Portal:
         if not self.mxid:
             await self.create_matrix_room(source)
         self.messages_by_fbid[message.uid] = None
-        event_id = await sender.intent.send_text(self.mxid, message.text)
+        if message.sticker is not None:
+            event_id = await self._handle_facebook_sticker(sender.intent, message.sticker)
+        elif len(message.attachments) > 0:
+            pass
+            return
+        else:
+            event_id = await self._handle_facebook_text(sender.intent, message)
         self.messages_by_mxid[event_id] = message.uid
         self.messages_by_fbid[message.uid] = event_id
         self.last_bridged_mxid = event_id
         await source.markAsDelivered(self.fbid, message.uid)
+
+    async def _handle_facebook_text(self, intent: IntentAPI, message: FBMessage) -> EventID:
+        return await intent.send_text(self.mxid, message.text)
+
+    async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker) -> EventID:
+        # TODO handle animated stickers?
+        mxc, mime = await self._reupload_photo(sticker.url, intent)
+        return await intent.send_sticker(room_id=self.mxid, url=mxc,
+                                         info=ImageInfo(width=sticker.width,
+                                                        height=sticker.height,
+                                                        mimetype=mime),
+                                         text=sticker.label)
+
+    async def _handle_facebook_attachment(self, sender: 'p.Puppet', attachment) -> None:
+        pass
 
     async def handle_facebook_unsend(self, source: 'u.User', sender: 'p.Puppet', message_id: str
                                      ) -> None:

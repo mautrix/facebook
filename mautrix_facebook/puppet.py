@@ -90,7 +90,7 @@ class Puppet:
         print(photo_id, self.photo_id)
         if photo_id != self.photo_id or len(self.avatar_uri) == 0:
             self.photo_id = photo_id
-            self.avatar_uri = await p.Portal._reupload_photo(photo_url, self.intent)
+            self.avatar_uri, _ = await p.Portal._reupload_photo(photo_url, self.intent)
             await self.intent.set_avatar_url(self.avatar_uri)
 
     @classmethod

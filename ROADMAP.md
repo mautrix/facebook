@@ -4,6 +4,10 @@
   * [ ] Message content
     * [x] Text
     * [ ] Media
+      * [ ] Stickers
+      * [ ] Files
+      * [ ] Voice messages
+      * [ ] Images
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions
@@ -25,6 +29,10 @@
   * [ ] Message content
     * [x] Text
     * [ ] Media
+      * [x] Stickers
+      * [ ] Files
+      * [ ] Voice messages
+      * [ ] Images
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions
