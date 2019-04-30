@@ -55,6 +55,7 @@ class Portal:
 
     messages_by_fbid: Dict[str, Optional[EventID]]
     messages_by_mxid: Dict[EventID, Optional[str]]
+    last_bridged_mxid: EventID
 
     _main_intent: Optional[IntentAPI]
     _create_room_lock: asyncio.Lock
@@ -220,6 +221,7 @@ class Portal:
         fbid = await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
         self.messages_by_fbid[fbid] = event_id
         self.messages_by_mxid[event_id] = fbid
+        self.last_bridged_mxid = event_id
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID) -> None:
         if not self.mxid:
@@ -243,6 +245,7 @@ class Portal:
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
         if message.uid in self.messages_by_fbid:
+            await source.markAsDelivered(self.fbid, message.uid)
             return
         if not self.mxid:
             await self.create_matrix_room(source)
@@ -250,6 +253,8 @@ class Portal:
         event_id = await sender.intent.send_text(self.mxid, message.text)
         self.messages_by_mxid[event_id] = message.uid
         self.messages_by_fbid[message.uid] = event_id
+        self.last_bridged_mxid = event_id
+        await source.markAsDelivered(self.fbid, message.uid)
 
     async def handle_facebook_unsend(self, source: 'u.User', sender: 'p.Puppet', message_id: str
                                      ) -> None:
@@ -269,6 +274,14 @@ class Portal:
             await sender.intent.redact(self.mxid, event_id)
         except MForbidden:
             await self.main_intent.redact(self.mxid, event_id)
+
+    async def handle_facebook_seen(self, source: 'u.User', sender: 'p.Puppet') -> None:
+        if not self.mxid:
+            return
+        await sender.intent.mark_read(self.mxid, self.last_bridged_mxid)
+
+    async def handle_facebook_typing(self, source: 'u.User', sender: 'p.Puppet') -> None:
+        pass
 
     # endregion
 

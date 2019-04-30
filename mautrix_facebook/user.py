@@ -351,8 +351,9 @@ class User(Client):
         else:
             self.log.info("{} disabled approval mode in {}".format(author_id, thread_id))
 
-    async def onMessageSeen(self, seen_by=None, thread_id=None, thread_type=ThreadType.USER,
-                            seen_ts=None, ts=None, metadata=None, msg=None):
+    async def onMessageSeen(self, seen_by: str = None, thread_id: str = None,
+                            thread_type=ThreadType.USER, seen_ts: int = None, ts: int = None,
+                            metadata: Any = None, msg: Any = None) -> None:
         """
         Called when the client is listening, and somebody marks a message as seen
 
@@ -365,11 +366,10 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type thread_type: models.ThreadType
         """
-        self.log.info(
-            "Messages seen by {} in {} ({}) at {}s".format(
-                seen_by, thread_id, thread_type.name, seen_ts / 1000
-            )
-        )
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
+        puppet = pu.Puppet.get(seen_by)
+        await portal.handle_facebook_seen(self, puppet)
 
     async def onMessageDelivered(self, msg_ids=None, delivered_for=None, thread_id=None,
                                  thread_type=ThreadType.USER, ts=None, metadata=None, msg=None):
@@ -492,7 +492,7 @@ class User(Client):
         :type typing_status: models.TypingStatus
         :type thread_type: models.ThreadType
         """
-        pass
+        self.log.info(f"User is typing: {author_id} {status} in {thread_id} {thread_type}")
 
     async def onGamePlayed(self, mid=None, author_id=None, game_id=None, game_name=None, score=None,
                            leaderboard=None, thread_id=None, thread_type=None, ts=None,

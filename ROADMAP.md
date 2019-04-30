@@ -32,7 +32,7 @@
   * [ ] Message history
   * [ ] Presence
   * [ ] Typing notifications
-  * [ ] Read receipts
+  * [x] Read receipts
   * [ ] Admin status
   * [ ] Membership actions
     * [ ] Add member
