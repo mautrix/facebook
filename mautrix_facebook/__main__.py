@@ -18,16 +18,19 @@ import asyncio
 import logging
 import logging.config
 import signal
-import json
 import copy
 import sys
+
+import sqlalchemy as sql
 
 from mautrix.appservice import AppService
 
 from .config import Config
+from .db import Base, init as init_db
+from .sqlstatestore import SQLStateStore
 from .user import User, init as init_user
-from .portal import Portal, init as init_portal
-from .puppet import Puppet, init as init_puppet
+from .portal import init as init_portal
+from .puppet import init as init_puppet
 from .matrix import MatrixHandler
 from .context import Context
 from . import __version__
@@ -60,12 +63,21 @@ logging.config.dictConfig(copy.deepcopy(config["logging"]))
 log = logging.getLogger("mau.init")  # type: logging.Logger
 log.debug(f"Initializing mautrix-facebook {__version__}")
 
+db_engine = sql.create_engine(config["appservice.database"] or "sqlite:///mautrix-facebook.db")
+Base.metadata.bind = db_engine
+init_db(db_engine)
+
 loop = asyncio.get_event_loop()
 
+state_store = SQLStateStore()
+mebibyte = 1024 ** 2
 appserv = AppService(config["homeserver.address"], config["homeserver.domain"],
                      config["appservice.as_token"], config["appservice.hs_token"],
                      config["appservice.bot_username"], log="mau.as", loop=loop,
-                     verify_ssl=config["homeserver.verify_ssl"])
+                     verify_ssl=config["homeserver.verify_ssl"], state_store=state_store,
+                     aiohttp_params={
+                         "client_max_size": config["appservice.max_body_size"] * mebibyte
+                     })
 
 context = Context(az=appserv, config=config, loop=loop)
 context.mx = MatrixHandler(context)
@@ -83,18 +95,8 @@ async def start():
     await appserv.start(config["appservice.hostname"], config["appservice.port"])
     log.debug("Initializing appservice bot")
     await context.mx.init_as_bot()
-    log.debug("Loading \"database\"")
-    try:
-        with open("mxfb.json.db", "r") as file:
-            db = json.load(file)
-            for puppet in db.get("puppets", []):
-                Puppet.from_dict(puppet)
-            for portal in db.get("portals", []):
-                Portal.from_dict(portal)
-    except FileNotFoundError:
-        pass
     log.debug("Loading sessions")
-    print(await asyncio.gather(*[user.load() for user in User.get_sessions()], loop=loop))
+    await asyncio.gather(*[user.load_session() for user in User.get_all()], loop=loop)
 
 
 async def stop():
@@ -102,14 +104,7 @@ async def stop():
     await appserv.stop()
 
     for mxid, user in User.by_mxid.items():
-        log.debug(f"Saving session for {mxid}")
         user.save()
-    db = {
-        "puppets": [puppet.to_dict() for puppet in Puppet.by_fbid.values()],
-        "portals": [portal.to_dict() for portal in Portal.by_fbid.values()],
-    }
-    with open("mxfb.json.db", "w") as file:
-        json.dump(db, file)
 
 
 try:

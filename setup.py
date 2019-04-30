@@ -24,6 +24,8 @@ setuptools.setup(
         "aiohttp>=3.0.1,<4",
         "mautrix>=0.4.0.dev30,<0.5.0",
         "fbchat-asyncio>=0.1.0",
+        "SQLAlchemy>=1.2,<2",
+        "alembic>=1,<2",
     ],
 
     classifiers=[

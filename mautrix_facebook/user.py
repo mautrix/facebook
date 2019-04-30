@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Any, Dict, Iterator, Optional, TYPE_CHECKING
+from http.cookies import SimpleCookie
 import asyncio
 import logging
-import pickle
 import os
 
 from fbchat import Client, Message, ThreadType, User as FBUser
@@ -25,6 +25,7 @@ from mautrix.appservice import AppService
 
 from .config import Config
 from .commands import enter_2fa_code
+from .db import User as DBUser
 from . import portal as po, puppet as pu
 
 if TYPE_CHECKING:
@@ -48,14 +49,19 @@ class User(Client):
     is_whitelisted: bool
     is_admin: bool
     _is_logged_in: Optional[bool]
+    _session_data: SimpleCookie
+    _db_instance: Optional[DBUser]
 
-    def __init__(self, mxid: UserID):
+    def __init__(self, mxid: UserID, session: Optional[SimpleCookie] = None,
+                 db_instance: Optional[DBUser] = None) -> None:
         super().__init__(loop=self.loop)
         self.mxid = mxid
         self.by_mxid[mxid] = self
         self.command_status = None
         self.is_whitelisted, self.is_admin = config.get_permissions(mxid)
         self._is_logged_in = None
+        self._session_data = session
+        self._db_instance = db_instance
 
         log_id = f"{YELLOW}{self.mxid}{RESET}"
         self.log = self.log.getChild(log_id)
@@ -66,35 +72,57 @@ class User(Client):
 
     # region Sessions
 
+    @property
+    def db_instance(self) -> DBUser:
+        if not self._db_instance:
+            self._db_instance = DBUser(mxid=self.mxid)
+        return self._db_instance
+
     def save(self) -> None:
-        session = self.getSession()
-        with open(f"{self.mxid}.session", "wb") as file:
-            pickle.dump(session, file)
-
-    async def load(self) -> bool:
-        try:
-            with open(f"{self.mxid}.session", "rb") as file:
-                session = pickle.load(file)
-        except FileNotFoundError:
-            return False
-        ok = await self.setSession(session) and await self.is_logged_in()
-        if ok:
-            self.listen()
-            asyncio.ensure_future(self.post_login(), loop=self.loop)
-        return ok
-
-    @staticmethod
-    def get_sessions() -> Iterator['User']:
-        for file in os.listdir("."):
-            if file.endswith(".session"):
-                yield User(UserID(file[:-len(".session")]))
+        self.log.debug("Saving session")
+        self._session_data = self.getSession()
+        self.db_instance.edit(session=self._session_data, fbid=self.uid)
 
     @classmethod
-    def get_by_mxid(cls, mxid: UserID, create: bool = True) -> 'User':
+    def from_db(cls, db_user: DBUser) -> 'User':
+        return User(mxid=db_user.mxid, session=db_user.session, db_instance=db_user)
+
+    @classmethod
+    def get_all(cls) -> Iterator['User']:
+        for db_user in DBUser.all():
+            yield cls.from_db(db_user)
+
+    @classmethod
+    def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['User']:
+        if pu.Puppet.get_id_from_mxid(mxid) is not None or mxid == cls.az.bot_mxid:
+            return None
         try:
             return cls.by_mxid[mxid]
         except KeyError:
-            return cls(mxid) if create else None
+            pass
+
+        db_user = DBUser.get_by_mxid(mxid)
+        if db_user:
+            return cls.from_db(db_user)
+
+        if create:
+            user = cls(mxid)
+            user.db_instance.insert()
+            return user
+
+        return None
+
+    async def load_session(self) -> bool:
+        if self._is_logged_in:
+            return True
+        elif not self._session_data:
+            return False
+        ok = await self.setSession(self._session_data) and await self.is_logged_in()
+        if ok:
+            self.log.info("Loaded session successfully")
+            self.listen()
+            asyncio.ensure_future(self.post_login(), loop=self.loop)
+        return ok
 
     async def is_logged_in(self) -> bool:
         if self._is_logged_in is None:
@@ -104,6 +132,7 @@ class User(Client):
     # endregion
 
     async def post_login(self) -> None:
+        self.log.info("Running post-login actions")
         await self.sync_threads()
         self.log.debug("Updating own puppet info")
         own_info = (await self.fetchUserInfo(self.uid))[self.uid]

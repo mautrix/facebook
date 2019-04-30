@@ -1,3 +1,5 @@
 aiohttp
+SQLAlchemy
+alembic
 git+https://github.com/tulir/fbchat-asyncio@master#egg=fbchat-asyncio
 git+https://github.com/tulir/mautrix-python@appservice-restructure#egg=mautrix

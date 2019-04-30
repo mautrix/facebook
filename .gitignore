@@ -1,9 +1,10 @@
 .venv
+*.pyc
+
 *.yaml
 !example-config.yaml
+
 *.log
 *.log.*
-*.json
-*.session
+
 *.db
-*.pyc

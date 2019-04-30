@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, Pattern, TYPE_CHECKING
-import aiohttp
 import asyncio
 import re
 
 from fbchat import User as FBUser
-from mautrix.types import UserID, ContentURI
+from mautrix.types import UserID
 from mautrix.appservice import AppService, IntentAPI
 
 from .config import Config
+from .db import Puppet as DBPuppet
 from . import user as u, portal as p
 
 if TYPE_CHECKING:
@@ -34,64 +34,89 @@ config: Config
 class Puppet:
     az: AppService
     loop: asyncio.AbstractEventLoop
-    username_template: str
-    hs_domain: str
-    mxid_regex: Pattern
+    _mxid_prefix: str
+    _mxid_suffix: str
+
     by_fbid: Dict[str, 'Puppet'] = {}
 
     fbid: str
     name: str
     photo_id: str
-    avatar_uri: ContentURI
+
+    is_registered: bool
+
+    _db_instance: Optional[DBPuppet]
 
     intent: IntentAPI
 
-    def __init__(self, fbid: str, name: str = "", photo_id: str = "", avatar_uri: ContentURI = ""):
+    def __init__(self, fbid: str, name: str = "", photo_id: str = "", is_registered: bool = False,
+                 db_instance: Optional[DBPuppet] = None):
         self.fbid = fbid
         self.name = name
         self.photo_id = photo_id
-        self.avatar_uri = avatar_uri
+
+        self.is_registered = is_registered
+
+        self._db_instance = db_instance
 
         self.mxid = self.get_mxid_from_id(fbid)
         self.intent = self.az.intent.user(self.mxid)
 
         self.by_fbid[fbid] = self
 
-    def to_dict(self) -> Dict[str, str]:
-        return {
-            "fbid": self.fbid,
-            "name": self.name,
-            "photo_id": self.photo_id,
-            "avatar_uri": self.avatar_uri,
-        }
+    # region DB conversion
+
+    @property
+    def db_instance(self) -> DBPuppet:
+        if not self._db_instance:
+            self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, photo_id=self.photo_id,
+                                         matrix_registered=self.is_registered)
+        return self._db_instance
 
     @classmethod
-    def from_dict(cls, data: Dict[str, str]) -> 'Puppet':
-        return cls(fbid=data["fbid"], name=data["name"], photo_id=data["photo_id"],
-                   avatar_uri=ContentURI(data["avatar_uri"]))
+    def from_db(cls, db_puppet: DBPuppet) -> 'Puppet':
+        return Puppet(fbid=db_puppet.fbid, name=db_puppet.name, photo_id=db_puppet.photo_id,
+                      is_registered=db_puppet.matrix_registered, db_instance=db_puppet)
+
+    def save(self) -> None:
+        self.db_instance.edit(name=self.name, photo_id=self.photo_id,
+                              matrix_registered=self.is_registered)
+
+    # endregion
+    # region User info updating
 
     async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None
                           ) -> None:
         if not info:
             info = (await source.fetchUserInfo(self.fbid))[self.fbid]
-        await asyncio.gather(self._update_name(info),
-                             self._update_photo(info.photo),
-                             loop=self.loop)
+        changed = any(await asyncio.gather(self._update_name(info),
+                                           self._update_photo(info.photo),
+                                           loop=self.loop))
+        if changed:
+            self.save()
 
-    async def _update_name(self, info: FBUser) -> None:
+    async def _update_name(self, info: FBUser) -> bool:
         # TODO more precise name control
-        print(info.name, self.name)
         if info.name != self.name:
             self.name = info.name
             await self.intent.set_displayname(self.name)
+            return True
+        return False
 
-    async def _update_photo(self, photo_url: str) -> None:
+    async def _update_photo(self, photo_url: str) -> bool:
         photo_id = p.Portal._get_photo_id(photo_url)
-        print(photo_id, self.photo_id)
-        if photo_id != self.photo_id or len(self.avatar_uri) == 0:
+        if photo_id != self.photo_id:
             self.photo_id = photo_id
-            self.avatar_uri, _, _ = await p.Portal._reupload_fb_photo(photo_url, self.intent)
-            await self.intent.set_avatar_url(self.avatar_uri)
+            if photo_url:
+                avatar_uri, _, _ = await p.Portal._reupload_fb_photo(photo_url, self.intent)
+            else:
+                avatar_uri = ""
+            await self.intent.set_avatar_url(avatar_uri)
+            return True
+        return False
+
+    # endregion
+    # region Getters
 
     @classmethod
     def get(cls, fbid: str, create: bool = True) -> Optional['Puppet']:
@@ -100,8 +125,13 @@ class Puppet:
         except KeyError:
             pass
 
+        db_puppet = DBPuppet.get_by_fbid(fbid)
+        if db_puppet:
+            return cls.from_db(db_puppet)
+
         if create:
             puppet = cls(fbid)
+            puppet.db_instance.insert()
             return puppet
 
         return None
@@ -116,20 +146,25 @@ class Puppet:
 
     @classmethod
     def get_id_from_mxid(cls, mxid: UserID) -> Optional[str]:
-        match = cls.mxid_regex.match(mxid)
-        if match:
-            return match.group(1)
+        prefix = cls._mxid_prefix
+        suffix = cls._mxid_suffix
+        if mxid[:len(prefix)] == prefix and mxid[-len(suffix):] == suffix:
+            return mxid[len(prefix):-len(suffix)]
         return None
 
     @classmethod
     def get_mxid_from_id(cls, fbid: str) -> UserID:
-        return UserID(f"@{cls.username_template.format(userid=fbid)}:{cls.hs_domain}")
+        return UserID(f"@{cls._mxid_prefix}{fbid}{cls._mxid_suffix}")
+
+    # endregion
 
 
 def init(context: 'Context') -> None:
     global config
     Puppet.az, config, Puppet.loop = context.core
-    Puppet.username_template = config["bridge.username_template"]
-    Puppet.hs_domain = config["homeserver"]["domain"]
-    Puppet.mxid_regex = re.compile(f"@{Puppet.username_template.format(userid='(.+)')}"
-                                   f":{Puppet.hs_domain}")
+    username_template = config["bridge.username_template"].lower()
+    index = username_template.index("{userid}")
+    length = len("{userid}")
+    hs_domain = config["homeserver"]["domain"]
+    Puppet._mxid_prefix = username_template[:index]
+    Puppet._mxid_suffix = f"{username_template[index + length:]}:{hs_domain}"

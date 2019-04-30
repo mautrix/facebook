@@ -87,7 +87,7 @@ class MatrixHandler:
             self.log.exception(f"Failed to find user with Matrix ID {inviter_mxid}")
         if user_id == self.az.bot_mxid:
             return await self.accept_bot_invite(room_id, inviter)
-        elif not inviter.whitelisted:
+        elif not inviter.is_whitelisted:
             return
 
         # TODO handle puppet and user invites for group chats
@@ -116,6 +116,8 @@ class MatrixHandler:
 
     async def handle_redaction(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
         user = u.User.get_by_mxid(user_id)
+        if not user:
+            return
 
         portal = po.Portal.get_by_mxid(room_id)
         if not portal:
@@ -135,7 +137,7 @@ class MatrixHandler:
                              event_id: EventID) -> None:
         is_command, text = self.is_command(message)
         sender = u.User.get_by_mxid(sender_id)
-        if not sender.is_whitelisted:
+        if not sender or not sender.is_whitelisted:
             self.log.debug(f"Ignoring message \"{message}\" from {sender} to {room}:"
                            " User is not whitelisted.")
             return

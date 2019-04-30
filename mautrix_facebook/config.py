@@ -47,6 +47,9 @@ class Config(BaseFileConfig):
         copy("appservice.address")
         copy("appservice.hostname")
         copy("appservice.port")
+        copy("appservice.max_body_size")
+
+        copy("appservice.database")
 
         copy("appservice.id")
         copy("appservice.bot_username")
@@ -85,8 +88,7 @@ class Config(BaseFileConfig):
     def generate_registration(self) -> None:
         homeserver = self["homeserver.domain"]
 
-        username_format = self["bridge.username_template"].format(userid=".+")
-        #alias_format = self["bridge.alias_template"].format(groupname=".+")
+        username_format = self["bridge.username_template"].lower().format(userid=".+")
 
         self.set("appservice.as_token", self._new_token())
         self.set("appservice.hs_token", self._new_token())
@@ -100,10 +102,6 @@ class Config(BaseFileConfig):
                     "exclusive": True,
                     "regex": f"@{username_format}:{homeserver}"
                 }],
-                # "aliases": [{
-                #    "exclusive": True,
-                #    "regex": f"#{alias_format}:{homeserver}"
-                # }]
             },
             "url": self["appservice.address"],
             "sender_localpart": self["appservice.bot_username"],

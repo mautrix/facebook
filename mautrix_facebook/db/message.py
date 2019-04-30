@@ -1,0 +1,84 @@
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
+# Copyright (C) 2019 Tulir Asokan
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from typing import Optional, Iterable, Tuple, List
+
+from sqlalchemy import Column, String, SmallInteger, UniqueConstraint, and_
+from sqlalchemy.engine.result import RowProxy
+
+from mautrix.types import RoomID, EventID
+
+from .base import Base
+
+
+class Message(Base):
+    __tablename__ = "message"
+
+    mxid: EventID = Column(String(255))
+    mx_room: RoomID = Column(String(255))
+    fbid: str = Column(String(127), primary_key=True)
+    index: int = Column(SmallInteger, primary_key=True, default=0)
+
+    __table_args__ = (UniqueConstraint("mxid", "mx_room", name="_mx_id_room"),)
+
+    @classmethod
+    def scan(cls, row: RowProxy) -> 'Message':
+        mxid, mx_room, fbid, index = row
+        return cls(mxid=mxid, mx_room=mx_room, fbid=fbid, index=index)
+
+    @classmethod
+    def get_all_by_fbid(cls, fbid: str) -> Iterable['Message']:
+        return cls._select_all(cls.c.fbid == fbid)
+
+    @classmethod
+    def get_by_fbid(cls, fbid: str, index: int) -> Optional['Message']:
+        return cls._select_one_or_none(and_(cls.c.fbid == fbid, cls.c.index == index))
+
+    @classmethod
+    def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Optional['Message']:
+        return cls._select_one_or_none(and_(cls.c.mxid == mxid, cls.c.mx_room == mx_room))
+
+    @classmethod
+    def update_by_fbid(cls, s_fbid: str, s_index: int,
+                       **values) -> None:
+        with cls.db.begin() as conn:
+            conn.execute(cls.t.update()
+                         .where(and_(cls.c.fbid == s_fbid, cls.c.index == s_index))
+                         .values(**values))
+
+    @classmethod
+    def update_by_mxid(cls, s_mxid: EventID, s_mx_room: RoomID, **values) -> None:
+        with cls.db.begin() as conn:
+            conn.execute(cls.t.update()
+                         .where(and_(cls.c.mxid == s_mxid, cls.c.mx_room == s_mx_room))
+                         .values(**values))
+
+    @property
+    def _edit_identity(self):
+        return and_(self.c.fbid == self.fbid, self.c.index == self.index)
+
+    @classmethod
+    def bulk_create(cls, fbid: str, event_ids: List[EventID], mx_room: RoomID) -> None:
+        if not event_ids:
+            return
+        with cls.db.begin() as conn:
+            conn.execute(cls.t.insert(),
+                         [dict(mxid=event_id, mx_room=mx_room, fbid=fbid, index=i)
+                          for i, event_id in enumerate(event_ids)])
+
+    def insert(self) -> None:
+        with self.db.begin() as conn:
+            conn.execute(self.t.insert().values(mxid=self.mxid, mx_room=self.mx_room,
+                                                fbid=self.fbid, index=self.index))
