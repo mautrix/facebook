@@ -27,7 +27,8 @@ from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup,
                            ShareAttachment)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
-                           ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format)
+                           ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
+                           TextMessageEventContent, MediaMessageEventContent)
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden
 
@@ -148,8 +149,8 @@ class Portal:
         return path[path.rfind("/") + 1:]
 
     @staticmethod
-    async def _reupload_photo(url: str, intent: IntentAPI, filename: Optional[str] = None
-                              ) -> Tuple[ContentURI, str, int]:
+    async def _reupload_fb_photo(url: str, intent: IntentAPI, filename: Optional[str] = None
+                                 ) -> Tuple[ContentURI, str, int]:
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
@@ -168,7 +169,7 @@ class Portal:
         if self.photo_id != photo_id or len(self.avatar_uri) == 0:
             self.photo_id = photo_id
             if self.mxid and not self.is_direct:
-                self.avatar_uri, _, _ = await self._reupload_photo(photo_url, self.main_intent)
+                self.avatar_uri, _, _ = await self._reupload_fb_photo(photo_url, self.main_intent)
                 await self.main_intent.set_room_avatar(self.mxid, self.avatar_uri)
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
@@ -227,10 +228,30 @@ class Portal:
         if event_id in self.messages_by_mxid:
             return
         self.messages_by_mxid[event_id] = None
-        fbid = await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
+        if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
+            fbid = await self._handle_matrix_text(sender, message)
+        elif message.msgtype == MessageType.IMAGE:
+            fbid = await self._handle_matrix_image(sender, message)
+        elif message.msgtype == MessageType.LOCATION:
+            fbid = await self._handle_matrix_location(sender, message)
+        else:
+            self.log.warn(f"Unsupported msgtype in {message}")
+            return
         self.messages_by_fbid[fbid] = event_id
         self.messages_by_mxid[event_id] = fbid
         self.last_bridged_mxid = event_id
+
+    async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> None:
+        return await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
+
+    async def _handle_matrix_image(self, sender: 'u.User', message: MediaMessageEventContent) -> None:
+        data = await self.main_intent.download_media(message.url)
+        mime = message.info.mimetype or magic.from_buffer(data, mime=True)
+        files = await sender._upload([(message.body, data, mime)])
+        return await sender._sendFiles(files, thread_id=self.fbid, thread_type=self.fb_type)
+
+    async def _handle_matrix_location(self, sender: 'u.User', message: LocationMessageEventContent) -> None:
+        pass
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID) -> None:
         if not self.mxid:
@@ -241,6 +262,7 @@ class Portal:
             return
         if message_id is None:
             return
+        await sender.sendLocalFiles()
         self.messages_by_mxid[event_id] = None
         self.messages_by_fbid[message_id] = None
         try:
@@ -280,7 +302,7 @@ class Portal:
 
     async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker) -> EventID:
         # TODO handle animated stickers?
-        mxc, mime, size = await self._reupload_photo(sticker.url, intent)
+        mxc, mime, size = await self._reupload_fb_photo(sticker.url, intent)
         return await intent.send_sticker(room_id=self.mxid, url=mxc,
                                          info=ImageInfo(width=sticker.width,
                                                         height=sticker.height,
@@ -291,8 +313,8 @@ class Portal:
     async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass
                                           ) -> EventID:
         if isinstance(attachment, AudioAttachment):
-            mxc, mime, size = await self._reupload_photo(attachment.url, intent,
-                                                         attachment.filename)
+            mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
+                                                            attachment.filename)
             return await intent.send_file(self.mxid, mxc, file_type=MessageType.AUDIO,
                                           info=AudioInfo(size=size, mimetype=mime,
                                                          duration=attachment.duration),
@@ -300,12 +322,12 @@ class Portal:
         #elif isinstance(attachment, VideoAttachment):
             #pass
         elif isinstance(attachment, FileAttachment):
-            mxc, mime, size = await self._reupload_photo(attachment.url, intent, attachment.name)
+            mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent, attachment.name)
             return await intent.send_file(self.mxid, mxc,
                                           info=FileInfo(size=size, mimetype=mime),
                                           file_name=attachment.name)
         elif isinstance(attachment, ImageAttachment):
-            mxc, mime, size = await self._reupload_photo(attachment.large_preview_url, intent)
+            mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url, intent)
             return await intent.send_image(self.mxid, mxc,
                                            file_name=f"image.{attachment.original_extension}",
                                            info=ImageInfo(size=size, mimetype=mime,
@@ -329,7 +351,7 @@ class Portal:
         text = f"{rounded_lat}° {lat_char}, {rounded_long}° {long_char}"
         url = f"https://maps.google.com/?q={lat},{long}"
 
-        thumbnail_url, mime, size = await self._reupload_photo(location.image_url, intent)
+        thumbnail_url, mime, size = await self._reupload_fb_photo(location.image_url, intent)
         thumbnail_info = ThumbnailInfo(mimetype=mime, width=location.image_width,
                                        height=location.image_height, size=size)
         content = LocationMessageEventContent(
