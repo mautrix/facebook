@@ -7,7 +7,9 @@
       * [ ] Stickers
       * [ ] Files
       * [ ] Voice messages
+      * [ ] Videos
       * [ ] Images
+      * [ ] Locations
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions
@@ -30,9 +32,11 @@
     * [x] Text
     * [ ] Media
       * [x] Stickers
-      * [ ] Files
-      * [ ] Voice messages
+      * [x] Files
+      * [x] Voice messages
+      * [ ] Videos
       * [ ] Images
+      * [ ] Locations
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions

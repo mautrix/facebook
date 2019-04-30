@@ -21,10 +21,13 @@ from yarl import URL
 import aiohttp
 import magic
 
-from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
-                    Message as FBMessage, Sticker as FBSticker)
+from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
+                           Message as FBMessage, Sticker as FBSticker, AudioAttachment,
+                           VideoAttachment, FileAttachment, ImageAttachment, LocationAttachment,
+                           ShareAttachment)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
-                           MediaMessageEventContent, ImageInfo, MessageType)
+                           ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
+                           ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format)
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden
 
@@ -37,6 +40,8 @@ if TYPE_CHECKING:
 config: Config
 
 ThreadClass = Union[FBUser, FBGroup, FBPage]
+AttachmentClass = Union[AudioAttachment, VideoAttachment, FileAttachment, ImageAttachment,
+                        LocationAttachment, ShareAttachment]
 
 
 class Portal:
@@ -143,12 +148,13 @@ class Portal:
         return path[path.rfind("/") + 1:]
 
     @staticmethod
-    async def _reupload_photo(url: str, intent: IntentAPI) -> Tuple[ContentURI, str]:
+    async def _reupload_photo(url: str, intent: IntentAPI, filename: Optional[str] = None
+                              ) -> Tuple[ContentURI, str, int]:
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
-        return await intent.upload_media(data, mime_type=mime), mime
+        return await intent.upload_media(data, mime_type=mime, filename=filename), mime, len(data)
 
     async def _update_name(self, name: str) -> None:
         if self.name != name:
@@ -162,7 +168,7 @@ class Portal:
         if self.photo_id != photo_id or len(self.avatar_uri) == 0:
             self.photo_id = photo_id
             if self.mxid and not self.is_direct:
-                self.avatar_uri, _ = await self._reupload_photo(photo_url, self.main_intent)
+                self.avatar_uri, _, _ = await self._reupload_photo(photo_url, self.main_intent)
                 await self.main_intent.set_room_avatar(self.mxid, self.avatar_uri)
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
@@ -256,10 +262,14 @@ class Portal:
         if message.sticker is not None:
             event_id = await self._handle_facebook_sticker(sender.intent, message.sticker)
         elif len(message.attachments) > 0:
-            pass
-            return
+            event_ids = await asyncio.gather(
+                *[self._handle_facebook_attachment(sender.intent, attachment)
+                  for attachment in message.attachments])
+            event_id = event_ids[-1]
         else:
             event_id = await self._handle_facebook_text(sender.intent, message)
+        if not event_id:
+            return
         self.messages_by_mxid[event_id] = message.uid
         self.messages_by_fbid[message.uid] = event_id
         self.last_bridged_mxid = event_id
@@ -270,15 +280,65 @@ class Portal:
 
     async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker) -> EventID:
         # TODO handle animated stickers?
-        mxc, mime = await self._reupload_photo(sticker.url, intent)
+        mxc, mime, size = await self._reupload_photo(sticker.url, intent)
         return await intent.send_sticker(room_id=self.mxid, url=mxc,
                                          info=ImageInfo(width=sticker.width,
                                                         height=sticker.height,
-                                                        mimetype=mime),
+                                                        mimetype=mime,
+                                                        size=size),
                                          text=sticker.label)
 
-    async def _handle_facebook_attachment(self, sender: 'p.Puppet', attachment) -> None:
-        pass
+    async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass
+                                          ) -> EventID:
+        if isinstance(attachment, AudioAttachment):
+            mxc, mime, size = await self._reupload_photo(attachment.url, intent,
+                                                         attachment.filename)
+            return await intent.send_file(self.mxid, mxc, file_type=MessageType.AUDIO,
+                                          info=AudioInfo(size=size, mimetype=mime,
+                                                         duration=attachment.duration),
+                                          file_name=attachment.filename,)
+        elif isinstance(attachment, VideoAttachment):
+            self.log.warn("Unsupported attachment type:", attachment)
+            return None
+        elif isinstance(attachment, FileAttachment):
+            mxc, mime, size = await self._reupload_photo(attachment.url, intent, attachment.name)
+            return await intent.send_file(self.mxid, mxc,
+                                          info=FileInfo(size=size, mimetype=mime),
+                                          file_name=attachment.name)
+        elif isinstance(attachment, ImageAttachment):
+            self.log.warn("Unsupported attachment type:", attachment)
+            #mxc, mime, size = await self._reupload_photo(attachment, intent)
+            return None
+        elif isinstance(attachment, LocationAttachment):
+            content = await self._convert_facebook_location(intent, attachment)
+            return await intent.send_message(self.mxid, content)
+        else:
+            self.log.warn("Unsupported attachment type:", attachment)
+            return None
+
+    async def _convert_facebook_location(self, intent: IntentAPI, location: LocationAttachment
+                                         ) -> LocationMessageEventContent:
+        long, lat = location.longitude, location.latitude
+        long_char = "E" if long > 0 else "W"
+        lat_char = "N" if lat > 0 else "S"
+        rounded_long = round(long, 5)
+        rounded_lat = round(lat, 5)
+
+        text = f"{rounded_lat}° {lat_char}, {rounded_long}° {long_char}"
+        url = f"https://maps.google.com/?q={lat},{long}"
+
+        thumbnail_url, mime, size = await self._reupload_photo(location.image_url, intent)
+        thumbnail_info = ThumbnailInfo(mimetype=mime, width=location.image_width,
+                                       height=location.image_height, size=size)
+        content = LocationMessageEventContent(
+            body=f"{location.address}\nLocation: {text}\n{url}", geo_uri=f"geo:{lat},{long}",
+            msgtype=MessageType.LOCATION, info=LocationInfo(thumbnail_url=thumbnail_url,
+                                                            thumbnail_info=thumbnail_info))
+        # Some clients support formatted body in m.location, so add that as well.
+        content["format"] = Format.HTML
+        content["formatted_body"] = (f"<p>{location.address}</p>"
+                                     f"<p>Location: <a href='{url}'>{text}</a></p")
+        return content
 
     async def handle_facebook_unsend(self, source: 'u.User', sender: 'p.Puppet', message_id: str
                                      ) -> None:
