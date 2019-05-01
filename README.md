@@ -3,7 +3,7 @@ A Matrix-Facebook Messenger puppeting bridge.
 
 Work in progress. Basic text bridging is in. Supports multiple users the same way all my other bridges do.
 
-### [Wiki](https://github.com/tulir/mautrix-facebook/wiki) (doesn't exist yet)
+### [Wiki](https://github.com/tulir/mautrix-facebook/wiki)
 
 ### [Features & Roadmap](https://github.com/tulir/mautrix-facebook/blob/master/ROADMAP.md)
 
