@@ -7,12 +7,6 @@ function fixperms {
 
 cd /opt/mautrix-facebook
 
-# Replace database path in config.
-sed -i "s#sqlite:///mautrix-facebook.db#sqlite:////data/mautrix-facebook.db#" /data/config.yaml
-
-# Check that database is in the right state
-alembic -x config=/data/config.yaml upgrade head
-
 if [ ! -f /data/config.yaml ]; then
 	cp example-config.yaml /data/config.yaml
 	echo "Didn't find a config file."
@@ -22,6 +16,12 @@ if [ ! -f /data/config.yaml ]; then
 	fixperms
 	exit
 fi
+
+# Replace database path in config.
+sed -i "s#sqlite:///mautrix-facebook.db#sqlite:////data/mautrix-facebook.db#" /data/config.yaml
+
+# Check that database is in the right state
+alembic -x config=/data/config.yaml upgrade head
 
 if [ ! -f /data/registration.yaml ]; then
 	python3 -m mautrix_facebook -g -c /data/config.yaml -r /data/registration.yaml
