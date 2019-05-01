@@ -31,6 +31,7 @@ async def login(evt: CommandEvent) -> None:
         "action": "Login",
         "room_id": evt.room_id,
     }
+    await evt.reply("Logging in...")
     try:
         await evt.sender.login(evt.args[0], " ".join(evt.args[1:]), max_tries=1)
         evt.sender.command_status = None
