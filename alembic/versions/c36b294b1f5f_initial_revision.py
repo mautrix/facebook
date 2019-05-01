@@ -53,7 +53,7 @@ def upgrade():
     sa.Column('fbid', sa.String(), nullable=False),
     sa.Column('name', sa.String(), nullable=True),
     sa.Column('photo_id', sa.String(), nullable=True),
-    sa.Column('matrix_registered', sa.Boolean(), server_default=sa.text('0'), nullable=False),
+    sa.Column('matrix_registered', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.PrimaryKeyConstraint('fbid')
     )
     op.create_table('user',
