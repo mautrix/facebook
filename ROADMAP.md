@@ -54,7 +54,10 @@
     * [ ] Title
     * [ ] Avatar
   * [x] Initial chat metadata
-  * [x] User metadata (displayname/avatar)
+  * [ ] User metadata
+    * [x] Name
+    * [ ] Per-chat nickname
+    * [x] Avatar
 * Misc
   * [x] Multi-user support
   * [x] Shared group chat portals

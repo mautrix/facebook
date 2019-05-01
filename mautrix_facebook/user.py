@@ -49,7 +49,7 @@ class User(Client):
     is_whitelisted: bool
     is_admin: bool
     _is_logged_in: Optional[bool]
-    _session_data: SimpleCookie
+    _session_data: Optional[SimpleCookie]
     _db_instance: Optional[DBUser]
 
     def __init__(self, mxid: UserID, session: Optional[SimpleCookie] = None,
@@ -78,9 +78,10 @@ class User(Client):
             self._db_instance = DBUser(mxid=self.mxid)
         return self._db_instance
 
-    def save(self) -> None:
+    def save(self, _update_session_data: bool = True) -> None:
         self.log.debug("Saving session")
-        self._session_data = self.getSession()
+        if _update_session_data:
+            self._session_data = self.getSession()
         self.db_instance.edit(session=self._session_data, fbid=self.uid)
 
     @classmethod
@@ -130,6 +131,12 @@ class User(Client):
         return self._is_logged_in
 
     # endregion
+
+    async def logout(self) -> bool:
+        ok = await super().logout()
+        self._session_data = None
+        self.save(_update_session_data=False)
+        return ok
 
     async def post_login(self) -> None:
         self.log.info("Running post-login actions")

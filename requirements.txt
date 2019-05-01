@@ -3,5 +3,6 @@ SQLAlchemy
 alembic
 ruamel.yaml
 commonmark
+python-magic
 git+https://github.com/tulir/fbchat-asyncio@master#egg=fbchat-asyncio
 git+https://github.com/tulir/mautrix-python@matrix-restructure#egg=mautrix

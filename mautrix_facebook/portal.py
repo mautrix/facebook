@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Dict, Deque, Optional, Tuple, Union, TYPE_CHECKING
 from collections import deque
+from contextlib import asynccontextmanager
 import asyncio
 import logging
 
@@ -69,6 +70,7 @@ class Portal:
     _last_bridged_mxid: EventID
     _dedup: Deque[Tuple[str, str]]
     _avatar_uri: Optional[ContentURI]
+    _send_locks: Dict[str, asyncio.Lock]
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, name: str = "", photo_id: str = "",
@@ -87,6 +89,7 @@ class Portal:
         self._create_room_lock = asyncio.Lock()
         self._dedup = deque(maxlen=100)
         self._avatar_uri = None
+        self._send_locks = {}
 
         self.log = self.log.getChild(self.fbid_log)
 
@@ -249,21 +252,47 @@ class Portal:
     # endregion
     # region Matrix event handling
 
+    @asynccontextmanager
+    async def require_send_lock(self, user_id: str) -> None:
+        try:
+            lock = self._send_locks[user_id]
+        except KeyError:
+            lock = asyncio.Lock()
+            self._send_locks[user_id] = lock
+        async with lock:
+            yield
+
+    @asynccontextmanager
+    async def optional_send_lock(self, user_id: str) -> None:
+        try:
+            lock = self._send_locks[user_id]
+        except KeyError:
+            yield
+            return
+        async with lock:
+            yield
+
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
-        if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
-            fbid = await self._handle_matrix_text(sender, message)
-        elif message.msgtype == MessageType.IMAGE:
-            fbid = await self._handle_matrix_image(sender, message)
-        elif message.msgtype == MessageType.LOCATION:
-            fbid = await self._handle_matrix_location(sender, message)
-        else:
-            self.log.warn(f"Unsupported msgtype in {message}")
-            return
-        if not fbid:
-            return
-        DBMessage(mxid=event_id, mx_room=self.mxid, fbid=fbid, index=0).insert()
-        self._last_bridged_mxid = event_id
+        # TODO this probably isn't nice for bridging images, it really only needs to lock the
+        #      actual message send call and dedup queue append.
+        async with self.require_send_lock(sender.uid):
+            if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
+                fbid = await self._handle_matrix_text(sender, message)
+            elif message.msgtype == MessageType.IMAGE:
+                fbid = await self._handle_matrix_image(sender, message)
+            elif message.msgtype == MessageType.LOCATION:
+                fbid = await self._handle_matrix_location(sender, message)
+            else:
+                self.log.warn(f"Unsupported msgtype in {message}")
+                return
+            if not fbid:
+                return
+            self._dedup.appendleft(fbid)
+            DBMessage(mxid=event_id, mx_room=self.mxid,
+                      fbid=fbid, fb_receiver=self.fb_receiver,
+                      index=0).insert()
+            self._last_bridged_mxid = event_id
 
     async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> str:
         return await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
@@ -296,10 +325,11 @@ class Portal:
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
-        if message.uid in self._dedup:
-            await source.markAsDelivered(self.fbid, message.uid)
-            return
-        self._dedup.appendleft(message.uid)
+        async with self.optional_send_lock(sender.fbid):
+            if message.uid in self._dedup:
+                await source.markAsDelivered(self.fbid, message.uid)
+                return
+            self._dedup.appendleft(message.uid)
         if not self.mxid:
             await self.create_matrix_room(source)
         if message.sticker:
@@ -313,7 +343,7 @@ class Portal:
         else:
             self.log.debug(f"Unhandled Messenger message: {message}")
             event_ids = []
-        DBMessage.bulk_create(fbid=message.uid, mx_room=self.mxid,
+        DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.markAsDelivered(self.fbid, message.uid)
 
@@ -331,7 +361,7 @@ class Portal:
                                          text=sticker.label)
 
     async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass
-                                          ) -> EventID:
+                                          ) -> Optional[EventID]:
         if isinstance(attachment, AudioAttachment):
             mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
                                                             attachment.filename)
@@ -390,7 +420,7 @@ class Portal:
                                      ) -> None:
         if not self.mxid:
             return
-        for message in DBMessage.get_all_by_fbid(message_id):
+        for message in DBMessage.get_all_by_fbid(message_id, self.fb_receiver):
             try:
                 await sender.intent.redact(message.mx_room, message.mxid)
             except MForbidden:
