@@ -23,6 +23,7 @@ setuptools.setup(
     install_requires=[
         "aiohttp>=3.0.1,<4",
         "mautrix>=0.4.0.dev31,<0.5.0",
+        "ruamel.yaml>=0.15.94,<0.16",
         "fbchat-asyncio>=0.1.1,<0.2.0",
         "SQLAlchemy>=1.2,<2",
         "alembic>=1,<2",
