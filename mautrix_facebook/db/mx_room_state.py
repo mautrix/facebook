@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Dict, Optional
-import copy
+import json
 
-from sqlalchemy import Column, String, Text, types
+from sqlalchemy import Column, String, types
 from sqlalchemy.engine.result import RowProxy
 
 from mautrix.types import RoomID, PowerLevelStateEventContent
@@ -25,17 +25,24 @@ from .base import Base
 
 
 class PowerLevelType(types.TypeDecorator):
-    impl = types.JSON
+    impl = types.Text
+
+    @property
+    def python_type(self):
+        return PowerLevelStateEventContent
 
     def process_bind_param(self, value: PowerLevelStateEventContent, dialect) -> Optional[Dict]:
         if value is not None:
-            return value.serialize()
+            return json.dumps(value.serialize())
         return None
 
     def process_result_value(self, value: Dict, dialect) -> Optional[PowerLevelStateEventContent]:
         if value is not None:
-            return PowerLevelStateEventContent.deserialize(value)
+            return PowerLevelStateEventContent.deserialize(json.loads(value))
         return None
+
+    def process_literal_param(self, value, dialect):
+        return value
 
 
 class RoomState(Base):

@@ -14,6 +14,8 @@ RUN apk add --no-cache \
       # Not yet in stable repos:
       #py3-ruamel.yaml \
       # Indirect dependencies
+      #commonmark
+        py3-future \
       #alembic
         py3-mako \
         py3-dateutil \
