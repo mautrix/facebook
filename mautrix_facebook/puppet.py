@@ -154,7 +154,7 @@ class Puppet:
 
     @classmethod
     def get_mxid_from_id(cls, fbid: str) -> UserID:
-        return UserID(f"@{cls._mxid_prefix}{fbid}{cls._mxid_suffix}")
+        return UserID(cls._mxid_prefix + fbid + cls._mxid_suffix)
 
     # endregion
 
@@ -166,5 +166,5 @@ def init(context: 'Context') -> None:
     index = username_template.index("{userid}")
     length = len("{userid}")
     hs_domain = config["homeserver"]["domain"]
-    Puppet._mxid_prefix = username_template[:index]
+    Puppet._mxid_prefix = f"@{username_template[:index]}"
     Puppet._mxid_suffix = f"{username_template[index + length:]}:{hs_domain}"
