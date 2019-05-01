@@ -23,13 +23,13 @@ from .db import RoomState, UserProfile
 
 
 class SQLStateStore(StateStore):
-    profile_cache: Dict[Tuple[RoomID, UserID], UserProfile]
+    _profile_cache: Dict[Tuple[RoomID, UserID], UserProfile]
     _room_state_cache: Dict[RoomID, RoomState]
     _registered: Dict[UserID, bool]
 
     def __init__(self) -> None:
         super().__init__()
-        self.profile_cache = {}
+        self._profile_cache = {}
         self._room_state_cache = {}
         self._registered = {}
 
@@ -49,17 +49,17 @@ class SQLStateStore(StateStore):
                           ) -> UserProfile:
         key = (room_id, user_id)
         try:
-            return self.profile_cache[key]
+            return self._profile_cache[key]
         except KeyError:
             pass
 
         profile = UserProfile.get(*key)
         if profile:
-            self.profile_cache[key] = profile
+            self._profile_cache[key] = profile
         elif create:
             profile = UserProfile(room_id=room_id, user_id=user_id, membership=Membership.LEAVE)
             profile.insert()
-            self.profile_cache[key] = profile
+            self._profile_cache[key] = profile
         return profile
 
     def get_member(self, room_id: RoomID, user_id: UserID) -> Member:
