@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Dict, Deque, Optional, Tuple, Union, TYPE_CHECKING
 from collections import deque
-from contextlib import asynccontextmanager
 import asyncio
 import logging
 
@@ -48,6 +47,14 @@ AttachmentClass = Union[AudioAttachment, VideoAttachment, FileAttachment, ImageA
                         LocationAttachment, ShareAttachment]
 
 
+class FakeLock:
+    async def __aenter__(self) -> None:
+        pass
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        pass
+
+
 class Portal:
     az: AppService
     loop: asyncio.AbstractEventLoop
@@ -72,6 +79,7 @@ class Portal:
     _dedup: Deque[Tuple[str, str]]
     _avatar_uri: Optional[ContentURI]
     _send_locks: Dict[str, asyncio.Lock]
+    _noop_lock: FakeLock = FakeLock()
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, name: str = "", photo_id: str = "",
@@ -254,25 +262,20 @@ class Portal:
     # endregion
     # region Matrix event handling
 
-    @asynccontextmanager
-    async def require_send_lock(self, user_id: str) -> None:
+    def require_send_lock(self, user_id: str) -> asyncio.Lock:
         try:
             lock = self._send_locks[user_id]
         except KeyError:
             lock = asyncio.Lock()
             self._send_locks[user_id] = lock
-        async with lock:
-            yield
+        return lock
 
-    @asynccontextmanager
-    async def optional_send_lock(self, user_id: str) -> None:
+    def optional_send_lock(self, user_id: str) -> Union[asyncio.Lock, FakeLock]:
         try:
-            lock = self._send_locks[user_id]
+            return self._send_locks[user_id]
         except KeyError:
-            yield
-            return
-        async with lock:
-            yield
+            pass
+        return self._noop_lock
 
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
