@@ -17,7 +17,6 @@ from typing import Any, Dict, Iterator, Optional, TYPE_CHECKING
 from http.cookies import SimpleCookie
 import asyncio
 import logging
-import os
 
 from fbchat import Client, Message, ThreadType, User as FBUser
 from mautrix.types import UserID
@@ -33,16 +32,11 @@ if TYPE_CHECKING:
 
 config: Config
 
-GREEN = "\u001b[32m"
-YELLOW = "\u001b[33m"
-MAGENTA = "\u001b[35m"
-RESET = "\u001b[0m"
-
 
 class User(Client):
     az: AppService
     loop: asyncio.AbstractEventLoop
-    log: logging.Logger = logging.getLogger(f"{GREEN}mau.user{RESET}")
+    log: logging.Logger = logging.getLogger("mau.user")
     by_mxid: Dict[UserID, 'User'] = {}
 
     command_status: Optional[Dict[str, Any]]
@@ -63,12 +57,10 @@ class User(Client):
         self._session_data = session
         self._db_instance = db_instance
 
-        log_id = f"{YELLOW}{self.mxid}{RESET}"
-        self.log = self.log.getChild(log_id)
-        # TODO non-hacky log coloring
-        self._log = logging.getLogger(f"{MAGENTA}fbchat.client{RESET}").getChild(log_id)
-        self._req_log = logging.getLogger(f"{MAGENTA}fbchat.request{RESET}").getChild(log_id)
-        self._util_log = logging.getLogger(f"{MAGENTA}fbchat.util{RESET}").getChild(log_id)
+        self.log = self.log.getChild(self.mxid)
+        self._log = self._log.getChild(self.mxid)
+        self._req_log = self._req_log.getChild(self.mxid)
+        self._util_log = self._util_log.getChild(self.mxid)
 
     # region Sessions
 
