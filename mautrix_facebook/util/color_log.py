@@ -35,8 +35,8 @@ RESET = "\033[0m"
 
 
 class ColorFormatter(Formatter):
-    def __init__(self, *args):
-        super().__init__(*args)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def _color_name(self, module: str) -> str:
         fbchat = ["fbchat.util", "fbchat.request", "fbchat.client"]
