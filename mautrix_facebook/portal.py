@@ -30,7 +30,7 @@ from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup,
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
-                           TextMessageEventContent, MediaMessageEventContent)
+                           TextMessageEventContent, MediaMessageEventContent, Membership)
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden
 
@@ -52,6 +52,7 @@ class Portal:
     az: AppService
     loop: asyncio.AbstractEventLoop
     log: logging.Logger = logging.getLogger("mau.portal")
+    invite_own_puppet_to_pm: bool = False
     by_mxid: Dict[RoomID, 'Portal'] = {}
     by_fbid: Dict[Tuple[str, str], 'Portal'] = {}
 
@@ -67,7 +68,7 @@ class Portal:
 
     _main_intent: Optional[IntentAPI]
     _create_room_lock: asyncio.Lock
-    _last_bridged_mxid: EventID
+    _last_bridged_mxid: Optional[EventID]
     _dedup: Deque[Tuple[str, str]]
     _avatar_uri: Optional[ContentURI]
     _send_locks: Dict[str, asyncio.Lock]
@@ -87,6 +88,7 @@ class Portal:
 
         self._main_intent = None
         self._create_room_lock = asyncio.Lock()
+        self._last_bridged_mxid = None
         self._dedup = deque(maxlen=100)
         self._avatar_uri = None
         self._send_locks = {}
@@ -325,6 +327,14 @@ class Portal:
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
+        # TODO when there's matrix puppeting, check that in this if too
+        if self.is_direct and sender.fbid == source.uid:
+            if self.invite_own_puppet_to_pm:
+                await self.main_intent.invite_user(self.mxid, sender.mxid)
+            elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
+                self.log.warn(f"Ignoring own message {message.uid} in private chat because own"
+                              " puppet is not in room.")
+                return
         async with self.optional_send_lock(sender.fbid):
             if message.uid in self._dedup:
                 await source.markAsDelivered(self.fbid, message.uid)
@@ -341,7 +351,7 @@ class Portal:
         elif message.text:
             event_ids = [await self._handle_facebook_text(sender.intent, message)]
         else:
-            self.log.debug(f"Unhandled Messenger message: {message}")
+            self.log.warn(f"Unhandled Messenger message: {message}")
             event_ids = []
         DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
@@ -428,7 +438,7 @@ class Portal:
             message.delete()
 
     async def handle_facebook_seen(self, source: 'u.User', sender: 'p.Puppet') -> None:
-        if not self.mxid:
+        if not self.mxid or not self._last_bridged_mxid:
             return
         await sender.intent.mark_read(self.mxid, self._last_bridged_mxid)
 
@@ -482,3 +492,4 @@ class Portal:
 def init(context: 'Context') -> None:
     global config
     Portal.az, config, Portal.loop = context.core
+    Portal.invite_own_puppet_to_pm = config["bridge.invite_own_puppet_to_pm"]

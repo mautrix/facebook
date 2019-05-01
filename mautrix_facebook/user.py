@@ -226,10 +226,6 @@ class User(Client):
         :type message_object: models.Message
         :type thread_type: models.ThreadType
         """
-        if author_id == self.uid:
-            self.log.debug(f"Ignoring message from self ({mid}, {author_id}, {message}, "
-                           f"{thread_id}, {thread_type})")
-            return
         self.log.debug(f"onMessage({message_object}, {thread_id}, {thread_type})")
         fb_receiver = self.uid if thread_type == ThreadType.USER else None
         portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)

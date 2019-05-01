@@ -22,10 +22,13 @@ from mautrix.util.config import BaseFileConfig, ConfigUpdateHelper, yaml
 
 
 class Config(BaseFileConfig):
+    registration_path: str
+    _registration: Optional[Dict]
+
     def __init__(self, path: str, registration_path: str, base_path: str) -> None:
         super().__init__(path, base_path)
-        self.registration_path = registration_path  # type: str
-        self._registration = None  # type: Optional[Dict]
+        self.registration_path = registration_path
+        self._registration = None
 
     def save(self) -> None:
         super().save()
@@ -60,9 +63,10 @@ class Config(BaseFileConfig):
         copy("appservice.hs_token")
 
         copy("bridge.username_template")
-        copy("bridge.displayname_template")
 
         copy("bridge.command_prefix")
+
+        copy("bridge.invite_own_puppet_to_pm")
 
         copy_dict("bridge.permissions")
 
