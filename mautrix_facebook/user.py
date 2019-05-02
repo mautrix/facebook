@@ -19,8 +19,8 @@ import asyncio
 import logging
 
 from fbchat import Client
-from fbchat.models import Message, ThreadType, User as FBUser
-from mautrix.types import UserID
+from fbchat.models import Message, ThreadType, User as FBUser, ActiveStatus
+from mautrix.types import UserID, PresenceState
 from mautrix.appservice import AppService
 
 from .config import Config
@@ -874,16 +874,22 @@ class User(Client):
         """
         pass
 
-    async def onChatTimestamp(self, buddylist=None, msg=None):
+    async def onChatTimestamp(self, buddylist: Dict[str, ActiveStatus] = None, msg: Any = None
+                              ) -> None:
         """
         Called when the client receives chat online presence update
 
         :param buddylist: A list of dicts with friend id and last seen timestamp
         :param msg: A full set of the data recieved
         """
-        self.log.debug("Chat Timestamps received: {}".format(buddylist))
+        for user, status in buddylist.items():
+            puppet = pu.Puppet.get_by_fbid(user, create=False)
+            await puppet.default_mxid_intent.set_presence(
+                presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
+                ignore_cache=True)
 
-    async def onBuddylistOverlay(self, statuses=None, msg=None):
+    async def onBuddylistOverlay(self, statuses: Dict[str, ActiveStatus] = None, msg: Any = None
+                                 ) -> None:
         """
         Called when the client is listening and client receives information about friend active status
 
@@ -891,7 +897,7 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type statuses: dict
         """
-        self.log.debug("Buddylist overlay received: {}".format(statuses))
+        await self.onChatTimestamp(statuses, msg)
 
     async def onUnknownMesssageType(self, msg=None):
         """

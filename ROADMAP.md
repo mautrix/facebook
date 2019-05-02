@@ -42,7 +42,7 @@
     * [ ] Mentions
   * [x] Message unsend
   * [ ] Message history
-  * [ ] Presence
+  * [x] Presence
   * [ ] Typing notifications
   * [x] Read receipts
   * [ ] Admin status
