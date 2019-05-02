@@ -31,7 +31,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
                            TextMessageEventContent, MediaMessageEventContent, Membership)
 from mautrix.appservice import AppService, IntentAPI
-from mautrix.errors import MForbidden
+from mautrix.errors import MForbidden, IntentError
 
 from .config import Config
 from .db import Portal as DBPortal, Message as DBMessage
@@ -451,7 +451,47 @@ class Portal:
         await sender.intent_for(self).mark_read(self.mxid, self._last_bridged_mxid)
 
     async def handle_facebook_typing(self, source: 'u.User', sender: 'p.Puppet') -> None:
-        pass
+        await sender.intent.set_typing(self.mxid, is_typing=True)
+
+    async def handle_facebook_photo(self, source: 'u.User', sender: 'p.Puppet', new_photo_id: str,
+                                    message_id: str) -> None:
+        if not self.mxid or self.is_direct:
+            return
+        if message_id in self._dedup:
+            return
+        self._dedup.appendleft(message_id)
+        # When we fetch thread info manually, we only get the URL instead of the ID,
+        # so we can't use the actual ID here either.
+        #self.photo_id = new_photo_id
+        photo_url = await source.fetchImageUrl(new_photo_id)
+        photo_id = self._get_photo_id(photo_url)
+        if self.photo_id == photo_id:
+            return
+        self.photo_id = photo_id
+        self._avatar_uri, _, _ = await self._reupload_fb_photo(photo_url, sender.intent)
+        try:
+            event_id = await sender.intent.set_room_avatar(self.mxid, self._avatar_uri)
+        except IntentError:
+            event_id = await self.main_intent.set_room_avatar(self.mxid, self._avatar_uri)
+        DBMessage(mxid=event_id, mx_room=self.mxid,
+                  fbid=message_id, fb_receiver=self.fb_receiver,
+                  index=0).insert()
+
+    async def handle_facebook_name(self, source: 'u.User', sender: 'p.Puppet', new_name: str,
+                                   message_id: str) -> None:
+        if self.name == new_name or message_id in self._dedup:
+            return
+        self._dedup.appendleft(message_id)
+        self.name = new_name
+        if not self.mxid or self.is_direct:
+            return
+        try:
+            event_id = await sender.intent.set_room_name(self.mxid, self.name)
+        except IntentError:
+            event_id = await self.main_intent.set_room_name(self.mxid, self.name)
+        DBMessage(mxid=event_id, mx_room=self.mxid,
+                  fbid=message_id, fb_receiver=self.fb_receiver,
+                  index=0).insert()
 
     # endregion
     # region Getters
@@ -472,7 +512,10 @@ class Portal:
     @classmethod
     def get_by_fbid(cls, fbid: str, fb_receiver: Optional[str] = None,
                     fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
-        fb_receiver = fb_receiver or fbid
+        if fb_type:
+            fb_receiver = fb_receiver if fb_type == ThreadType.USER else fbid
+        else:
+            fb_receiver = fb_receiver or fbid
         fbid_full = (fbid, fb_receiver)
         try:
             return cls.by_fbid[fbid_full]

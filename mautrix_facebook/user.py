@@ -289,11 +289,14 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type thread_type: models.ThreadType
         """
-        self.log.info(
-            "Title change from {} in {} ({}): {}".format(
-                author_id, thread_id, thread_type.name, new_title
-            )
-        )
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
+        if not portal:
+            return
+        sender = pu.Puppet.get_by_fbid(author_id)
+        if not sender:
+            return
+        await portal.handle_facebook_name(self, sender, new_title, mid)
 
     async def onImageChange(self, mid=None, author_id=None, new_image=None, thread_id=None,
                             thread_type=ThreadType.GROUP, ts=None, msg=None):
@@ -309,7 +312,14 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type thread_type: models.ThreadType
         """
-        self.log.info("{} changed thread image in {}".format(author_id, thread_id))
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
+        if not portal:
+            return
+        sender = pu.Puppet.get_by_fbid(author_id)
+        if not sender:
+            return
+        await portal.handle_facebook_photo(self, sender, new_image, mid)
 
     async def onNicknameChange(self, mid=None, author_id=None, changed_for=None, new_nickname=None,
                                thread_id=None, thread_type=ThreadType.USER, ts=None, metadata=None,
