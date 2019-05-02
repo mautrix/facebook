@@ -171,8 +171,9 @@ class MatrixHandler:
             await self.commands.handle(room, event_id, sender, command, args, is_management,
                                        is_portal=portal is not None)
 
-    @staticmethod
-    async def handle_presence(evt: PresenceEvent) -> None:
+    async def handle_presence(self, evt: PresenceEvent) -> None:
+        if not self.config["bridge.presence"]:
+            return
         user = u.User.get_by_mxid(evt.sender, create=False)
         user.setActiveStatus(evt.content.presence == PresenceState.ONLINE)
 

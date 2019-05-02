@@ -68,6 +68,7 @@ class Config(BaseFileConfig):
 
         copy("bridge.invite_own_puppet_to_pm")
         copy("bridge.sync_with_custom_puppets")
+        copy("bridge.presence")
 
         copy_dict("bridge.permissions")
 
