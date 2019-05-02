@@ -16,9 +16,9 @@
   * [x] Message redactions
   * [ ] Message reactions (not yet implemented in Matrix)
   * [ ] Message history
-  * [ ] Presence
+  * [x] Presence
   * [ ] Typing notifications
-  * [ ] Read receipts
+  * [x] Read receipts
   * [ ] Power level
   * [ ] Membership actions
     * [ ] Invite

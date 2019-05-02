@@ -18,7 +18,8 @@ import logging
 import asyncio
 
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, MessageType,
-                           MessageEventContent, StateEvent, Membership, RedactionEvent)
+                           MessageEventContent, StateEvent, Membership, RedactionEvent,
+                           PresenceEvent, TypingEvent, ReceiptEvent, PresenceState)
 from mautrix.errors import IntentError, MatrixError
 
 from . import user as u, portal as po, puppet as pu, commands as com
@@ -112,9 +113,10 @@ class MatrixHandler:
             return
 
         self.log.debug(f"{user} joined {room_id}")
-        #await portal.join_matrix(user, event_id)
+        # await portal.join_matrix(user, event_id)
 
-    async def handle_redaction(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
+    @staticmethod
+    async def handle_redaction(room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
         user = u.User.get_by_mxid(user_id)
         if not user:
             return
@@ -169,6 +171,31 @@ class MatrixHandler:
             await self.commands.handle(room, event_id, sender, command, args, is_management,
                                        is_portal=portal is not None)
 
+    @staticmethod
+    async def handle_presence(evt: PresenceEvent) -> None:
+        user = u.User.get_by_mxid(evt.sender, create=False)
+        user.setActiveStatus(evt.content.presence == PresenceState.ONLINE)
+
+    async def handle_typing(self, evt: TypingEvent) -> None:
+        pass
+
+    @staticmethod
+    async def handle_receipt(evt: ReceiptEvent) -> None:
+        # These events come from custom puppet syncing, so there's always only one user.
+        event_id, receipts = evt.content.popitem()
+        receipt_type, users = receipts.popitem()
+        user_id, data = users.popitem()
+
+        user = u.User.get_by_mxid(user_id, create=False)
+        if not user:
+            return
+
+        portal = po.Portal.get_by_mxid(evt.room_id)
+        if not portal:
+            return
+
+        await user.markAsRead(portal.fbid)
+
     def filter_matrix_event(self, evt: Event) -> bool:
         if not isinstance(evt, (MessageEvent, StateEvent)):
             return False
@@ -198,3 +225,9 @@ class MatrixHandler:
         elif evt.type == EventType.ROOM_REDACTION:
             evt: RedactionEvent
             await self.handle_redaction(evt.room_id, evt.sender, evt.redacts)
+        elif evt.type == EventType.PRESENCE:
+            await self.handle_presence(evt)
+        elif evt.type == EventType.TYPING:
+            await self.handle_typing(evt)
+        elif evt.type == EventType.RECEIPT:
+            await self.handle_receipt(evt)

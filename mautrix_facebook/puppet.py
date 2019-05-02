@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, Iterator, TYPE_CHECKING
+import logging
 import asyncio
 
 from fbchat.models import User as FBUser
@@ -32,6 +33,7 @@ config: Config
 
 
 class Puppet(CustomPuppetMixin):
+    log: logging.Logger = logging.getLogger("mau.puppet")
     az: AppService
     loop: asyncio.AbstractEventLoop
     mx: m.MatrixHandler
@@ -72,6 +74,8 @@ class Puppet(CustomPuppetMixin):
         self.default_mxid = self.get_mxid_from_id(fbid)
         self.default_mxid_intent = self.az.intent.user(self.default_mxid)
         self.intent = self._fresh_intent()
+
+        self.log = self.log.getChild(self.fbid)
 
         self.by_fbid[fbid] = self
         if self.custom_mxid:

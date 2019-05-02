@@ -22,7 +22,7 @@ import logging
 from aiohttp import ClientConnectionError
 
 from mautrix.types import (UserID, FilterID, Filter, RoomEventFilter, RoomFilter, EventFilter,
-                           EventType, SyncToken, RoomID, Event)
+                           EventType, SyncToken, RoomID, Event, PresenceState)
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import IntentError, MatrixRequestError
 
@@ -107,7 +107,10 @@ class CustomPuppetMixin(ABC):
                 raise OnlyLoginSelf()
             raise InvalidAccessToken()
         if self.sync_with_custom_puppets:
+            self.log.debug(f"Initialized custom mxid: {mxid}. Starting sync task")
             self.sync_task = asyncio.ensure_future(self.sync(), loop=self.loop)
+        else:
+            self.log.debug(f"Initialized custom mxid: {mxid}. Not starting sync task")
 
     def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
         return True
@@ -205,7 +208,8 @@ class CustomPuppetMixin(ABC):
         self.log.debug(f"Starting syncer for {custom_mxid} with sync filter {filter_id}.")
         while access_token_at_start == self.access_token:
             try:
-                sync_resp = await self.intent.sync(filter_id=filter_id, since=next_batch)
+                sync_resp = await self.intent.sync(filter_id=filter_id, since=next_batch,
+                                                   set_presence=PresenceState.OFFLINE)
                 errors = 0
                 if next_batch is not None:
                     self.handle_sync(sync_resp)
