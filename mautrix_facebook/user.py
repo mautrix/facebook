@@ -111,15 +111,15 @@ class User(Client):
             return True
         elif not self._session_data:
             return False
-        ok = await self.setSession(self._session_data) and await self.is_logged_in()
+        ok = await self.setSession(self._session_data) and await self.is_logged_in(True)
         if ok:
             self.log.info("Loaded session successfully")
             self.listen()
             asyncio.ensure_future(self.post_login(), loop=self.loop)
         return ok
 
-    async def is_logged_in(self) -> bool:
-        if self._is_logged_in is None:
+    async def is_logged_in(self, _override: bool = False) -> bool:
+        if self._is_logged_in is None or _override:
             self._is_logged_in = await self.isLoggedIn()
         return self._is_logged_in
 
@@ -128,6 +128,7 @@ class User(Client):
     async def logout(self) -> bool:
         ok = await super().logout()
         self._session_data = None
+        self._is_logged_in = False
         self.save(_update_session_data=False)
         return ok
 
@@ -177,6 +178,7 @@ class User(Client):
 
         :param email: The email of the client
         """
+        self._is_logged_in = True
         if self.command_status and self.command_status.get("action", "") == "Login":
             await self.az.intent.send_notice(self.command_status["room_id"],
                                              f"Successfully logged in with {email}")
