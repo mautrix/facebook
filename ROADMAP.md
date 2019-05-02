@@ -66,4 +66,4 @@
     * [ ] When added to chat
     * [x] When receiving message
   * [ ] Private chat creation by inviting Matrix puppet of Messenger user to new room
-  * [ ] Option to use own Matrix account for messages sent from other Messenger clients
+  * [x] Option to use own Matrix account for messages sent from other Messenger clients

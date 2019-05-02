@@ -18,7 +18,8 @@ from http.cookies import SimpleCookie
 import asyncio
 import logging
 
-from fbchat import Client, Message, ThreadType, User as FBUser
+from fbchat import Client
+from fbchat.models import Message, ThreadType, User as FBUser
 from mautrix.types import UserID
 from mautrix.appservice import AppService
 
@@ -137,7 +138,7 @@ class User(Client):
         await self.sync_threads()
         self.log.debug("Updating own puppet info")
         own_info = (await self.fetchUserInfo(self.uid))[self.uid]
-        puppet = pu.Puppet.get(self.uid, create=True)
+        puppet = pu.Puppet.get_by_fbid(self.uid, create=True)
         await puppet.update_info(source=self, info=own_info)
 
     async def sync_threads(self) -> None:
@@ -150,7 +151,7 @@ class User(Client):
                 portal = po.Portal.get_by_thread(thread, fb_receiver)
                 await portal.create_matrix_room(self, thread)
                 if isinstance(thread, FBUser):
-                    puppet = pu.Puppet.get(thread.uid, create=True)
+                    puppet = pu.Puppet.get_by_fbid(thread.uid, create=True)
                     await puppet.update_info(self, thread)
         except Exception:
             self.log.exception("Failed to sync threads")
@@ -224,7 +225,7 @@ class User(Client):
         self.log.debug(f"onMessage({message_object}, {thread_id}, {thread_type})")
         fb_receiver = self.uid if thread_type == ThreadType.USER else None
         portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get(author_id)
+        puppet = pu.Puppet.get_by_fbid(author_id)
         if not puppet.name:
             await puppet.update_info(self)
         message_object.uid = mid
@@ -395,7 +396,7 @@ class User(Client):
         """
         fb_receiver = self.uid if thread_type == ThreadType.USER else None
         portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get(seen_by)
+        puppet = pu.Puppet.get_by_fbid(seen_by)
         await portal.handle_facebook_seen(self, puppet)
 
     async def onMessageDelivered(self, msg_ids=None, delivered_for=None, thread_id=None,
@@ -452,7 +453,7 @@ class User(Client):
         """
         fb_receiver = self.uid if thread_type == ThreadType.USER else None
         portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get(author_id)
+        puppet = pu.Puppet.get_by_fbid(author_id)
         await portal.handle_facebook_unsend(self, puppet, mid)
 
     async def onPeopleAdded(self, mid=None, added_ids=None, author_id=None, thread_id=None, ts=None,

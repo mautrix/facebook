@@ -30,7 +30,7 @@ from .db import Base, init as init_db
 from .sqlstatestore import SQLStateStore
 from .user import User, init as init_user
 from .portal import init as init_portal
-from .puppet import init as init_puppet
+from .puppet import Puppet, init as init_puppet
 from .matrix import MatrixHandler
 from .context import Context
 from . import __version__
@@ -75,6 +75,7 @@ appserv = AppService(config["homeserver.address"], config["homeserver.domain"],
                      config["appservice.as_token"], config["appservice.hs_token"],
                      config["appservice.bot_username"], log="mau.as", loop=loop,
                      verify_ssl=config["homeserver.verify_ssl"], state_store=state_store,
+                     real_user_content_key="net.maunium.facebook.puppet",
                      aiohttp_params={
                          "client_max_size": config["appservice.max_body_size"] * mebibyte
                      })
@@ -95,6 +96,9 @@ async def start():
     await appserv.start(config["appservice.hostname"], config["appservice.port"])
     log.debug("Initializing appservice bot")
     await context.mx.init_as_bot()
+    log.debug("Loading custom puppets")
+    await asyncio.gather(*[puppet.init_custom_mxid()
+                           for puppet in Puppet.get_all_with_custom_mxid()])
     log.debug("Loading sessions")
     await asyncio.gather(*[user.load_session() for user in User.get_all()], loop=loop)
 

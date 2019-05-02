@@ -53,6 +53,9 @@ bridge:
     # Whether or not the Facebook users of logged in Matrix users should be
     # invited to private chats when the user sends a message from another client.
     invite_own_puppet_to_pm: false
+    # Whether or not to use /sync to get presence, read receipts and typing notifications when using
+    # your own Matrix account as the Matrix puppet for your Facebook account.
+    sync_with_custom_puppets: true
 
     # Permissions for using the bridge.
     # Permitted values:

@@ -13,16 +13,17 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import Optional, Dict, Iterator, TYPE_CHECKING
 import asyncio
 
-from fbchat import User as FBUser
-from mautrix.types import UserID
+from fbchat.models import User as FBUser
+from mautrix.types import UserID, RoomID
 from mautrix.appservice import AppService, IntentAPI
 
 from .config import Config
 from .db import Puppet as DBPuppet
-from . import user as u, portal as p
+from .custom_puppet import CustomPuppetMixin
+from . import user as u, portal as p, matrix as m
 
 if TYPE_CHECKING:
     from .context import Context
@@ -30,13 +31,16 @@ if TYPE_CHECKING:
 config: Config
 
 
-class Puppet:
+class Puppet(CustomPuppetMixin):
     az: AppService
     loop: asyncio.AbstractEventLoop
+    mx: m.MatrixHandler
+    hs_domain: str
     _mxid_prefix: str
     _mxid_suffix: str
 
     by_fbid: Dict[str, 'Puppet'] = {}
+    by_custom_mxid: Dict[UserID, 'Puppet'] = {}
 
     fbid: str
     name: str
@@ -44,24 +48,34 @@ class Puppet:
 
     is_registered: bool
 
+    custom_mxid: UserID
+    access_token: str
+
     _db_instance: Optional[DBPuppet]
 
     intent: IntentAPI
 
     def __init__(self, fbid: str, name: str = "", photo_id: str = "", is_registered: bool = False,
-                 db_instance: Optional[DBPuppet] = None):
+                 custom_mxid: UserID = "", access_token: str = "",
+                 db_instance: Optional[DBPuppet] = None) -> None:
         self.fbid = fbid
         self.name = name
         self.photo_id = photo_id
 
         self.is_registered = is_registered
 
+        self.custom_mxid = custom_mxid
+        self.access_token = access_token
+
         self._db_instance = db_instance
 
-        self.mxid = self.get_mxid_from_id(fbid)
-        self.intent = self.az.intent.user(self.mxid)
+        self.default_mxid = self.get_mxid_from_id(fbid)
+        self.default_mxid_intent = self.az.intent.user(self.default_mxid)
+        self.intent = self._fresh_intent()
 
         self.by_fbid[fbid] = self
+        if self.custom_mxid:
+            self.by_custom_mxid[self.custom_mxid] = self
 
     # region DB conversion
 
@@ -69,19 +83,33 @@ class Puppet:
     def db_instance(self) -> DBPuppet:
         if not self._db_instance:
             self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, photo_id=self.photo_id,
-                                         matrix_registered=self.is_registered)
+                                         matrix_registered=self.is_registered,
+                                         custom_mxid=self.custom_mxid,
+                                         access_token=self.access_token)
         return self._db_instance
 
     @classmethod
     def from_db(cls, db_puppet: DBPuppet) -> 'Puppet':
         return Puppet(fbid=db_puppet.fbid, name=db_puppet.name, photo_id=db_puppet.photo_id,
-                      is_registered=db_puppet.matrix_registered, db_instance=db_puppet)
+                      is_registered=db_puppet.matrix_registered, custom_mxid=db_puppet.custom_mxid,
+                      access_token=db_puppet.access_token, db_instance=db_puppet)
 
     def save(self) -> None:
         self.db_instance.edit(name=self.name, photo_id=self.photo_id,
-                              matrix_registered=self.is_registered)
+                              matrix_registered=self.is_registered, custom_mxid=self.custom_mxid,
+                              access_token=self.access_token)
 
     # endregion
+
+    def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
+        portal = p.Portal.get_by_mxid(room_id)
+        return portal and portal.fbid != self.fbid
+
+    def intent_for(self, portal: 'p.Portal') -> IntentAPI:
+        if portal.fbid == self.fbid:
+            return self.default_mxid_intent
+        return self.intent
+
     # region User info updating
 
     async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None
@@ -98,7 +126,7 @@ class Puppet:
         # TODO more precise name control
         if info.name != self.name:
             self.name = info.name
-            await self.intent.set_displayname(self.name)
+            await self.default_mxid_intent.set_displayname(self.name)
             return True
         return False
 
@@ -107,10 +135,11 @@ class Puppet:
         if photo_id != self.photo_id:
             self.photo_id = photo_id
             if photo_url:
-                avatar_uri, _, _ = await p.Portal._reupload_fb_photo(photo_url, self.intent)
+                avatar_uri, _, _ = await p.Portal._reupload_fb_photo(photo_url,
+                                                                     self.default_mxid_intent)
             else:
                 avatar_uri = ""
-            await self.intent.set_avatar_url(avatar_uri)
+            await self.default_mxid_intent.set_avatar_url(avatar_uri)
             return True
         return False
 
@@ -118,7 +147,7 @@ class Puppet:
     # region Getters
 
     @classmethod
-    def get(cls, fbid: str, create: bool = True) -> Optional['Puppet']:
+    def get_by_fbid(cls, fbid: str, create: bool = True) -> Optional['Puppet']:
         try:
             return cls.by_fbid[fbid]
         except KeyError:
@@ -139,7 +168,20 @@ class Puppet:
     def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['Puppet']:
         fbid = cls.get_id_from_mxid(mxid)
         if fbid:
-            return cls.get(fbid, create)
+            return cls.get_by_fbid(fbid, create)
+
+        return None
+
+    @classmethod
+    def get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
+        try:
+            return cls.by_custom_mxid[mxid]
+        except KeyError:
+            pass
+
+        db_puppet = DBPuppet.get_by_custom_mxid(mxid)
+        if db_puppet:
+            return cls.from_db(db_puppet)
 
         return None
 
@@ -155,15 +197,27 @@ class Puppet:
     def get_mxid_from_id(cls, fbid: str) -> UserID:
         return UserID(cls._mxid_prefix + fbid + cls._mxid_suffix)
 
+    @classmethod
+    def get_all_with_custom_mxid(cls) -> Iterator['Puppet']:
+        for db_puppet in DBPuppet.get_all_with_custom_mxid():
+            try:
+                yield cls.by_fbid[db_puppet.fbid]
+            except KeyError:
+                pass
+
+            yield cls.from_db(db_puppet)
+
     # endregion
 
 
 def init(context: 'Context') -> None:
     global config
     Puppet.az, config, Puppet.loop = context.core
+    Puppet.mx = context.mx
     username_template = config["bridge.username_template"].lower()
+    CustomPuppetMixin.sync_with_custom_puppets = config["bridge.sync_with_custom_puppets"]
     index = username_template.index("{userid}")
     length = len("{userid}")
-    hs_domain = config["homeserver"]["domain"]
+    Puppet.hs_domain = config["homeserver"]["domain"]
     Puppet._mxid_prefix = f"@{username_template[:index]}"
-    Puppet._mxid_suffix = f"{username_template[index + length:]}:{hs_domain}"
+    Puppet._mxid_suffix = f"{username_template[index + length:]}:{Puppet.hs_domain}"

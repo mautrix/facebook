@@ -146,7 +146,7 @@ class Portal:
     @property
     def main_intent(self) -> IntentAPI:
         if not self._main_intent:
-            self._main_intent = (p.Puppet.get(self.fbid).intent
+            self._main_intent = (p.Puppet.get_by_fbid(self.fbid).default_mxid_intent
                                  if self.is_direct
                                  else self.az.intent)
 
@@ -208,15 +208,15 @@ class Portal:
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
         if self.is_direct:
-            await p.Puppet.get(info.uid).update_info(source=source, info=info)
+            await p.Puppet.get_by_fbid(info.uid).update_info(source=source, info=info)
             return
         elif not self.mxid:
             return
         users = await source.fetchAllUsersFromThreads([info])
-        puppets = {user: p.Puppet.get(user.uid) for user in users}
+        puppets = {user: p.Puppet.get_by_fbid(user.uid) for user in users}
         await asyncio.gather(*[puppet.update_info(source=source, info=user)
                                for user, puppet in puppets.items()])
-        await asyncio.gather(*[puppet.intent.ensure_joined(self.mxid)
+        await asyncio.gather(*[puppet.intent_for(self).ensure_joined(self.mxid)
                                for puppet in puppets.values()])
 
     # endregion
@@ -279,6 +279,10 @@ class Portal:
 
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
+        puppet = p.Puppet.get_by_custom_mxid(sender.mxid)
+        if puppet and message.get("net.maunium.facebook.puppet", False):
+            self.log.debug(f"Ignoring puppet-sent message by confirmed puppet user {sender.mxid}")
+            return
         # TODO this probably isn't nice for bridging images, it really only needs to lock the
         #      actual message send call and dedup queue append.
         async with self.require_send_lock(sender.uid):
@@ -345,14 +349,15 @@ class Portal:
             self._dedup.appendleft(message.uid)
         if not self.mxid:
             await self.create_matrix_room(source)
+        intent = sender.intent_for(self)
         if message.sticker:
-            event_ids = [await self._handle_facebook_sticker(sender.intent, message.sticker)]
+            event_ids = [await self._handle_facebook_sticker(intent, message.sticker)]
         elif len(message.attachments) > 0:
             event_ids = await asyncio.gather(
-                *[self._handle_facebook_attachment(sender.intent, attachment)
+                *[self._handle_facebook_attachment(intent, attachment)
                   for attachment in message.attachments])
         elif message.text:
-            event_ids = [await self._handle_facebook_text(sender.intent, message)]
+            event_ids = [await self._handle_facebook_text(intent, message)]
         else:
             self.log.warn(f"Unhandled Messenger message: {message}")
             event_ids = []
@@ -435,7 +440,7 @@ class Portal:
             return
         for message in DBMessage.get_all_by_fbid(message_id, self.fb_receiver):
             try:
-                await sender.intent.redact(message.mx_room, message.mxid)
+                await sender.intent_for(self).redact(message.mx_room, message.mxid)
             except MForbidden:
                 await self.main_intent.redact(message.mx_room, message.mxid)
             message.delete()
@@ -443,7 +448,7 @@ class Portal:
     async def handle_facebook_seen(self, source: 'u.User', sender: 'p.Puppet') -> None:
         if not self.mxid or not self._last_bridged_mxid:
             return
-        await sender.intent.mark_read(self.mxid, self._last_bridged_mxid)
+        await sender.intent_for(self).mark_read(self.mxid, self._last_bridged_mxid)
 
     async def handle_facebook_typing(self, source: 'u.User', sender: 'p.Puppet') -> None:
         pass

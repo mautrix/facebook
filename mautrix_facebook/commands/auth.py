@@ -15,8 +15,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import asyncio
 
-from fbchat import FBchatUserError
+from fbchat.models import FBchatUserError
+from mautrix.client import Client
 
+from .. import puppet as pu, custom_puppet as cpu
 from . import command_handler, CommandEvent, SECTION_AUTH
 
 
@@ -47,3 +49,32 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
     future.set_result(code)
     del evt.sender.command_status["future"]
     del evt.sender.command_status["next"]
+
+
+@command_handler(needs_auth=True, management_only=True, help_args="<_access token_>",
+                 help_section=SECTION_AUTH, help_text="Replace your Facebook Messenger account's "
+                                                      "Matrix puppet with your Matrix account")
+async def login_matrix(evt: CommandEvent) -> None:
+    puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
+    _, homeserver = Client.parse_mxid(evt.sender.mxid)
+    if homeserver != pu.Puppet.hs_domain:
+        await evt.reply("You can't log in with an account on a different homeserver")
+        return
+    try:
+        await puppet.switch_mxid(" ".join(evt.args), evt.sender.mxid)
+        await evt.reply("Successfully replaced your Facebook Messenger account's "
+                        "Matrix puppet with your Matrix account.")
+    except cpu.OnlyLoginSelf:
+        await evt.reply("You may only log in with your own Matrix account")
+    except cpu.InvalidAccessToken:
+        await evt.reply("Invalid access token")
+
+
+@command_handler(needs_auth=True, management_only=True, help_section=SECTION_AUTH)
+async def logout_matrix(evt: CommandEvent) -> None:
+    puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
+    if not puppet.is_real_user:
+        await evt.reply("You're not logged in with your Matrix account")
+        return
+    await puppet.switch_mxid(None, None)
+    await evt.reply("Restored the original puppet for your Facebook Messenger account")
