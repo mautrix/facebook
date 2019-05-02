@@ -894,9 +894,10 @@ class User(Client):
         """
         for user, status in buddylist.items():
             puppet = pu.Puppet.get_by_fbid(user, create=False)
-            await puppet.default_mxid_intent.set_presence(
-                presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
-                ignore_cache=True)
+            if puppet:
+                await puppet.default_mxid_intent.set_presence(
+                    presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
+                    ignore_cache=True)
 
     async def onBuddylistOverlay(self, statuses: Dict[str, ActiveStatus] = None, msg: Any = None
                                  ) -> None:
