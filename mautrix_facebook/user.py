@@ -61,6 +61,7 @@ class User(Client):
         self._log = self._log.getChild(self.mxid)
         self._req_log = self._req_log.getChild(self.mxid)
         self._util_log = self._util_log.getChild(self.mxid)
+        self.setActiveStatus(False)
 
     # region Sessions
 
