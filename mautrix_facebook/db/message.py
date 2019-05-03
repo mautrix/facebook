@@ -13,10 +13,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Iterable, Tuple, List
+from typing import Optional, Iterable, List
 
 from sqlalchemy import Column, String, SmallInteger, UniqueConstraint, and_
 from sqlalchemy.engine.result import RowProxy
+from sqlalchemy.sql.expression import ClauseElement
 
 from mautrix.types import RoomID, EventID
 
@@ -53,7 +54,7 @@ class Message(Base):
         return cls._select_one_or_none(and_(cls.c.mxid == mxid, cls.c.mx_room == mx_room))
 
     @property
-    def _edit_identity(self):
+    def _edit_identity(self) -> ClauseElement:
         return and_(self.c.fbid == self.fbid, self.c.fb_receiver == self.fb_receiver,
                     self.c.index == self.index)
 

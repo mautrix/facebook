@@ -38,6 +38,7 @@
     * [ ] Formatting
     * [ ] Replies
     * [ ] Mentions
+    * [ ] Polls
   * [x] Message unsend
   * [ ] Message reactions (not yet implemented in Matrix)
   * [ ] Message history

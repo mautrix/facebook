@@ -22,7 +22,7 @@ import commonmark
 from mautrix.types import RoomID, EventID
 from .. import user as u, context as c
 
-command_handlers = {}  # type: Dict[str, CommandHandler]
+command_handlers: Dict[str, 'CommandHandler'] = {}
 
 HelpSection = NamedTuple('HelpSection', [('name', str), ('order', int), ('description', str)])
 
