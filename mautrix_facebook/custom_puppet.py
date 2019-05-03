@@ -86,7 +86,7 @@ class CustomPuppetMixin(ABC):
         await self.init_custom_mxid()
 
         try:
-            del self.by_custom_mxid[prev_mxid]  # type: ignore
+            del self.by_custom_mxid[prev_mxid]
         except KeyError:
             pass
         if self.mxid != self.default_mxid:

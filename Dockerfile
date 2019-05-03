@@ -21,7 +21,7 @@ RUN apk add --no-cache \
         py3-dateutil \
         py3-markupsafe \
         py3-six \
-      # fbchat
+      #fbchat
         py3-beautifulsoup4 \
       py3-idna \
       # Other dependencies
