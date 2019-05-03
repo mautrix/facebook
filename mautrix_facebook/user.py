@@ -143,8 +143,11 @@ class User(Client):
 
     async def sync_threads(self) -> None:
         try:
+            sync_count = min(20, config["bridge.initial_chat_sync"])
+            if sync_count <= 0:
+                return
             self.log.debug("Fetching threads...")
-            threads = await self.fetchThreadList(limit=10)
+            threads = await self.fetchThreadList(limit=sync_count)
             for thread in threads:
                 self.log.debug(f"Syncing thread {thread.uid} {thread.name}")
                 fb_receiver = self.uid if thread.type == ThreadType.USER else None

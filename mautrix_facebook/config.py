@@ -66,6 +66,7 @@ class Config(BaseFileConfig):
 
         copy("bridge.command_prefix")
 
+        copy("bridge.initial_chat_sync")
         copy("bridge.invite_own_puppet_to_pm")
         copy("bridge.sync_with_custom_puppets")
         copy("bridge.presence")
