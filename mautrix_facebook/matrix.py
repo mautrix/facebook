@@ -17,6 +17,7 @@ from typing import Tuple, TYPE_CHECKING
 import logging
 import asyncio
 
+from fbchat.models import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, MessageType,
                            MessageEventContent, StateEvent, Membership, RedactionEvent,
                            PresenceEvent, TypingEvent, ReceiptEvent, PresenceState)
@@ -81,6 +82,57 @@ class MatrixHandler:
                      "<code>bridge.permissions</code> section in your config file.</p>")
             await self.az.intent.leave_room(room_id)
 
+    async def handle_puppet_invite(self, room_id: RoomID, puppet: 'pu.Puppet', inviter: 'u.User'
+                                   ) -> None:
+        intent = puppet.default_mxid_intent
+        self.log.debug(f"{inviter.mxid} invited puppet for {puppet.fbid} to {room_id}")
+        if not await inviter.is_logged_in():
+            await intent.error_and_leave(room_id, text="Please log in before inviting Facebook "
+                                                       "Messenger puppets to private chats.")
+            return
+
+        portal = po.Portal.get_by_mxid(room_id)
+        if portal:
+            if portal.is_direct:
+                await intent.error_and_leave(room_id, text="You can not invite additional users "
+                                                           "to private chats.")
+                return
+            # TODO add facebook inviting
+            # await portal.invite_facebook(inviter, puppet)
+            # await intent.join_room(room_id)
+            return
+        await intent.join_room(room_id)
+        try:
+            members = await intent.get_room_members(room_id)
+        except MatrixError:
+            self.log.exception(f"Failed to get member list after joining {room_id}")
+            await intent.leave_room(room_id)
+            members = []
+        if len(members) > 2:
+            # TODO add facebook group creating
+            await intent.send_notice(room_id, "You can not invite Facebook Messenger puppets to "
+                                              "multi-user rooms.")
+            await intent.leave_room(room_id)
+            return
+        portal = po.Portal.get_by_fbid(puppet.fbid, inviter.uid, ThreadType.USER)
+        if portal.mxid:
+            try:
+                await intent.invite_user(portal.mxid, inviter.mxid, check_cache=False)
+                await intent.send_notice(room_id,
+                                         text=("You already have a private chat with me "
+                                               f"in room {portal.mxid}"),
+                                         html=("You already have a private chat with me: "
+                                               f"<a href='https://matrix.to/#/{portal.mxid}'>"
+                                               "Link to room"
+                                               "</a>"))
+                await intent.leave_room(room_id)
+                return
+            except MatrixError:
+                pass
+        portal.mxid = room_id
+        portal.save()
+        await intent.send_notice(room_id, "Portal to private chat created.")
+
     async def handle_invite(self, room_id: RoomID, user_id: UserID, inviter_mxid: UserID) -> None:
         self.log.debug(f"{inviter_mxid} invited {user_id} to {room_id}")
         inviter = u.User.get_by_mxid(inviter_mxid)
@@ -91,11 +143,16 @@ class MatrixHandler:
         elif not inviter.is_whitelisted:
             return
 
+        puppet = pu.Puppet.get_by_mxid(user_id)
+        if puppet:
+            await self.handle_puppet_invite(room_id, puppet, inviter)
+            return
+
         # TODO handle puppet and user invites for group chats
 
         # The rest can probably be ignored
 
-    async def handle_join(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
+    async def handle_join(self, room_id: RoomID, user_id: UserID) -> None:
         user = u.User.get_by_mxid(user_id)
 
         portal = po.Portal.get_by_mxid(room_id)
@@ -114,6 +171,22 @@ class MatrixHandler:
 
         self.log.debug(f"{user} joined {room_id}")
         # await portal.join_matrix(user, event_id)
+
+    async def handle_leave(self, room_id: RoomID, user_id: UserID, sender_id: UserID) -> None:
+        portal = po.Portal.get_by_mxid(room_id)
+        if not portal:
+            return
+
+        user = u.User.get_by_mxid(user_id, create=False)
+        if not user:
+            return
+
+        if user_id != sender_id:
+            # sender = u.User.get_by_mxid(sender_id)
+            # await portal.handle_matrix_kick(user, sender)
+            pass
+        else:
+            await portal.handle_matrix_leave(user)
 
     @staticmethod
     async def handle_redaction(room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
@@ -137,7 +210,6 @@ class MatrixHandler:
 
     async def handle_message(self, room: RoomID, sender_id: UserID, message: MessageEventContent,
                              event_id: EventID) -> None:
-        is_command, text = self.is_command(message)
         sender = u.User.get_by_mxid(sender_id)
         if not sender or not sender.is_whitelisted:
             self.log.debug(f"Ignoring message \"{message}\" from {sender} to {room}:"
@@ -145,6 +217,7 @@ class MatrixHandler:
             return
         self.log.debug(f"Received Matrix event \"{message}\" from {sender} in {room}")
 
+        is_command, text = self.is_command(message)
         portal = po.Portal.get_by_mxid(room)
         if not is_command and portal and await sender.is_logged_in():
             await portal.handle_matrix_message(sender, message, event_id)
@@ -216,8 +289,14 @@ class MatrixHandler:
 
         if evt.type == EventType.ROOM_MEMBER:
             evt: StateEvent
+            prev_membership = (evt.unsigned.prev_content.membership
+                               if evt.unsigned.prev_content else Membership.JOIN)
             if evt.content.membership == Membership.INVITE:
                 await self.handle_invite(evt.room_id, UserID(evt.state_key), evt.sender)
+            elif evt.content.membership == Membership.LEAVE:
+                await self.handle_leave(evt.room_id, UserID(evt.state_key), evt.sender)
+            elif evt.content.membership == Membership.JOIN and prev_membership != Membership.JOIN:
+                await self.handle_join(evt.room_id, UserID(evt.state_key))
         elif evt.type in (EventType.ROOM_MESSAGE, EventType.STICKER):
             evt: MessageEvent
             if evt.type != EventType.ROOM_MESSAGE:

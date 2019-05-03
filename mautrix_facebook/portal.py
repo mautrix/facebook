@@ -31,7 +31,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
                            TextMessageEventContent, MediaMessageEventContent, Membership)
 from mautrix.appservice import AppService, IntentAPI
-from mautrix.errors import MForbidden, IntentError
+from mautrix.errors import MForbidden, IntentError, MatrixError
 
 from .config import Config
 from .db import Portal as DBPortal, Message as DBMessage
@@ -125,6 +125,12 @@ class Portal:
 
     def save(self) -> None:
         self.db_instance.edit(mxid=self.mxid, name=self.name, photo_id=self.photo_id)
+
+    def delete(self) -> None:
+        self.by_fbid.pop(self.fbid_full, None)
+        self.by_mxid.pop(self.mxid, None)
+        if self._db_instance:
+            self._db_instance.delete()
 
     # endregion
     # region Properties
@@ -260,6 +266,39 @@ class Portal:
             await self._update_participants(source, info)
 
     # endregion
+    # region Matrix room cleanup
+
+    @staticmethod
+    async def cleanup_room(intent: IntentAPI, room_id: RoomID, message: str = "Portal deleted",
+                           puppets_only: bool = False) -> None:
+        try:
+            members = await intent.get_room_members(room_id)
+        except MatrixError:
+            members = []
+        for user_id in members:
+            puppet = p.Puppet.get_by_mxid(user_id, create=False)
+            if user_id != intent.mxid and (not puppets_only or puppet):
+                try:
+                    if puppet:
+                        await puppet.intent.leave_room(room_id)
+                    else:
+                        await intent.kick_user(room_id, user_id, message)
+                except MatrixError:
+                    pass
+        try:
+            await intent.leave_room(room_id)
+        except MatrixError:
+            pass
+
+    async def unbridge(self) -> None:
+        await self.cleanup_room(self.main_intent, self.mxid, "Room unbridged", puppets_only=True)
+        self.delete()
+
+    async def cleanup_and_delete(self) -> None:
+        await self.cleanup_room(self.main_intent, self.mxid)
+        self.delete()
+
+    # endregion
     # region Matrix event handling
 
     def require_send_lock(self, user_id: str) -> asyncio.Lock:
@@ -328,6 +367,14 @@ class Portal:
             await sender.unsend(message.fbid)
         except Exception:
             self.log.exception("Unsend failed")
+
+    async def handle_matrix_leave(self, user: 'u.User') -> None:
+        if self.is_direct:
+            self.log.info(f"{user.mxid} left private chat portal with {self.fbid},"
+                          " cleaning up and deleting...")
+            await self.cleanup_and_delete()
+        else:
+            self.log.debug(f"{user.mxid} left portal to {self.fbid}")
 
     # endregion
     # region Facebook event handling
