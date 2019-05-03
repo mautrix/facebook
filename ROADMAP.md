@@ -14,8 +14,6 @@
     * [ ] Replies
     * [ ] Mentions
   * [x] Message redactions
-  * [ ] Message reactions (not yet implemented in Matrix)
-  * [ ] Message history
   * [x] Presence
   * [ ] Typing notifications
   * [x] Read receipts
@@ -41,6 +39,7 @@
     * [ ] Replies
     * [ ] Mentions
   * [x] Message unsend
+  * [ ] Message reactions (not yet implemented in Matrix)
   * [ ] Message history
   * [x] Presence
   * [ ] Typing notifications
@@ -61,7 +60,7 @@
 * Misc
   * [x] Multi-user support
   * [x] Shared group chat portals
-  * [x] Automatic portal creation
+  * [ ] Automatic portal creation
     * [x] At startup
     * [ ] When added to chat
     * [x] When receiving message
