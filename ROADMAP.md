@@ -15,7 +15,7 @@
     * [ ] Mentions
   * [x] Message redactions
   * [x] Presence
-  * [ ] Typing notifications
+  * [x] Typing notifications
   * [x] Read receipts
   * [ ] Power level
   * [ ] Membership actions

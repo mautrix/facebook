@@ -24,12 +24,12 @@ from aiohttp import ClientConnectionError
 from mautrix.types import (UserID, FilterID, Filter, RoomEventFilter, RoomFilter, EventFilter,
                            EventType, SyncToken, RoomID, Event, PresenceState)
 from mautrix.appservice import AppService, IntentAPI
-from mautrix.errors import IntentError, MatrixRequestError
+from mautrix.errors import IntentError, MatrixError, MatrixRequestError
 
 from . import matrix as m
 
 
-class CustomPuppetError(Exception):
+class CustomPuppetError(MatrixError):
     """Base class for double puppeting setup errors."""
 
 
@@ -214,10 +214,10 @@ class CustomPuppetMixin(ABC):
                 if next_batch is not None:
                     self.handle_sync(sync_resp)
                 next_batch = sync_resp.get("next_batch", None)
-            except (MatrixRequestError, ClientConnectionError) as e:
+            except (MatrixError, ClientConnectionError) as e:
+                errors += 1
                 wait = min(errors, 11) ** 2
                 self.log.warning(f"Syncer for {custom_mxid} errored: {e}. "
                                  f"Waiting for {wait} seconds...")
-                errors += 1
                 await asyncio.sleep(wait)
         self.log.debug(f"Syncer for custom puppet {custom_mxid} stopped.")

@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Deque, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Dict, Deque, Optional, Tuple, Union, Set, TYPE_CHECKING
 from collections import deque
 import asyncio
 import logging
@@ -25,7 +25,7 @@ import magic
 from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
                            Message as FBMessage, Sticker as FBSticker, AudioAttachment,
                            VideoAttachment, FileAttachment, ImageAttachment, LocationAttachment,
-                           ShareAttachment)
+                           ShareAttachment, TypingStatus)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
@@ -80,6 +80,7 @@ class Portal:
     _avatar_uri: Optional[ContentURI]
     _send_locks: Dict[str, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
+    _typing: Set['u.User']
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, name: str = "", photo_id: str = "",
@@ -100,6 +101,7 @@ class Portal:
         self._dedup = deque(maxlen=100)
         self._avatar_uri = None
         self._send_locks = {}
+        self._typing = set()
 
         self.log = self.log.getChild(self.fbid_log)
 
@@ -376,6 +378,14 @@ class Portal:
         else:
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
 
+    async def handle_matrix_typing(self, users: Set['u.User']) -> None:
+        stopped_typing = [user.setTypingStatus(TypingStatus.STOPPED, self.fbid, self.fb_type)
+                          for user in self._typing - users]
+        started_typing = [user.setTypingStatus(TypingStatus.TYPING, self.fbid, self.fb_type)
+                          for user in users - self._typing]
+        self._typing = users
+        await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
+
     # endregion
     # region Facebook event handling
 
@@ -509,7 +519,7 @@ class Portal:
         self._dedup.appendleft(message_id)
         # When we fetch thread info manually, we only get the URL instead of the ID,
         # so we can't use the actual ID here either.
-        #self.photo_id = new_photo_id
+        # self.photo_id = new_photo_id
         photo_url = await source.fetchImageUrl(new_photo_id)
         photo_id = self._get_photo_id(photo_url)
         if self.photo_id == photo_id:

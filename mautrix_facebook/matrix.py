@@ -251,7 +251,13 @@ class MatrixHandler:
         user.setActiveStatus(evt.content.presence == PresenceState.ONLINE)
 
     async def handle_typing(self, evt: TypingEvent) -> None:
-        pass
+        portal = po.Portal.get_by_mxid(evt.room_id)
+        if not portal:
+            return
+
+        users = (u.User.get_by_mxid(mxid, create=False) for mxid in evt.content.user_ids)
+        await portal.handle_matrix_typing({user for user in users
+                                           if user is not None})
 
     @staticmethod
     async def handle_receipt(evt: ReceiptEvent) -> None:
