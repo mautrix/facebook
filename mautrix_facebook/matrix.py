@@ -39,6 +39,7 @@ class MatrixHandler:
         self.az.matrix_event_handler(self.handle_event)
 
     async def init_as_bot(self) -> None:
+        self.log.debug("Initializing appservice bot")
         displayname = self.config["appservice.bot_displayname"]
         if displayname:
             try:

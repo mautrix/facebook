@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Dict, Iterator, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterator, Optional, Iterable, Awaitable, TYPE_CHECKING
 from http.cookies import SimpleCookie
 import asyncio
 import logging
@@ -933,6 +933,7 @@ class User(Client):
     # endregion
 
 
-def init(context: 'Context') -> None:
+def init(context: 'Context') -> Iterable[Awaitable[bool]]:
     global config
     User.az, config, User.loop = context.core
+    return (user.load_session() for user in User.get_all())

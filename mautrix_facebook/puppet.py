@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, Iterator, TYPE_CHECKING
+from typing import Optional, Dict, Iterator, Iterable, Awaitable, TYPE_CHECKING
 import logging
 import asyncio
 
@@ -214,7 +214,7 @@ class Puppet(CustomPuppetMixin):
     # endregion
 
 
-def init(context: 'Context') -> None:
+def init(context: 'Context') -> Iterable[Awaitable[None]]:
     global config
     Puppet.az, config, Puppet.loop = context.core
     Puppet.mx = context.mx
@@ -225,3 +225,5 @@ def init(context: 'Context') -> None:
     Puppet.hs_domain = config["homeserver"]["domain"]
     Puppet._mxid_prefix = f"@{username_template[:index]}"
     Puppet._mxid_suffix = f"{username_template[index + length:]}:{Puppet.hs_domain}"
+
+    return (puppet.start() for puppet in Puppet.get_all_with_custom_mxid())

@@ -60,7 +60,7 @@ if args.generate_registration:
     sys.exit(0)
 
 logging.config.dictConfig(copy.deepcopy(config["logging"]))
-log = logging.getLogger("mau.init")  # type: logging.Logger
+log: logging.Logger = logging.getLogger("mau.init")
 log.debug(f"Initializing mautrix-facebook {__version__}")
 
 db_engine = sql.create_engine(config["appservice.database"] or "sqlite:///mautrix-facebook.db")
@@ -71,54 +71,49 @@ loop = asyncio.get_event_loop()
 
 state_store = SQLStateStore()
 mebibyte = 1024 ** 2
-appserv = AppService(config["homeserver.address"], config["homeserver.domain"],
-                     config["appservice.as_token"], config["appservice.hs_token"],
-                     config["appservice.bot_username"], log="mau.as", loop=loop,
-                     verify_ssl=config["homeserver.verify_ssl"], state_store=state_store,
-                     real_user_content_key="net.maunium.facebook.puppet",
-                     aiohttp_params={
-                         "client_max_size": config["appservice.max_body_size"] * mebibyte
-                     })
+az = AppService(server=config["homeserver.address"], domain=config["homeserver.domain"],
+                as_token=config["appservice.as_token"], hs_token=config["appservice.hs_token"],
+                bot_localpart=config["appservice.bot_username"], log="mau.as", loop=loop,
+                verify_ssl=config["homeserver.verify_ssl"], state_store=state_store,
+                real_user_content_key="net.maunium.facebook.puppet",
+                aiohttp_params={
+                    "client_max_size": config["appservice.max_body_size"] * mebibyte
+                })
 
-context = Context(az=appserv, config=config, loop=loop)
+context = Context(az=az, config=config, loop=loop)
 context.mx = MatrixHandler(context)
 
-init_user(context)
+user_startup = init_user(context)
 init_portal(context)
-init_puppet(context)
+puppet_startup = init_puppet(context)
+
+
+async def stop():
+    await az.stop()
+
 
 signal.signal(signal.SIGINT, signal.default_int_handler)
 signal.signal(signal.SIGTERM, signal.default_int_handler)
 
-
-async def start():
-    log.debug("Starting web server")
-    await appserv.start(config["appservice.hostname"], config["appservice.port"])
-    log.debug("Initializing appservice bot")
-    await context.mx.init_as_bot()
-    log.debug("Loading custom puppets")
-    await asyncio.gather(*[puppet.init_custom_mxid()
-                           for puppet in Puppet.get_all_with_custom_mxid()])
-    log.debug("Loading sessions")
-    await asyncio.gather(*[user.load_session() for user in User.get_all()], loop=loop)
-
-
-async def stop():
-    log.debug("Stopping web server")
-    await appserv.stop()
-
-    for mxid, user in User.by_mxid.items():
-        user.save()
-
-
 try:
+    log.debug("Starting appservice...")
+    loop.run_until_complete(az.start(config["appservice.hostname"], config["appservice.port"]))
     log.debug("Running startup actions...")
-    loop.run_until_complete(start())
-    log.debug("Startup actions complete, running forever")
+    loop.run_until_complete(asyncio.gather(context.mx.init_as_bot(), *user_startup, *puppet_startup,
+                                           loop=loop))
+    log.info("Startup actions complete, running forever")
     loop.run_forever()
 except KeyboardInterrupt:
-    log.debug("Interrupt received")
-    loop.run_until_complete(stop())
+    log.debug("Interrupt received, stopping web server")
+    loop.run_until_complete(az.stop())
+    log.debug("Stopping puppet syncers")
+    for puppet in Puppet.by_custom_mxid.values():
+        puppet.stop()
+    log.debug("Saving user sessions and stopping listeners")
+    for mxid, user in User.by_mxid.items():
+        user.stopListening()
+        user.save()
+    log.info("Everything stopped, shutting down")
     sys.exit(0)
 except Exception:
     log.exception("Unexpected error")

@@ -44,7 +44,32 @@ class OnlyLoginSelf(CustomPuppetError):
 
 
 class CustomPuppetMixin(ABC):
+    """
+    Mixin for the Puppet class to enable Matrix puppeting.
+
+    Attributes:
+        sync_with_custom_puppets: Whether or not custom puppets should /sync
+        only_handle_own_synced_events: Whether or not typing notifications and read receipts by
+                                       other users should be filtered away before passing them to
+                                       the Matrix event handler.
+
+        az: The AppService object.
+        loop: The asyncio event loop.
+        log: The logger to use.
+        mx: The Matrix event handler to send /sync events to.
+
+        by_custom_mxid: A mapping from custom mxid to puppet object.
+
+        default_mxid: The default user ID of the puppet.
+        default_mxid_intent: The IntentAPI for the default user ID.
+        custom_mxid: The user ID of the custom puppet.
+        access_token: The access token for the custom puppet.
+
+        intent: The primary IntentAPI.
+    """
+
     sync_with_custom_puppets: bool = True
+    only_handle_own_synced_events: bool = True
 
     az: AppService
     loop: asyncio.AbstractEventLoop
@@ -59,18 +84,21 @@ class CustomPuppetMixin(ABC):
     access_token: Optional[str]
 
     intent: IntentAPI
-    sync_task: asyncio.Future
+
+    _sync_task: Optional[asyncio.Future] = None
 
     @abstractmethod
     def save(self) -> None:
-        pass
+        """Save the information of this puppet. Called from :meth:`switch_mxid`"""
 
     @property
     def mxid(self) -> UserID:
+        """The main Matrix user ID of this puppet."""
         return self.custom_mxid or self.default_mxid
 
     @property
     def is_real_user(self) -> bool:
+        """Whether or not this puppet uses a real Matrix user instead of an appservice-owned ID."""
         return bool(self.custom_mxid and self.access_token)
 
     def _fresh_intent(self) -> IntentAPI:
@@ -78,12 +106,21 @@ class CustomPuppetMixin(ABC):
                 if self.is_real_user else self.default_mxid_intent)
 
     async def switch_mxid(self, access_token: Optional[str], mxid: Optional[UserID]) -> None:
+        """
+        Switch to a real Matrix user or away from one.
+
+        Args:
+            access_token: The access token for the custom account, or ``None`` to switch back to
+                          the appservice-owned ID.
+            mxid: The expected Matrix user ID of the custom account, or ``None`` when
+                  ``access_token`` is None.
+        """
         prev_mxid = self.custom_mxid
         self.custom_mxid = mxid
         self.access_token = access_token
         self.intent = self._fresh_intent()
 
-        await self.init_custom_mxid()
+        await self.start()
 
         try:
             del self.by_custom_mxid[prev_mxid]
@@ -94,7 +131,9 @@ class CustomPuppetMixin(ABC):
             await self._leave_rooms_with_default_user()
         self.save()
 
-    async def init_custom_mxid(self) -> None:
+    async def start(self) -> None:
+        """Initialize the custom account this puppet uses. Should be called at startup to start
+        the /sync task. Is called by :meth:`switch_mxid` automatically."""
         if not self.is_real_user:
             return
 
@@ -107,12 +146,28 @@ class CustomPuppetMixin(ABC):
                 raise OnlyLoginSelf()
             raise InvalidAccessToken()
         if self.sync_with_custom_puppets:
-            self.log.debug(f"Initialized custom mxid: {mxid}. Starting sync task")
-            self.sync_task = asyncio.ensure_future(self.sync(), loop=self.loop)
+            self.log.info(f"Initialized custom mxid: {mxid}. Starting sync task")
+            self._sync_task = asyncio.ensure_future(self._try_sync(), loop=self.loop)
         else:
-            self.log.debug(f"Initialized custom mxid: {mxid}. Not starting sync task")
+            self.log.info(f"Initialized custom mxid: {mxid}. Not starting sync task")
+
+    def stop(self) -> None:
+        """Cancel the sync task."""
+        if self._sync_task:
+            self._sync_task.cancel()
+            self._sync_task = None
 
     def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
+        """
+        Whether or not the default puppet user should leave the given room when this puppet is
+        switched to using a custom user account.
+
+        Args:
+            room_id: The room to check.
+
+        Returns:
+            Whether or not the default user account should leave.
+        """
         return True
 
     async def _leave_rooms_with_default_user(self) -> None:
@@ -139,39 +194,31 @@ class CustomPuppetMixin(ABC):
             ),
             presence=EventFilter(
                 types=[EventType.PRESENCE],
-                senders=[self.custom_mxid],
+                senders=[self.custom_mxid] if self.only_handle_own_synced_events else None,
             )
         ))
 
     def _filter_events(self, room_id: RoomID, events: List[Dict]) -> Iterator[Event]:
-        # We only want events about the custom puppet user, but we can't use
-        # filters for typing and read receipt events.
         for event in events:
             event["room_id"] = room_id
-            evt_type = EventType.find(event.get("type", None))
-            event.setdefault("content", {})
-            if evt_type == EventType.TYPING:
-                is_typing = self.custom_mxid in event["content"].get("user_ids", [])
-                event["content"]["user_ids"] = [self.custom_mxid] if is_typing else []
-            elif evt_type == EventType.RECEIPT:
-                val = None
-                evt = None
-                for event_id in event["content"]:
+            if self.only_handle_own_synced_events:
+                # We only want events about the custom puppet user, but we can't use
+                # filters for typing and read receipt events.
+                evt_type = EventType.find(event.get("type", None))
+                event.setdefault("content", {})
+                if evt_type == EventType.TYPING:
+                    is_typing = self.custom_mxid in event["content"].get("user_ids", [])
+                    event["content"]["user_ids"] = [self.custom_mxid] if is_typing else []
+                elif evt_type == EventType.RECEIPT:
                     try:
-                        val = event["content"][event_id]["m.read"][self.custom_mxid]
-                        evt = event_id
-                        break
+                        event_id, receipt = event["content"].popitem()
+                        data = receipt["m.read"][self.custom_mxid]
+                        event["content"] = {event_id: {"m.read": {self.custom_mxid: data}}}
                     except KeyError:
-                        pass
-                if val and evt:
-                    event["content"] = {evt: {"m.read": {
-                        self.custom_mxid: val
-                    }}}
-                else:
-                    continue
+                        continue
             yield event
 
-    def handle_sync(self, sync_resp: Dict) -> None:
+    def _handle_sync(self, sync_resp: Dict) -> None:
         # Get events from rooms -> join -> [room_id] -> ephemeral -> events (array)
         ephemeral_events = (
             event
@@ -188,7 +235,7 @@ class CustomPuppetMixin(ABC):
                               loop=self.loop)
         asyncio.ensure_future(coro, loop=self.loop)
 
-    async def sync(self) -> None:
+    async def _try_sync(self) -> None:
         try:
             await self._sync()
         except asyncio.CancelledError:
@@ -212,7 +259,7 @@ class CustomPuppetMixin(ABC):
                                                    set_presence=PresenceState.OFFLINE)
                 errors = 0
                 if next_batch is not None:
-                    self.handle_sync(sync_resp)
+                    self._handle_sync(sync_resp)
                 next_batch = sync_resp.get("next_batch", None)
             except (MatrixError, ClientConnectionError) as e:
                 errors += 1
