@@ -67,6 +67,14 @@ db_engine = sql.create_engine(config["appservice.database"] or "sqlite:///mautri
 Base.metadata.bind = db_engine
 init_db(db_engine)
 
+try:
+    import uvloop
+
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    log.debug("Using uvloop for asyncio")
+except ImportError:
+    pass
+
 loop = asyncio.get_event_loop()
 
 state_store = SQLStateStore()
