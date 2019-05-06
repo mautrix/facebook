@@ -7,15 +7,15 @@ from os.path import abspath, dirname
 
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
-from mautrix_facebook.db import Base
+from mautrix.bridge.db import Base
 from mautrix_facebook.config import Config
 
 config = context.config
-mxtg_config_path = context.get_x_argument(as_dictionary=True).get("config", "config.yaml")
-mxtg_config = Config(mxtg_config_path, None, None)
-mxtg_config.load()
+mxfb_config_path = context.get_x_argument(as_dictionary=True).get("config", "config.yaml")
+mxfb_config = Config(mxfb_config_path, None, None)
+mxfb_config.load()
 config.set_main_option("sqlalchemy.url",
-                       mxtg_config.get("appservice.database", "sqlite:///mautrix-facebook.db"))
+                       mxfb_config.get("appservice.database", "sqlite:///mautrix-facebook.db"))
 fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 
