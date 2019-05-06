@@ -7,7 +7,7 @@ Create Date: 2019-05-01 02:37:15.915613
 """
 from alembic import op
 import sqlalchemy as sa
-from mautrix_facebook.db.mx_room_state import PowerLevelType
+from mautrix.bridge.db.mx_room_state import PowerLevelType
 
 # revision identifiers, used by Alembic.
 revision = 'c36b294b1f5f'

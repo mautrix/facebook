@@ -21,7 +21,7 @@ from sqlalchemy.sql.expression import ClauseElement
 
 from mautrix.types import RoomID, EventID
 
-from .base import Base
+from mautrix.bridge.db.base import Base
 
 
 class Message(Base):

@@ -20,8 +20,7 @@ from sqlalchemy.sql import expression
 from sqlalchemy.engine.result import RowProxy
 
 from mautrix.types import UserID
-
-from .base import Base
+from mautrix.bridge.db.base import Base
 
 
 class Puppet(Base):

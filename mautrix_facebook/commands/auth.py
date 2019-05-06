@@ -18,7 +18,8 @@ import asyncio
 from fbchat.models import FBchatUserError
 from mautrix.client import Client
 
-from .. import puppet as pu, custom_puppet as cpu
+from .. import puppet as pu
+from mautrix.bridge import custom_puppet as cpu
 from . import command_handler, CommandEvent, SECTION_AUTH
 
 

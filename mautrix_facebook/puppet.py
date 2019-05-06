@@ -23,7 +23,7 @@ from mautrix.appservice import AppService, IntentAPI
 
 from .config import Config
 from .db import Puppet as DBPuppet
-from .custom_puppet import CustomPuppetMixin
+from mautrix.bridge.custom_puppet import CustomPuppetMixin
 from . import user as u, portal as p, matrix as m
 
 if TYPE_CHECKING:

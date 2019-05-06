@@ -20,8 +20,7 @@ from sqlalchemy.engine.result import RowProxy
 
 from fbchat.models import ThreadType
 from mautrix.types import RoomID
-
-from .base import Base
+from mautrix.bridge.db.base import Base
 
 
 class Portal(Base):
