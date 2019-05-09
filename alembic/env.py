@@ -9,6 +9,7 @@ sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
 from mautrix.bridge.db import Base
 from mautrix_facebook.config import Config
+import mautrix_facebook.db
 
 config = context.config
 mxfb_config_path = context.get_x_argument(as_dictionary=True).get("config", "config.yaml")

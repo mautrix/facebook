@@ -32,6 +32,7 @@ class MessengerBridge(Bridge):
     name = "mautrix-facebook"
     command = "python -m mautrix-facebook"
     description = "A Matrix-Facebook Messenger puppeting bridge."
+    real_user_content_key = "net.maunium.facebook.puppet"
     version = __version__
     config_class = Config
     matrix_class = MatrixHandler
