@@ -21,7 +21,7 @@ from mautrix.bridge.commands import (HelpSection, CommandEvent as BaseCommandEve
                                      CommandProcessor as BaseCommandProcessor)
 from .. import user as u, context as c
 
-HelpCacheKey = NamedTuple('HelpCacheKey', is_management=bool, is_admin=bool, is_logged_in=bool)
+HelpCacheKey = NamedTuple('FBHelpCacheKey', is_management=bool, is_admin=bool, is_logged_in=bool)
 
 SECTION_AUTH = HelpSection("Authentication", 10, "")
 SECTION_CREATING_PORTALS = HelpSection("Creating portals", 20, "")
@@ -33,7 +33,7 @@ SECTION_ADMIN = HelpSection("Administration", 50, "")
 class CommandEvent(BaseCommandEvent):
     sender: 'u.User'
 
-    async def help_key(self) -> HelpCacheKey:
+    async def get_help_key(self) -> HelpCacheKey:
         return HelpCacheKey(is_management=self.is_management,
                             is_admin=self.sender.is_admin,
                             is_logged_in=await self.sender.is_logged_in())
