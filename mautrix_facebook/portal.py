@@ -391,14 +391,6 @@ class Portal:
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
-        # TODO when there's matrix puppeting, check that in this if too
-        if self.is_direct and sender.fbid == source.uid:
-            if self.invite_own_puppet_to_pm:
-                await self.main_intent.invite_user(self.mxid, sender.mxid)
-            elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
-                self.log.warn(f"Ignoring own message {message.uid} in private chat because own"
-                              " puppet is not in room.")
-                return
         async with self.optional_send_lock(sender.fbid):
             if message.uid in self._dedup:
                 await source.markAsDelivered(self.fbid, message.uid)
@@ -406,6 +398,13 @@ class Portal:
             self._dedup.appendleft(message.uid)
         if not self.mxid:
             await self.create_matrix_room(source)
+        if self.is_direct and sender.fbid == source.uid and not sender.is_real_user:
+            if self.invite_own_puppet_to_pm:
+                await self.main_intent.invite_user(self.mxid, sender.mxid)
+            elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
+                self.log.warn(f"Ignoring own message {message.uid} in private chat because own"
+                              " puppet is not in room.")
+                return
         intent = sender.intent_for(self)
         if message.sticker:
             event_ids = [await self._handle_facebook_sticker(intent, message.sticker)]
