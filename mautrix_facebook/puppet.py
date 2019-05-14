@@ -48,7 +48,7 @@ class Puppet(CustomPuppetMixin):
     name: str
     photo_id: str
 
-    is_registered: bool
+    _is_registered: bool
 
     custom_mxid: UserID
     access_token: str
@@ -64,7 +64,7 @@ class Puppet(CustomPuppetMixin):
         self.name = name
         self.photo_id = photo_id
 
-        self.is_registered = is_registered
+        self._is_registered = is_registered
 
         self.custom_mxid = custom_mxid
         self.access_token = access_token
@@ -87,7 +87,7 @@ class Puppet(CustomPuppetMixin):
     def db_instance(self) -> DBPuppet:
         if not self._db_instance:
             self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, photo_id=self.photo_id,
-                                         matrix_registered=self.is_registered,
+                                         matrix_registered=self._is_registered,
                                          custom_mxid=self.custom_mxid,
                                          access_token=self.access_token)
         return self._db_instance
@@ -100,10 +100,18 @@ class Puppet(CustomPuppetMixin):
 
     def save(self) -> None:
         self.db_instance.edit(name=self.name, photo_id=self.photo_id,
-                              matrix_registered=self.is_registered, custom_mxid=self.custom_mxid,
+                              matrix_registered=self._is_registered, custom_mxid=self.custom_mxid,
                               access_token=self.access_token)
 
     # endregion
+
+    @property
+    def is_registered(self) -> bool:
+        return self._is_registered or self.is_real_user
+
+    @is_registered.setter
+    def is_registered(self, value: bool) -> None:
+        self._is_registered = value
 
     def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
         portal = p.Portal.get_by_mxid(room_id)
