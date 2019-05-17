@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional
+from typing import Optional, Iterator
 
 from sqlalchemy import Column, String, Enum, and_
 from sqlalchemy.engine.result import RowProxy
@@ -51,6 +51,11 @@ class Portal(Base):
     @classmethod
     def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
         return cls._select_one_or_none(cls.c.mxid == mxid)
+
+    @classmethod
+    def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
+        return cls._select_all(and_(cls.c.fb_receiver == fb_receiver,
+                                    cls.c.fb_type == ThreadType.USER))
 
     @property
     def _edit_identity(self):

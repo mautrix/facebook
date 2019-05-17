@@ -117,6 +117,13 @@ class Puppet(CustomPuppetMixin):
         portal = p.Portal.get_by_mxid(room_id)
         return portal and portal.fbid != self.fbid
 
+    async def _leave_rooms_with_default_user(self) -> None:
+        await super()._leave_rooms_with_default_user()
+        # Make the user join all private chat portals.
+        await asyncio.gather(*[self.intent.ensure_joined(portal.mxid)
+                               for portal in p.Portal.get_all_by_receiver(self.fbid)
+                               if portal.mxid], loop=self.loop)
+
     def intent_for(self, portal: 'p.Portal') -> IntentAPI:
         if portal.fbid == self.fbid:
             return self.default_mxid_intent

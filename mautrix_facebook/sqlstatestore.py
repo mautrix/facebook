@@ -24,6 +24,9 @@ class SQLStateStore(BaseSQLStateStore):
         puppet = pu.Puppet.get_by_mxid(user_id, create=False)
         if puppet:
             return puppet.is_registered
+        custom_puppet = pu.Puppet.get_by_custom_mxid(user_id)
+        if custom_puppet:
+            return True
         return super().is_registered(user_id)
 
     def registered(self, user_id: UserID) -> None:

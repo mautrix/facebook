@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Deque, Optional, Tuple, Union, Set, TYPE_CHECKING
+from typing import Dict, Deque, Optional, Tuple, Union, Set, Iterator, TYPE_CHECKING
 from collections import deque
 import asyncio
 import logging
@@ -233,6 +233,9 @@ class Portal:
     async def _update_matrix_room(self, source: 'u.User',
                                   info: Optional[ThreadClass] = None) -> None:
         await self.main_intent.invite_user(self.mxid, source.mxid)
+        puppet = p.Puppet.get_by_custom_mxid(source.mxid)
+        if puppet:
+            await puppet.intent.ensure_joined(self.mxid)
 
     async def create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
                                  ) -> RoomID:
@@ -266,6 +269,10 @@ class Portal:
         self.by_mxid[self.mxid] = self
         if not self.is_direct:
             await self._update_participants(source, info)
+        else:
+            puppet = p.Puppet.get_by_custom_mxid(source.mxid)
+            if puppet:
+                await puppet.intent.ensure_joined(self.mxid)
 
     # endregion
     # region Matrix room cleanup
@@ -588,6 +595,14 @@ class Portal:
             return portal
 
         return None
+
+    @classmethod
+    def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
+        for db_portal in DBPortal.get_all_by_receiver(fb_receiver):
+            try:
+                yield cls.by_fbid[(db_portal.fbid, db_portal.fb_receiver)]
+            except KeyError:
+                yield cls.from_db(db_portal)
 
     @classmethod
     def get_by_thread(cls, thread: Thread, fb_receiver: Optional[str] = None) -> 'Portal':
