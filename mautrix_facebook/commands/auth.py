@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import asyncio
+from aiohttp.cookiejar import SimpleCookie
 
 from fbchat.models import FBchatUserError
 from mautrix.client import Client
@@ -50,6 +51,47 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
     future.set_result(code)
     del evt.sender.command_status["future"]
     del evt.sender.command_status["next"]
+
+
+@command_handler(needs_auth=False, management_only=True,
+                 help_section=SECTION_AUTH, help_text="Log in to Facebook manually")
+async def login_cookie(evt: CommandEvent) -> None:
+    evt.sender.command_status = {
+        "action": "Login",
+        "room_id": evt.room_id,
+        "next": enter_login_cookies,
+        "c_user": None,
+    }
+    await evt.reply("1. Log in to Facebook normally.\n"
+                    "2. Press `F12` to open developer tools.\n"
+                    "3. Select the \"Application\" (Chrome) or \"Storage\" (Firefox) tab.\n"
+                    "4. In the sidebar, expand \"Cookies\" and select `https://www.facebook.com`.\n"
+                    "5. In the cookie list, find the `c_user` row and double click on the value"
+                    r", then copy the value and send it here.")
+
+
+async def enter_login_cookies(evt: CommandEvent) -> None:
+    if not evt.sender.command_status["c_user"]:
+        if len(evt.args) == 0:
+            await evt.reply("Please enter the value of the `c_user` cookie, or use "
+                            "the `cancel` command to cancel.")
+            return
+        evt.sender.command_status["c_user"] = evt.args[0]
+        await evt.reply("Now do the last step again, but find the value of the `xs` row instead.")
+        return
+    if len(evt.args) == 0:
+        await evt.reply("Please enter the value of the `xs` cookie, or use "
+                        "the `cancel` command to cancel.")
+        return
+
+    cookie = SimpleCookie()
+    cookie["c_user"] = evt.sender.command_status["c_user"]
+    cookie["xs"] = evt.args[0]
+    ok = await evt.sender.setSession(cookie) and await evt.sender.is_logged_in(True)
+    if not ok:
+        await evt.reply("Failed to log in (see logs for more details)")
+    else:
+        await evt.sender.onLoggedIn(evt.sender.command_status["c_user"])
 
 
 @command_handler(needs_auth=True, management_only=True, help_args="<_access token_>",
