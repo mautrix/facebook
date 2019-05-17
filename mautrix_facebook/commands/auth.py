@@ -113,7 +113,8 @@ async def login_matrix(evt: CommandEvent) -> None:
         await evt.reply("Invalid access token")
 
 
-@command_handler(needs_auth=True, management_only=True, help_section=SECTION_AUTH)
+@command_handler(needs_auth=True, management_only=True, help_section=SECTION_AUTH,
+                 help_text="Revert your Facebook Messenger account's Matrix puppet to the original")
 async def logout_matrix(evt: CommandEvent) -> None:
     puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
     if not puppet.is_real_user:

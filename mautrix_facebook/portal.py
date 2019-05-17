@@ -238,12 +238,19 @@ class Portal:
             await puppet.intent.ensure_joined(self.mxid)
 
     async def create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
-                                 ) -> RoomID:
+                                 ) -> Optional[RoomID]:
         if self.mxid:
-            await self._update_matrix_room(source, info)
+            try:
+                await self._update_matrix_room(source, info)
+            except Exception:
+                self.log.exception("Failed to update portal")
             return self.mxid
         async with self._create_room_lock:
-            await self._create_matrix_room(source, info)
+            try:
+                return await self._create_matrix_room(source, info)
+            except Exception:
+                self.log.exception("Failed to create portal")
+                return None
 
     async def _create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
                                   ) -> RoomID:
@@ -273,6 +280,7 @@ class Portal:
             puppet = p.Puppet.get_by_custom_mxid(source.mxid)
             if puppet:
                 await puppet.intent.ensure_joined(self.mxid)
+        return self.mxid
 
     # endregion
     # region Matrix room cleanup
@@ -404,7 +412,10 @@ class Portal:
                 return
             self._dedup.appendleft(message.uid)
         if not self.mxid:
-            await self.create_matrix_room(source)
+            mxid = await self.create_matrix_room(source)
+            if not mxid:
+                # Failed to create
+                return
         if self.is_direct and sender.fbid == source.uid and not sender.is_real_user:
             if self.invite_own_puppet_to_pm:
                 await self.main_intent.invite_user(self.mxid, sender.mxid)
