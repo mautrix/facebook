@@ -424,17 +424,18 @@ class Portal:
                               " puppet is not in room.")
                 return
         intent = sender.intent_for(self)
+        event_ids = []
         if message.sticker:
             event_ids = [await self._handle_facebook_sticker(intent, message.sticker)]
         elif len(message.attachments) > 0:
             event_ids = await asyncio.gather(
                 *[self._handle_facebook_attachment(intent, attachment)
                   for attachment in message.attachments])
-        elif message.text:
+            event_ids = [event_id for event_id in event_ids if event_id]
+        if not event_ids and message.text:
             event_ids = [await self._handle_facebook_text(intent, message)]
         else:
             self.log.warn(f"Unhandled Messenger message: {message}")
-            event_ids = []
         DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.markAsDelivered(self.fbid, message.uid)
