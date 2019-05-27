@@ -14,16 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, Iterator, Iterable, Awaitable, TYPE_CHECKING
+from string import Template
 import logging
 import asyncio
+import attr
 
 from fbchat.models import User as FBUser
 from mautrix.types import UserID, RoomID
 from mautrix.appservice import AppService, IntentAPI
+from mautrix.bridge.custom_puppet import CustomPuppetMixin
 
 from .config import Config
 from .db import Puppet as DBPuppet
-from mautrix.bridge.custom_puppet import CustomPuppetMixin
 from . import user as u, portal as p, matrix as m
 
 if TYPE_CHECKING:
@@ -141,10 +143,18 @@ class Puppet(CustomPuppetMixin):
         if changed:
             self.save()
 
+    @classmethod
+    def _get_displayname(cls, info: FBUser) -> str:
+        displayname = None
+        for preference in config["bridge.displayname_preference"]:
+            if getattr(info, preference, None):
+                displayname = getattr(info, preference)
+        return config["bridge.displayname_template"].format(displayname=displayname, **attr.asdict(info))
+
     async def _update_name(self, info: FBUser) -> bool:
-        # TODO more precise name control
-        if info.name != self.name:
-            self.name = info.name
+        name = self._get_displayname(info)
+        if name != self.name:
+            self.name = name
             await self.default_mxid_intent.set_displayname(self.name)
             return True
         return False

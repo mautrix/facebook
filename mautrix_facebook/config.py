@@ -26,6 +26,8 @@ class Config(BaseBridgeConfig):
         copy, copy_dict = helper.copy, helper.copy_dict
 
         copy("bridge.username_template")
+        copy("bridge.displayname_template")
+        copy("bridge.displayname_preference")
         copy("bridge.command_prefix")
 
         copy("bridge.initial_chat_sync")
