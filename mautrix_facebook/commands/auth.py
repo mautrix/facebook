@@ -92,6 +92,7 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
         await evt.reply("Failed to log in (see logs for more details)")
     else:
         await evt.sender.onLoggedIn(evt.sender.command_status["c_user"])
+    evt.sender.command_status = None
 
 
 @command_handler(needs_auth=True, management_only=True, help_args="<_access token_>",
