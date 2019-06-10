@@ -26,7 +26,7 @@ setuptools.setup(
         "ruamel.yaml>=0.15.94,<0.16",
         "commonmark>=0.8,<0.9",
         "python-magic>=0.4,<0.5",
-        "fbchat-asyncio>=0.1.1,<0.2.0",
+        "fbchat-asyncio>=0.1.3,<0.2.0",
         "SQLAlchemy>=1.2,<2",
         "alembic>=1,<2",
     ],
