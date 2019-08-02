@@ -17,7 +17,8 @@ from typing import List, TYPE_CHECKING
 
 from fbchat.models import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
-                           RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState)
+                           RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
+                           ReactionEvent, ReactionEventContent, RelationType)
 from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
@@ -139,6 +140,24 @@ class MatrixHandler(BaseMatrixHandler):
 
         await portal.handle_matrix_redaction(user, event_id)
 
+    @classmethod
+    async def handle_reaction(cls, room_id: RoomID, user_id: UserID, event_id: EventID,
+                              content: ReactionEventContent) -> None:
+        if content.relates_to.rel_type != RelationType.ANNOTATION:
+            cls.log.debug(f"Ignoring m.reaction event in {room_id} from {user_id} with unexpected "
+                          f"relation type {content.relates_to.rel_type}")
+            return
+        user = u.User.get_by_mxid(user_id)
+        if not user:
+            return
+
+        portal = po.Portal.get_by_mxid(room_id)
+        if not portal:
+            return
+
+        await portal.handle_matrix_reaction(user, event_id, content.relates_to.event_id,
+                                            content.relates_to.key)
+
     async def handle_presence(self, user_id: UserID, info: PresenceEventContent) -> None:
         if not self.config["bridge.presence"]:
             return
@@ -183,6 +202,9 @@ class MatrixHandler(BaseMatrixHandler):
         if evt.type == EventType.ROOM_REDACTION:
             evt: RedactionEvent
             await self.handle_redaction(evt.room_id, evt.sender, evt.redacts)
+        elif evt.type == EventType.REACTION:
+            evt: ReactionEvent
+            await self.handle_reaction(evt.room_id, evt.sender, evt.event_id, evt.content)
         elif evt.type == EventType.PRESENCE:
             await self.handle_presence(evt.sender, evt.content)
         elif evt.type == EventType.TYPING:

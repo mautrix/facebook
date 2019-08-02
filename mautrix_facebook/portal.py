@@ -25,7 +25,7 @@ import magic
 from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
                            Message as FBMessage, Sticker as FBSticker, AudioAttachment,
                            VideoAttachment, FileAttachment, ImageAttachment, LocationAttachment,
-                           ShareAttachment, TypingStatus)
+                           ShareAttachment, TypingStatus, MessageReaction)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
@@ -34,7 +34,7 @@ from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
 
 from .config import Config
-from .db import Portal as DBPortal, Message as DBMessage
+from .db import Portal as DBPortal, Message as DBMessage, Reaction as DBReaction
 from . import puppet as p, user as u
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ class Portal:
     _main_intent: Optional[IntentAPI]
     _create_room_lock: asyncio.Lock
     _last_bridged_mxid: Optional[EventID]
-    _dedup: Deque[Tuple[str, str]]
+    _dedup: Deque[str]
     _avatar_uri: Optional[ContentURI]
     _send_locks: Dict[str, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
@@ -376,14 +376,56 @@ class Portal:
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID) -> None:
         if not self.mxid:
             return
+
         message = DBMessage.get_by_mxid(event_id, self.mxid)
-        if not message:
+        if message:
+            try:
+                message.delete()
+                await sender.unsend(message.fbid)
+            except Exception:
+                self.log.exception("Unsend failed")
             return
-        try:
-            message.delete()
-            await sender.unsend(message.fbid)
-        except Exception:
-            self.log.exception("Unsend failed")
+
+        reaction = DBReaction.get_by_mxid(event_id, self.mxid)
+        if reaction:
+            try:
+                reaction.delete()
+                await sender.reactToMessage(reaction.fb_msgid, reaction=None)
+            except Exception:
+                self.log.exception("Removing reaction failed")
+
+    _matrix_to_facebook_reaction = {
+        "❤": MessageReaction.HEART,
+        "❤️": MessageReaction.HEART,
+        "😍": MessageReaction.LOVE,
+        "😆": MessageReaction.SMILE,
+        "😮": MessageReaction.WOW,
+        "😢": MessageReaction.SAD,
+        "😠": MessageReaction.ANGRY,
+        "👍": MessageReaction.YES,
+        "👎": MessageReaction.NO
+    }
+
+    async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
+                                     reacting_to: EventID, raw_reaction: str) -> None:
+        async with self.require_send_lock(sender.uid):
+            try:
+                reaction = self._matrix_to_facebook_reaction[raw_reaction]
+            except KeyError:
+                return
+
+            message = DBMessage.get_by_mxid(reacting_to, self.mxid)
+            if not message:
+                self.log.debug(f"Ignoring reaction to unknown event {reacting_to}")
+                return
+
+            existing = DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.uid)
+            if existing and existing.reaction == reaction.value:
+                return
+
+            await sender.reactToMessage(message.fbid, reaction)
+            await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
+                                        reaction.value)
 
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
@@ -404,6 +446,16 @@ class Portal:
     # endregion
     # region Facebook event handling
 
+    async def _bridge_own_message_pm(self, source: 'u.User', sender: 'p.Puppet', mid: str) -> bool:
+        if self.is_direct and sender.fbid == source.uid and not sender.is_real_user:
+            if self.invite_own_puppet_to_pm:
+                await self.main_intent.invite_user(self.mxid, sender.mxid)
+            elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
+                self.log.warn(f"Ignoring own {mid} in private chat because own puppet is not in"
+                              " room.")
+                return False
+        return True
+
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: FBMessage) -> None:
         async with self.optional_send_lock(sender.fbid):
@@ -416,13 +468,8 @@ class Portal:
             if not mxid:
                 # Failed to create
                 return
-        if self.is_direct and sender.fbid == source.uid and not sender.is_real_user:
-            if self.invite_own_puppet_to_pm:
-                await self.main_intent.invite_user(self.mxid, sender.mxid)
-            elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
-                self.log.warn(f"Ignoring own message {message.uid} in private chat because own"
-                              " puppet is not in room.")
-                return
+        if not await self._bridge_own_message_pm(source, sender, f"message {message.uid}"):
+            return
         intent = sender.intent_for(self)
         event_ids = []
         if message.sticker:
@@ -465,7 +512,8 @@ class Portal:
         # elif isinstance(attachment, VideoAttachment):
         # TODO
         elif isinstance(attachment, FileAttachment):
-            mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent, attachment.name)
+            mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
+                                                            attachment.name)
             event_id = await intent.send_file(self.mxid, mxc,
                                               info=FileInfo(size=size, mimetype=mime),
                                               file_name=attachment.name)
@@ -567,6 +615,60 @@ class Portal:
         DBMessage(mxid=event_id, mx_room=self.mxid,
                   fbid=message_id, fb_receiver=self.fb_receiver,
                   index=0).insert()
+
+    async def handle_facebook_reaction_add(self, source: 'u.User', sender: 'p.Puppet',
+                                           message_id: str, reaction: str) -> None:
+        dedup_id = f"react_{message_id}_{sender}_{reaction}"
+        async with self.optional_send_lock(sender.fbid):
+            if dedup_id in self._dedup:
+                return
+            self._dedup.appendleft(dedup_id)
+
+        existing = DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
+        if existing and existing.reaction == reaction:
+            return
+
+        if not await self._bridge_own_message_pm(source, sender, f"reaction to {message_id}"):
+            return
+
+        intent = sender.intent_for(self)
+
+        message = DBMessage.get_by_fbid(message_id, self.fb_receiver)
+        if not message:
+            self.log.debug(f"Ignoring reaction to unknown message {message}")
+            return
+
+        mxid = await intent.react(message.mx_room, message.mxid, reaction)
+        self.log.debug(f"Reacted to {message.mxid}, got {mxid}")
+
+        await self._upsert_reaction(existing, intent, mxid, message, sender, reaction)
+
+    async def _upsert_reaction(self, existing: DBReaction, intent: IntentAPI, mxid: EventID,
+                               message: DBMessage, sender: Union['u.User', 'p.Puppet'],
+                               reaction: str) -> None:
+        if existing:
+            self.log.debug(f"_upsert_reaction redacting {existing.mxid} and inserting {mxid}"
+                           f" (message: {message.mxid})")
+            await intent.redact(existing.mx_room, existing.mxid)
+            existing.edit(reaction=reaction, mxid=mxid, mx_room=message.mx_room)
+        else:
+            self.log.debug(f"_upsert_reaction inserting {mxid} (message: {message.mxid})")
+            DBReaction(mxid=mxid, mx_room=message.mx_room, fb_msgid=message.fbid,
+                       fb_receiver=self.fb_receiver, fb_sender=sender.fbid,
+                       reaction=reaction).insert()
+
+    async def handle_facebook_reaction_remove(self, source: 'u.User', sender: 'p.Puppet',
+                                              message_id: str) -> None:
+        if not self.mxid:
+            return
+        reaction = DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
+        if reaction:
+            self.log.debug(f"redacting {reaction.mxid}")
+            try:
+                await sender.intent_for(self).redact(reaction.mx_room, reaction.mxid)
+            except MForbidden:
+                await self.main_intent.redact(reaction.mx_room, reaction.mxid)
+            reaction.delete()
 
     # endregion
     # region Getters

@@ -14,6 +14,7 @@
     * [ ] Replies
     * [ ] Mentions
   * [x] Message redactions
+  * [x] Message reactions
   * [x] Presence
   * [x] Typing notifications
   * [x] Read receipts
@@ -40,7 +41,7 @@
     * [ ] Mentions
     * [ ] Polls
   * [x] Message unsend
-  * [ ] Message reactions (not yet implemented in Matrix)
+  * [x] Message reactions
   * [ ] Message history
   * [x] Presence
   * [ ] Typing notifications

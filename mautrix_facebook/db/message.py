@@ -20,7 +20,6 @@ from sqlalchemy.engine.result import RowProxy
 from sqlalchemy.sql.expression import ClauseElement
 
 from mautrix.types import RoomID, EventID
-
 from mautrix.bridge.db.base import Base
 
 
@@ -45,7 +44,7 @@ class Message(Base):
         return cls._select_all(cls.c.fbid == fbid, cls.c.fb_receiver == fb_receiver)
 
     @classmethod
-    def get_by_fbid(cls, fbid: str, fb_receiver: str, index: int) -> Optional['Message']:
+    def get_by_fbid(cls, fbid: str, fb_receiver: str, index: int = 0) -> Optional['Message']:
         return cls._select_one_or_none(and_(cls.c.fbid == fbid, cls.c.fb_receiver == fb_receiver,
                                             cls.c.index == index))
 

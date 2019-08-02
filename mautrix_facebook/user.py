@@ -19,7 +19,7 @@ import asyncio
 import logging
 
 from fbchat import Client
-from fbchat.models import Message, ThreadType, User as FBUser, ActiveStatus
+from fbchat.models import Message, ThreadType, User as FBUser, ActiveStatus, MessageReaction
 from mautrix.types import UserID, PresenceState
 from mautrix.appservice import AppService
 
@@ -65,6 +65,10 @@ class User(Client):
         self.setActiveStatus(False)
 
     # region Sessions
+
+    @property
+    def fbid(self) -> str:
+        return self.uid
 
     @property
     def db_instance(self) -> DBUser:
@@ -176,7 +180,7 @@ class User(Client):
         self.log.warn("Unexpected on2FACode call")
         # raise RuntimeError("No ongoing login command")
 
-    async def onLoggedIn(self, email=None) -> None:
+    async def onLoggedIn(self, email: str = None) -> None:
         """
         Called when the client is successfully logged in
 
@@ -235,7 +239,8 @@ class User(Client):
         await portal.handle_facebook_message(self, puppet, message_object)
 
     async def onColorChange(self, mid=None, author_id=None, new_color=None, thread_id=None,
-                            thread_type=ThreadType.USER, ts=None, metadata=None, msg=None):
+                            thread_type=ThreadType.USER, ts=None, metadata=None, msg=None
+                            ) -> None:
         """
         Called when the client is listening, and somebody changes a thread's color
 
@@ -257,7 +262,8 @@ class User(Client):
         )
 
     async def onEmojiChange(self, mid=None, author_id=None, new_emoji=None, thread_id=None,
-                            thread_type=ThreadType.USER, ts=None, metadata=None, msg=None):
+                            thread_type=ThreadType.USER, ts=None, metadata=None, msg=None
+                            ) -> None:
         """
         Called when the client is listening, and somebody changes a thread's emoji
 
@@ -278,7 +284,8 @@ class User(Client):
         )
 
     async def onTitleChange(self, mid=None, author_id=None, new_title=None, thread_id=None,
-                            thread_type=ThreadType.USER, ts=None, metadata=None, msg=None):
+                            thread_type=ThreadType.USER, ts=None, metadata=None, msg=None
+                            ) -> None:
         """
         Called when the client is listening, and somebody changes the title of a thread
 
@@ -301,8 +308,9 @@ class User(Client):
             return
         await portal.handle_facebook_name(self, sender, new_title, mid)
 
-    async def onImageChange(self, mid=None, author_id=None, new_image=None, thread_id=None,
-                            thread_type=ThreadType.GROUP, ts=None, msg=None):
+    async def onImageChange(self, mid: str = None, author_id: str = None, new_image: str = None,
+                            thread_id: str = None, thread_type: ThreadType = ThreadType.GROUP,
+                            ts: int = None, msg: Any = None) -> None:
         """
         Called when the client is listening, and somebody changes the image of a thread
 
@@ -326,7 +334,7 @@ class User(Client):
 
     async def onNicknameChange(self, mid=None, author_id=None, changed_for=None, new_nickname=None,
                                thread_id=None, thread_type=ThreadType.USER, ts=None, metadata=None,
-                               msg=None):
+                               msg=None) -> None:
         """
         Called when the client is listening, and somebody changes the nickname of a person
 
@@ -348,7 +356,7 @@ class User(Client):
         )
 
     async def onAdminAdded(self, mid=None, added_id=None, author_id=None, thread_id=None,
-                           thread_type=ThreadType.GROUP, ts=None, msg=None):
+                           thread_type=ThreadType.GROUP, ts=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody adds an admin to a group thread
 
@@ -356,6 +364,7 @@ class User(Client):
         :param added_id: The ID of the admin who got added
         :param author_id: The ID of the person who added the admins
         :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
+        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
         :param ts: A timestamp of the action
         :param msg: A full set of the data recieved
         """
@@ -376,7 +385,8 @@ class User(Client):
         self.log.info("{} removed admin: {} in {}".format(author_id, removed_id, thread_id))
 
     async def onApprovalModeChange(self, mid=None, approval_mode=None, author_id=None,
-                                   thread_id=None, thread_type=ThreadType.GROUP, ts=None, msg=None):
+                                   thread_id=None, thread_type=ThreadType.GROUP, ts=None,
+                                   msg=None) -> None:
         """
         Called when the client is listening, and somebody changes approval mode in a group thread
 
@@ -413,7 +423,8 @@ class User(Client):
         await portal.handle_facebook_seen(self, puppet)
 
     async def onMessageDelivered(self, msg_ids=None, delivered_for=None, thread_id=None,
-                                 thread_type=ThreadType.USER, ts=None, metadata=None, msg=None):
+                                 thread_type=ThreadType.USER, ts=None, metadata=None, msg=None
+                                 ) -> None:
         """
         Called when the client is listening, and somebody marks messages as delivered
 
@@ -432,7 +443,8 @@ class User(Client):
             )
         )
 
-    async def onMarkedSeen(self, threads=None, seen_ts=None, ts=None, metadata=None, msg=None):
+    async def onMarkedSeen(self, threads=None, seen_ts=None, ts=None, metadata=None, msg=None
+                           ) -> None:
         """
         Called when the client is listening, and the client has successfully marked threads as seen
 
@@ -469,8 +481,8 @@ class User(Client):
         puppet = pu.Puppet.get_by_fbid(author_id)
         await portal.handle_facebook_unsend(self, puppet, mid)
 
-    async def onPeopleAdded(self, mid=None, added_ids=None, author_id=None, thread_id=None, ts=None,
-                            msg=None):
+    async def onPeopleAdded(self, mid=None, added_ids=None, author_id=None, thread_id=None,
+                            ts=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody adds people to a group thread
 
@@ -486,7 +498,7 @@ class User(Client):
         )
 
     async def onPersonRemoved(self, mid=None, removed_id=None, author_id=None, thread_id=None,
-                              ts=None, msg=None):
+                              ts=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody removes a person from a group thread
 
@@ -499,7 +511,7 @@ class User(Client):
         """
         self.log.info("{} removed: {} in {}".format(author_id, removed_id, thread_id))
 
-    async def onFriendRequest(self, from_id=None, msg=None):
+    async def onFriendRequest(self, from_id=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody sends a friend request
 
@@ -508,7 +520,7 @@ class User(Client):
         """
         self.log.info("Friend request from {}".format(from_id))
 
-    async def onInbox(self, unseen=None, unread=None, recent_unread=None, msg=None):
+    async def onInbox(self, unseen=None, unread=None, recent_unread=None, msg=None) -> None:
         """
         .. todo::
             Documenting this
@@ -521,7 +533,7 @@ class User(Client):
         self.log.info("Inbox event: {}, {}, {}".format(unseen, unread, recent_unread))
 
     async def onTyping(self, author_id=None, status=None, thread_id=None, thread_type=None,
-                       msg=None):
+                       msg=None) -> None:
         """
         Called when the client is listening, and somebody starts or stops typing into a chat
 
@@ -535,9 +547,9 @@ class User(Client):
         """
         self.log.info(f"User is typing: {author_id} {status} in {thread_id} {thread_type}")
 
-    async def onGamePlayed(self, mid=None, author_id=None, game_id=None, game_name=None, score=None,
-                           leaderboard=None, thread_id=None, thread_type=None, ts=None,
-                           metadata=None, msg=None):
+    async def onGamePlayed(self, mid=None, author_id=None, game_id=None, game_name=None,
+                           score=None, leaderboard=None, thread_id=None, thread_type=None, ts=None,
+                           metadata=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody plays a game
 
@@ -560,14 +572,15 @@ class User(Client):
             )
         )
 
-    async def onReactionAdded(self, mid=None, reaction=None, author_id=None, thread_id=None,
-                              thread_type=None, ts=None, msg=None):
+    async def onReactionAdded(self, mid: str = None, reaction: MessageReaction = None,
+                              author_id: str = None, thread_id: str = None,
+                              thread_type: ThreadType = None, ts: int = None, msg: Any = None
+                              ) -> None:
         """
         Called when the client is listening, and somebody reacts to a message
 
         :param mid: Message ID, that user reacted to
         :param reaction: Reaction
-        :param add_reaction: Whether user added or removed reaction
         :param author_id: The ID of the person who reacted to the message
         :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
         :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
@@ -576,14 +589,16 @@ class User(Client):
         :type reaction: models.MessageReaction
         :type thread_type: models.ThreadType
         """
-        self.log.info(
-            "{} reacted to message {} with {} in {} ({})".format(
-                author_id, mid, reaction.name, thread_id, thread_type.name
-            )
-        )
+        self.log.debug(f"onReactionAdded({mid}, {reaction}, {author_id}, {thread_id}, "
+                       f"{thread_type})")
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
+        puppet = pu.Puppet.get_by_fbid(author_id)
+        await portal.handle_facebook_reaction_add(self, puppet, mid, reaction.value)
 
-    async def onReactionRemoved(self, mid=None, author_id=None, thread_id=None, thread_type=None,
-                                ts=None, msg=None):
+    async def onReactionRemoved(self, mid: str = None, author_id: str = None,
+                                thread_id: str = None, thread_type: ThreadType = None,
+                                ts: int = None, msg: Any = None) -> None:
         """
         Called when the client is listening, and somebody removes reaction from a message
 
@@ -595,13 +610,14 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type thread_type: models.ThreadType
         """
-        self.log.info(
-            "{} removed reaction from {} message in {} ({})".format(
-                author_id, mid, thread_id, thread_type
-            )
-        )
+        self.log.debug(f"onReactionRemoved({mid}, {author_id}, {thread_id}, {thread_type})")
+        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
+        puppet = pu.Puppet.get_by_fbid(author_id)
+        await portal.handle_facebook_reaction_remove(self, puppet, mid)
 
-    async def onBlock(self, author_id=None, thread_id=None, thread_type=None, ts=None, msg=None):
+    async def onBlock(self, author_id=None, thread_id=None, thread_type=None, ts=None, msg=None
+                      ) -> None:
         """
         Called when the client is listening, and somebody blocks client
 
@@ -616,7 +632,8 @@ class User(Client):
             "{} blocked {} ({}) thread".format(author_id, thread_id, thread_type.name)
         )
 
-    async def onUnblock(self, author_id=None, thread_id=None, thread_type=None, ts=None, msg=None):
+    async def onUnblock(self, author_id=None, thread_id=None, thread_type=None, ts=None, msg=None
+                        ) -> None:
         """
         Called when the client is listening, and somebody blocks client
 
@@ -632,7 +649,7 @@ class User(Client):
         )
 
     async def onLiveLocation(self, mid=None, location=None, author_id=None, thread_id=None,
-                             thread_type=None, ts=None, msg=None, ):
+                             thread_type=None, ts=None, msg=None) -> None:
         """
         Called when the client is listening and somebody sends live location info
 
@@ -653,7 +670,7 @@ class User(Client):
         )
 
     async def onCallStarted(self, mid=None, caller_id=None, is_video_call=None, thread_id=None,
-                            thread_type=None, ts=None, metadata=None, msg=None):
+                            thread_type=None, ts=None, metadata=None, msg=None) -> None:
         """
         .. todo::
             Make this work with private calls
@@ -675,7 +692,8 @@ class User(Client):
         )
 
     async def onCallEnded(self, mid=None, caller_id=None, is_video_call=None, call_duration=None,
-                          thread_id=None, thread_type=None, ts=None, metadata=None, msg=None):
+                          thread_id=None, thread_type=None, ts=None, metadata=None, msg=None
+                          ) -> None:
         """
         .. todo::
             Make this work with private calls
@@ -698,7 +716,7 @@ class User(Client):
         )
 
     async def onUserJoinedCall(self, mid=None, joined_id=None, is_video_call=None, thread_id=None,
-                               thread_type=None, ts=None, metadata=None, msg=None):
+                               thread_type=None, ts=None, metadata=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody joins a group call
 
@@ -717,7 +735,7 @@ class User(Client):
         )
 
     async def onPollCreated(self, mid=None, poll=None, author_id=None, thread_id=None,
-                            thread_type=None, ts=None, metadata=None, msg=None):
+                            thread_type=None, ts=None, metadata=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody creates a group poll
 
@@ -740,7 +758,7 @@ class User(Client):
 
     async def onPollVoted(self, mid=None, poll=None, added_options=None, removed_options=None,
                           author_id=None, thread_id=None, thread_type=None, ts=None, metadata=None,
-                          msg=None):
+                          msg=None) -> None:
         """
         Called when the client is listening, and somebody votes in a group poll
 
@@ -762,7 +780,7 @@ class User(Client):
         )
 
     async def onPlanCreated(self, mid=None, plan=None, author_id=None, thread_id=None,
-                            thread_type=None, ts=None, metadata=None, msg=None):
+                            thread_type=None, ts=None, metadata=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody creates a plan
 
@@ -803,7 +821,7 @@ class User(Client):
         )
 
     async def onPlanEdited(self, mid=None, plan=None, author_id=None, thread_id=None,
-                           thread_type=None, ts=None, metadata=None, msg=None):
+                           thread_type=None, ts=None, metadata=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody edits a plan
 
@@ -825,7 +843,7 @@ class User(Client):
         )
 
     async def onPlanDeleted(self, mid=None, plan=None, author_id=None, thread_id=None,
-                            thread_type=None, ts=None, metadata=None, msg=None):
+                            thread_type=None, ts=None, metadata=None, msg=None) -> None:
         """
         Called when the client is listening, and somebody deletes a plan
 
@@ -848,7 +866,7 @@ class User(Client):
 
     async def onPlanParticipation(self, mid=None, plan=None, take_part=None, author_id=None,
                                   thread_id=None, thread_type=None, ts=None, metadata=None,
-                                  msg=None):
+                                  msg=None) -> None:
         """
         Called when the client is listening, and somebody takes part in a plan or not
 
@@ -878,7 +896,7 @@ class User(Client):
                 )
             )
 
-    async def onQprimer(self, ts=None, msg=None):
+    async def onQprimer(self, ts=None, msg=None) -> None:
         """
         Called when the client just started listening
 
@@ -913,7 +931,7 @@ class User(Client):
         """
         await self.onChatTimestamp(statuses, msg)
 
-    async def onUnknownMesssageType(self, msg=None):
+    async def onUnknownMesssageType(self, msg: Any = None) -> None:
         """
         Called when the client is listening, and some unknown data was recieved
 
@@ -921,7 +939,7 @@ class User(Client):
         """
         self.log.debug("Unknown message received: {}".format(msg))
 
-    async def onMessageError(self, exception=None, msg=None):
+    async def onMessageError(self, exception: Exception = None, msg: Any = None) -> None:
         """
         Called when an error was encountered while parsing recieved data
 
