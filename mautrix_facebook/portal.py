@@ -362,7 +362,7 @@ class Portal:
             self._last_bridged_mxid = event_id
 
     async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> str:
-        return await sender.send(matrix_to_facebook(message), self.fbid, self.fb_type)
+        return await sender.send(matrix_to_facebook(message, self.mxid), self.fbid, self.fb_type)
 
     async def _handle_matrix_image(self, sender: 'u.User',
                                    message: MediaMessageEventContent) -> str:
@@ -496,6 +496,8 @@ class Portal:
             if message:
                 evt = await self.main_intent.get_event(message.mx_room, message.mxid)
                 if evt:
+                    if isinstance(evt.content, TextMessageEventContent):
+                        evt.content.trim_reply_fallback()
                     content.set_reply(evt)
 
     def _get_facebook_reply(self, reply: str) -> Optional[RelatesTo]:

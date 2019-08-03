@@ -11,8 +11,8 @@
       * [x] Images
       * [ ] Locations
     * [x] Formatting
-    * [ ] Replies
-    * [ ] Mentions
+    * [x] Replies
+    * [x] Mentions
   * [x] Message redactions
   * [x] Message reactions
   * [x] Presence
