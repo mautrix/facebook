@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, Match
+from typing import Tuple, List, Optional, Match
 from html import escape
 import re
 
@@ -28,7 +28,6 @@ _END = r"$|\s"
 _TEXT_NO_SURROUNDING_SPACE = r"(?:[^\s].*?[^\s])|[^\s]"
 COMMON_REGEX = re.compile(rf"({_START})([_~*])({_TEXT_NO_SURROUNDING_SPACE})\2({_END})")
 INLINE_CODE_REGEX = re.compile(rf"({_START})(`)(.+?)`({_END})")
-CODE_BLOCK_REGEX = re.compile(r"(```.+```)")
 MENTION_REGEX = re.compile(r"@([0-9]{15})\u2063(.+)\u2063")
 
 tags = {
@@ -37,15 +36,6 @@ tags = {
     "~": "del",
     "`": "code"
 }
-
-
-def _code_block_replacer(code: str) -> str:
-    if "\n" in code:
-        lang, code = code.split("\n", 1)
-        lang = lang.strip()
-        if lang:
-            return f"<pre><code class=\"language-{lang}\">{code}</code></pre>"
-    return f"<pre><code>{code}</code></pre>"
 
 
 def _mention_replacer(match: Match) -> str:
@@ -89,7 +79,63 @@ def _convert_formatting(html: str) -> str:
             html, pos = _handle_match(html, match, nested=match != i_match)
         else:
             break
-    return html.replace("\n", "<br/>")
+    return html
+
+
+def _handle_blockquote(output: List[str], blockquote: bool, line: str) -> Tuple[bool, str]:
+    if not blockquote and line.startswith("&gt; "):
+        line = line[len("&gt; "):]
+        output.append("<blockquote>")
+        blockquote = True
+    elif blockquote:
+        if line.startswith("&gt;"):
+            line = line[len("&gt;"):]
+            if line.startswith(" "):
+                line = line[1:]
+        else:
+            output.append("</blockquote>")
+            blockquote = False
+    return blockquote, line
+
+
+OptStr = Optional[str]
+
+
+def _handle_codeblock_pre(output: List[str], codeblock: bool, line: str
+                          ) -> Tuple[bool, str, Tuple[OptStr, OptStr, OptStr]]:
+    cb = line.find("```")
+    cb_lang = None
+    cb_content = None
+    post_cb_content = None
+    if cb != -1:
+        if not codeblock:
+            cb_lang = line[cb + 3:]
+            if "```" in cb_lang:
+                end = cb_lang.index("```")
+                cb_content = cb_lang[:end]
+                post_cb_content = cb_lang[end + 3:]
+                cb_lang = ""
+            else:
+                codeblock = True
+            line = line[:cb]
+        else:
+            output.append("</code></pre>")
+            codeblock = False
+            line = line[cb + 3:]
+    return codeblock, line, (cb_lang, cb_content, post_cb_content)
+
+
+def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptStr,
+                           post_cb_content: OptStr) -> None:
+    if cb_lang is not None:
+        if cb_lang:
+            output.append("<pre><code>")
+        else:
+            output.append(f"<pre><code class=\"{cb_lang}\">")
+        if cb_content:
+            output.append(cb_content)
+            output.append("</code></pre>")
+            output.append(_convert_formatting(post_cb_content))
 
 
 def facebook_to_matrix(message: Message) -> TextMessageEventContent:
@@ -101,9 +147,19 @@ def facebook_to_matrix(message: Message) -> TextMessageEventContent:
             original = original[1:]
         text = f"{text[:m.offset]}@{m.thread_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
     html = escape(text)
-    html = "".join(_code_block_replacer(part[3:-3]) if part[:3] == "```" == part[-3:]
-                   else _convert_formatting(part)
-                   for part in CODE_BLOCK_REGEX.split(html))
+    output = []
+    codeblock = False
+    blockquote = False
+    line: str
+    lines = html.split("\n")
+    for i, line in enumerate(lines):
+        blockquote, line = _handle_blockquote(output, blockquote, line)
+        codeblock, line, post_args = _handle_codeblock_pre(output, codeblock, line)
+        output.append(_convert_formatting(line))
+        if i != len(lines) - 1:
+            output.append("<br/>")
+        _handle_codeblock_post(output, *post_args)
+    html = "".join(output)
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
     if html != escape(content.body).replace("\n", "<br/>"):
