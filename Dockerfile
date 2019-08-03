@@ -3,9 +3,7 @@ FROM docker.io/alpine:3.10
 ENV UID=1337 \
     GID=1337
 
-COPY . /opt/mautrix-facebook
-WORKDIR /opt/mautrix-facebook
-RUN apk add --no-cache \
+RUN apk add --no-cache  \
       py3-pillow \
       py3-aiohttp \
       py3-magic \
@@ -25,8 +23,11 @@ RUN apk add --no-cache \
       py3-idna \
       # Other dependencies
       ca-certificates \
-      su-exec \
- && pip3 install .
+      su-exec
+
+COPY . /opt/mautrix-facebook
+WORKDIR /opt/mautrix-facebook
+RUN pip3 install .
 
 VOLUME /data
 
