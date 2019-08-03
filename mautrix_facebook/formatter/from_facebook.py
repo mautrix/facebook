@@ -89,7 +89,7 @@ def _convert_formatting(html: str) -> str:
             html, pos = _handle_match(html, match, nested=match != i_match)
         else:
             break
-    return html
+    return html.replace("\n", "<br/>")
 
 
 def facebook_to_matrix(message: Message) -> TextMessageEventContent:
@@ -106,7 +106,7 @@ def facebook_to_matrix(message: Message) -> TextMessageEventContent:
                    for part in CODE_BLOCK_REGEX.split(html))
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
-    if html != escape(content.body):
+    if html != escape(content.body).replace("\n", "<br/>"):
         content.format = Format.HTML
         content.formatted_body = html
     return content
