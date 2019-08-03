@@ -23,7 +23,7 @@ setuptools.setup(
 
     install_requires=[
         "aiohttp>=3.0.1,<4",
-        "mautrix>=0.4.0.dev49,<0.5.0",
+        "mautrix>=0.4.0.dev51,<0.5.0",
         "ruamel.yaml>=0.15.94,<0.16",
         "commonmark>=0.8,<0.9",
         "python-magic>=0.4,<0.5",

@@ -13,62 +13,73 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional
-from enum import Enum
-import re
+from typing import Optional, cast
 
 from fbchat.models import Message, Mention
 
 from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
-from mautrix.util.formatter import MatrixParser as BaseMatrixParser, FormattedString
+from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
+                                    Entity, EntityType)
 
 from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
 
 
-class EntityType(Enum):
-    BOLD = 1
-    ITALIC = 2
-    STRIKETHROUGH = 3
-    UNDERLINE = 4
-    URL = 5
-    INLINE_URL = 6
-    EMAIL = 7
-    PREFORMATTED = 8
-    INLINE_CODE = 9
+class FacebookFormatString(EntityString, MarkdownString):
+    def _mention_to_entity(self, mxid: UserID) -> Optional[Entity]:
+        user = u.User.get_by_mxid(mxid, create=False)
+        if user and user.fbid:
+            fbid = user.fbid
+        else:
+            puppet = pu.Puppet.get_by_mxid(mxid, create=False)
+            if puppet:
+                fbid = puppet.fbid
+            else:
+                return None
+        return Entity(type=EntityType.USER_MENTION, offset=0, length=len(self.text),
+                      extra_info={"user_id": mxid, "fbid": fbid})
 
-    def apply(self, text: str, **kwargs) -> str:
-        if self == EntityType.BOLD:
-            return f"*{text}*"
-        elif self == EntityType.ITALIC:
-            return f"_{text}_"
-        elif self == EntityType.STRIKETHROUGH:
-            return f"~{text}~"
-        elif self == EntityType.INLINE_URL:
-            return f"{text} ({kwargs['url']})"
-        elif self == EntityType.PREFORMATTED:
-            return f"```{kwargs['language']}\n{text}\n```"
-        elif self == EntityType.INLINE_CODE:
-            return f"`{text}`"
-        return text
+    def format(self, entity_type: EntityType, **kwargs) -> 'FacebookFormatString':
+        prefix = suffix = ""
+        if entity_type == EntityType.USER_MENTION:
+            mention = self._mention_to_entity(kwargs['user_id'])
+            if mention:
+                self.entities.append(mention)
+            return self
+        elif entity_type == EntityType.BOLD:
+            prefix = suffix = "*"
+        elif entity_type == EntityType.ITALIC:
+            prefix = suffix = "_"
+        elif entity_type == EntityType.STRIKETHROUGH:
+            prefix = suffix = "~"
+        elif entity_type == EntityType.URL:
+            if kwargs['url'] != self.text:
+                suffix = f" ({kwargs['url']})"
+        elif entity_type == EntityType.PREFORMATTED:
+            prefix = f"```{kwargs['language']}\n"
+            suffix = "\n```"
+        elif entity_type == EntityType.INLINE_CODE:
+            prefix = suffix = "`"
+        elif entity_type == EntityType.BLOCKQUOTE:
+            children = self.trim().split("\n")
+            children = [child.prepend("> ") for child in children]
+            return self.join(children, "\n")
+        elif entity_type == EntityType.HEADER:
+            prefix = "#" * kwargs["size"] + " "
+        else:
+            return self
 
-
-MENTION_REGEX = re.compile(r"@([0-9]{15})\u2063(.+)\u2063")
+        self._offset_entities(len(prefix))
+        self.text = f"{prefix}{self.text}{suffix}"
+        return self
 
 
 class MatrixParser(BaseMatrixParser):
-    e = EntityType
+    fs = FacebookFormatString
 
     @classmethod
-    def user_pill_to_fstring(cls, msg: FormattedString, user_id: UserID
-                             ) -> Optional[FormattedString]:
-        user = u.User.get_by_mxid(user_id, create=False)
-        if user and user.fbid:
-            return FormattedString(f"@{user.fbid}\u2063{msg.text}\u2063")
-        puppet = pu.Puppet.get_by_mxid(user_id, create=False)
-        if puppet:
-            return FormattedString(f"@{puppet.fbid}\u2063{puppet.name or msg.text}\u2063")
-        return msg
+    def parse(cls, data: str) -> FacebookFormatString:
+        return cast(FacebookFormatString, super().parse(data))
 
 
 def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> Message:
@@ -80,12 +91,11 @@ def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> Mes
             content.trim_reply_fallback()
             reply_to_id = message.fbid
     if content.format == Format.HTML and content.formatted_body:
-        text = MatrixParser.parse(content.formatted_body).text
-        for mention in MENTION_REGEX.finditer(text):
-            fbid, name = mention.groups()
-            start, end = mention.start(), mention.end()
-            text = f"{text[:start]}{name}{text[end:]}"
-            mentions.append(Mention(thread_id=fbid, offset=start, length=len(name)))
+        parsed: FacebookFormatString = MatrixParser.parse(content.formatted_body)
+        text = parsed.text
+        mentions = [Mention(thread_id=mention.extra_info['fbid'], offset=mention.offset,
+                            length=mention.length)
+                    for mention in parsed.entities]
     else:
         text = content.body
     return Message(text=text, mentions=mentions, reply_to_id=reply_to_id)
