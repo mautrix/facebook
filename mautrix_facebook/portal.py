@@ -34,7 +34,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
 
-from .formatter import facebook_to_matrix
+from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
 from .db import Portal as DBPortal, Message as DBMessage, Reaction as DBReaction
 from . import puppet as p, user as u
@@ -362,7 +362,7 @@ class Portal:
             self._last_bridged_mxid = event_id
 
     async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> str:
-        return await sender.send(FBMessage(text=message.body), self.fbid, self.fb_type)
+        return await sender.send(matrix_to_facebook(message), self.fbid, self.fb_type)
 
     async def _handle_matrix_image(self, sender: 'u.User',
                                    message: MediaMessageEventContent) -> str:

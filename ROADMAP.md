@@ -10,7 +10,7 @@
       * [ ] Videos
       * [x] Images
       * [ ] Locations
-    * [ ] Formatting
+    * [x] Formatting
     * [ ] Replies
     * [ ] Mentions
   * [x] Message redactions
