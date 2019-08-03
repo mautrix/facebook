@@ -28,11 +28,13 @@ from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup,
                            ShareAttachment, TypingStatus, MessageReaction)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
-                           ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format,
-                           TextMessageEventContent, MediaMessageEventContent, Membership)
+                           ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format, RelatesTo,
+                           TextMessageEventContent, MediaMessageEventContent, Membership,
+                           RelationType)
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
 
+from .formatter import facebook_to_matrix
 from .config import Config
 from .db import Portal as DBPortal, Message as DBMessage, Reaction as DBReaction
 from . import puppet as p, user as u
@@ -473,10 +475,11 @@ class Portal:
         intent = sender.intent_for(self)
         event_ids = []
         if message.sticker:
-            event_ids = [await self._handle_facebook_sticker(intent, message.sticker)]
+            event_ids = [await self._handle_facebook_sticker(intent, message.sticker,
+                                                             message.reply_to_id)]
         elif len(message.attachments) > 0:
             event_ids = await asyncio.gather(
-                *[self._handle_facebook_attachment(intent, attachment)
+                *[self._handle_facebook_attachment(intent, attachment, message.reply_to_id)
                   for attachment in message.attachments])
             event_ids = [event_id for event_id in event_ids if event_id]
         if not event_ids and message.text:
@@ -487,10 +490,28 @@ class Portal:
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.markAsDelivered(self.fbid, message.uid)
 
-    async def _handle_facebook_text(self, intent: IntentAPI, message: FBMessage) -> EventID:
-        return await intent.send_text(self.mxid, message.text)
+    async def _add_facebook_reply(self, content: TextMessageEventContent, reply: str) -> None:
+        if reply:
+            message = DBMessage.get_by_fbid(reply, self.fb_receiver)
+            if message:
+                evt = await self.main_intent.get_event(message.mx_room, message.mxid)
+                if evt:
+                    content.set_reply(evt)
 
-    async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker) -> EventID:
+    def _get_facebook_reply(self, reply: str) -> Optional[RelatesTo]:
+        if reply:
+            message = DBMessage.get_by_fbid(reply, self.fb_receiver)
+            if message:
+                return RelatesTo(rel_type=RelationType.REFERENCE, event_id=message.mxid)
+        return None
+
+    async def _handle_facebook_text(self, intent: IntentAPI, message: FBMessage) -> EventID:
+        content = facebook_to_matrix(message)
+        await self._add_facebook_reply(content, message.reply_to_id)
+        return await intent.send_message(self.mxid, content)
+
+    async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker,
+                                       reply_to: str) -> EventID:
         # TODO handle animated stickers?
         mxc, mime, size = await self._reupload_fb_photo(sticker.url, intent)
         return await intent.send_sticker(room_id=self.mxid, url=mxc,
@@ -498,17 +519,19 @@ class Portal:
                                                         height=sticker.height,
                                                         mimetype=mime,
                                                         size=size),
-                                         text=sticker.label)
+                                         text=sticker.label,
+                                         relates_to=self._get_facebook_reply(reply_to))
 
-    async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass
-                                          ) -> Optional[EventID]:
+    async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass,
+                                          reply_to: str) -> Optional[EventID]:
         if isinstance(attachment, AudioAttachment):
             mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
                                                             attachment.filename)
             event_id = await intent.send_file(self.mxid, mxc, file_type=MessageType.AUDIO,
                                               info=AudioInfo(size=size, mimetype=mime,
                                                              duration=attachment.duration),
-                                              file_name=attachment.filename, )
+                                              file_name=attachment.filename,
+                                              relates_to=self._get_facebook_reply(reply_to))
         # elif isinstance(attachment, VideoAttachment):
         # TODO
         elif isinstance(attachment, FileAttachment):
@@ -516,16 +539,19 @@ class Portal:
                                                             attachment.name)
             event_id = await intent.send_file(self.mxid, mxc,
                                               info=FileInfo(size=size, mimetype=mime),
-                                              file_name=attachment.name)
+                                              file_name=attachment.name,
+                                              relates_to=self._get_facebook_reply(reply_to))
         elif isinstance(attachment, ImageAttachment):
             mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url, intent)
-            event_id = await intent.send_image(self.mxid, mxc,
+            info = ImageInfo(size=size, mimetype=mime,
+                             width=attachment.large_preview_width,
+                             height=attachment.large_preview_height)
+            event_id = await intent.send_image(self.mxid, mxc, info=info,
                                                file_name=f"image.{attachment.original_extension}",
-                                               info=ImageInfo(size=size, mimetype=mime,
-                                                              width=attachment.large_preview_width,
-                                                              height=attachment.large_preview_height))
+                                               relates_to=self._get_facebook_reply(reply_to))
         elif isinstance(attachment, LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)
+            content.relates_to = self._get_facebook_reply(reply_to)
             event_id = await intent.send_message(self.mxid, content)
         else:
             self.log.warn(f"Unsupported attachment type: {attachment}")

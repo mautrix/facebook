@@ -36,9 +36,9 @@
       * [ ] Videos
       * [x] Images
       * [x] Locations
-    * [ ] Formatting
-    * [ ] Replies
-    * [ ] Mentions
+    * [x] Formatting
+    * [x] Replies
+    * [x] Mentions
     * [ ] Polls
   * [x] Message unsend
   * [x] Message reactions

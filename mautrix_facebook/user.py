@@ -39,6 +39,7 @@ class User(Client):
     loop: asyncio.AbstractEventLoop
     log: logging.Logger = logging.getLogger("mau.user")
     by_mxid: Dict[UserID, 'User'] = {}
+    by_fbid: Dict[str, 'User'] = {}
 
     command_status: Optional[Dict[str, Any]]
     is_whitelisted: bool
@@ -111,6 +112,19 @@ class User(Client):
 
         return None
 
+    @classmethod
+    def get_by_fbid(cls, fbid: str) -> Optional['User']:
+        try:
+            return cls.by_fbid[fbid]
+        except KeyError:
+            pass
+
+        db_user = DBUser.get_by_fbid(fbid)
+        if db_user:
+            return cls.from_db(db_user)
+
+        return None
+
     async def load_session(self) -> bool:
         if self._is_logged_in:
             return True
@@ -139,6 +153,7 @@ class User(Client):
 
     async def post_login(self) -> None:
         self.log.info("Running post-login actions")
+        self.by_fbid[self.fbid] = self
         await self.sync_threads()
         self.log.debug("Updating own puppet info")
         own_info = (await self.fetchUserInfo(self.uid))[self.uid]
