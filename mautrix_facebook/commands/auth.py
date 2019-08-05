@@ -95,6 +95,14 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
     evt.sender.command_status = None
 
 
+@command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
+async def logout(evt: CommandEvent) -> None:
+    puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
+    await evt.sender.logout()
+    if puppet.is_real_user:
+        await puppet.switch_mxid(None, None)
+
+
 @command_handler(needs_auth=True, management_only=True, help_args="<_access token_>",
                  help_section=SECTION_AUTH, help_text="Replace your Facebook Messenger account's "
                                                       "Matrix puppet with your Matrix account")

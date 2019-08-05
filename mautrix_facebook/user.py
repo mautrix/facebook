@@ -145,6 +145,7 @@ class User(Client):
     # endregion
 
     async def logout(self) -> bool:
+        self.stopListening()
         ok = await super().logout()
         self._session_data = None
         self._is_logged_in = False
@@ -223,6 +224,7 @@ class User(Client):
         :return: Whether the loop should keep running
         """
         self.log.exception("Got exception while listening")
+        await asyncio.sleep(10)
         return True
 
     async def onMessage(self, mid: str = None, author_id: str = None, message: str = None,
