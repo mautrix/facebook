@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, Iterator, Iterable, Awaitable, TYPE_CHECKING
-from string import Template
 import logging
 import asyncio
 import attr
 
 from fbchat.models import User as FBUser
-from mautrix.types import UserID, RoomID
+from mautrix.types import UserID, RoomID, SyncToken
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.bridge.custom_puppet import CustomPuppetMixin
+from mautrix.util.simple_template import SimpleTemplate
 
 from .config import Config
 from .db import Puppet as DBPuppet
@@ -40,8 +40,7 @@ class Puppet(CustomPuppetMixin):
     loop: asyncio.AbstractEventLoop
     mx: m.MatrixHandler
     hs_domain: str
-    _mxid_prefix: str
-    _mxid_suffix: str
+    mxid_template: SimpleTemplate[str]
 
     by_fbid: Dict[str, 'Puppet'] = {}
     by_custom_mxid: Dict[UserID, 'Puppet'] = {}
@@ -54,13 +53,14 @@ class Puppet(CustomPuppetMixin):
 
     custom_mxid: UserID
     access_token: str
+    _next_batch: SyncToken
 
     _db_instance: Optional[DBPuppet]
 
     intent: IntentAPI
 
     def __init__(self, fbid: str, name: str = "", photo_id: str = "", is_registered: bool = False,
-                 custom_mxid: UserID = "", access_token: str = "",
+                 custom_mxid: UserID = "", access_token: str = "", next_batch: SyncToken = "",
                  db_instance: Optional[DBPuppet] = None) -> None:
         self.fbid = fbid
         self.name = name
@@ -70,6 +70,7 @@ class Puppet(CustomPuppetMixin):
 
         self.custom_mxid = custom_mxid
         self.access_token = access_token
+        self._next_batch = next_batch
 
         self._db_instance = db_instance
 
@@ -90,7 +91,7 @@ class Puppet(CustomPuppetMixin):
         if not self._db_instance:
             self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, photo_id=self.photo_id,
                                          matrix_registered=self._is_registered,
-                                         custom_mxid=self.custom_mxid,
+                                         custom_mxid=self.custom_mxid, next_batch=self._next_batch,
                                          access_token=self.access_token)
         return self._db_instance
 
@@ -98,12 +99,22 @@ class Puppet(CustomPuppetMixin):
     def from_db(cls, db_puppet: DBPuppet) -> 'Puppet':
         return Puppet(fbid=db_puppet.fbid, name=db_puppet.name, photo_id=db_puppet.photo_id,
                       is_registered=db_puppet.matrix_registered, custom_mxid=db_puppet.custom_mxid,
-                      access_token=db_puppet.access_token, db_instance=db_puppet)
+                      access_token=db_puppet.access_token, next_batch=db_puppet.next_batch,
+                      db_instance=db_puppet)
 
     def save(self) -> None:
         self.db_instance.edit(name=self.name, photo_id=self.photo_id,
                               matrix_registered=self._is_registered, custom_mxid=self.custom_mxid,
                               access_token=self.access_token)
+
+    @property
+    def next_batch(self) -> SyncToken:
+        return self._next_batch
+
+    @next_batch.setter
+    def next_batch(self, value: SyncToken) -> None:
+        self._next_batch = value
+        self.db_instance.edit(next_batch=self._next_batch)
 
     # endregion
 
@@ -149,7 +160,8 @@ class Puppet(CustomPuppetMixin):
         for preference in config["bridge.displayname_preference"]:
             if getattr(info, preference, None):
                 displayname = getattr(info, preference)
-        return config["bridge.displayname_template"].format(displayname=displayname, **attr.asdict(info))
+        return config["bridge.displayname_template"].format(displayname=displayname,
+                                                            **attr.asdict(info))
 
     async def _update_name(self, info: FBUser) -> bool:
         name = self._get_displayname(info)
@@ -216,15 +228,11 @@ class Puppet(CustomPuppetMixin):
 
     @classmethod
     def get_id_from_mxid(cls, mxid: UserID) -> Optional[str]:
-        prefix = cls._mxid_prefix
-        suffix = cls._mxid_suffix
-        if mxid[:len(prefix)] == prefix and mxid[-len(suffix):] == suffix:
-            return mxid[len(prefix):-len(suffix)]
-        return None
+        return cls.mxid_template.parse(mxid)
 
     @classmethod
     def get_mxid_from_id(cls, fbid: str) -> UserID:
-        return UserID(cls._mxid_prefix + fbid + cls._mxid_suffix)
+        return UserID(cls.mxid_template.format_full(fbid))
 
     @classmethod
     def get_all_with_custom_mxid(cls) -> Iterator['Puppet']:
@@ -243,12 +251,9 @@ def init(context: 'Context') -> Iterable[Awaitable[None]]:
     global config
     Puppet.az, config, Puppet.loop = context.core
     Puppet.mx = context.mx
-    username_template = config["bridge.username_template"].lower()
     CustomPuppetMixin.sync_with_custom_puppets = config["bridge.sync_with_custom_puppets"]
-    index = username_template.index("{userid}")
-    length = len("{userid}")
     Puppet.hs_domain = config["homeserver"]["domain"]
-    Puppet._mxid_prefix = f"@{username_template[:index]}"
-    Puppet._mxid_suffix = f"{username_template[index + length:]}:{Puppet.hs_domain}"
+    Puppet.mxid_template = SimpleTemplate(config["bridge.username_template"], "userid",
+                                          prefix="@", suffix=f":{Puppet.hs_domain}", type=int)
 
     return (puppet.start() for puppet in Puppet.get_all_with_custom_mxid())

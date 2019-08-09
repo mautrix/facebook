@@ -19,14 +19,14 @@ from fbchat.models import Message, Mention
 
 from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
-                                    Entity, EntityType)
+                                    SimpleEntity, EntityType)
 
 from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
 
 
-class FacebookFormatString(EntityString, MarkdownString):
-    def _mention_to_entity(self, mxid: UserID) -> Optional[Entity]:
+class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownString):
+    def _mention_to_entity(self, mxid: UserID) -> Optional[SimpleEntity]:
         user = u.User.get_by_mxid(mxid, create=False)
         if user and user.fbid:
             fbid = user.fbid
@@ -36,8 +36,8 @@ class FacebookFormatString(EntityString, MarkdownString):
                 fbid = puppet.fbid
             else:
                 return None
-        return Entity(type=EntityType.USER_MENTION, offset=0, length=len(self.text),
-                      extra_info={"user_id": mxid, "fbid": fbid})
+        return SimpleEntity(type=EntityType.USER_MENTION, offset=0, length=len(self.text),
+                            extra_info={"user_id": mxid, "fbid": fbid})
 
     def format(self, entity_type: EntityType, **kwargs) -> 'FacebookFormatString':
         prefix = suffix = ""
@@ -74,7 +74,7 @@ class FacebookFormatString(EntityString, MarkdownString):
         return self
 
 
-class MatrixParser(BaseMatrixParser):
+class MatrixParser(BaseMatrixParser[FacebookFormatString]):
     fs = FacebookFormatString
 
     @classmethod
@@ -91,7 +91,7 @@ def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> Mes
             content.trim_reply_fallback()
             reply_to_id = message.fbid
     if content.format == Format.HTML and content.formatted_body:
-        parsed: FacebookFormatString = MatrixParser.parse(content.formatted_body)
+        parsed = MatrixParser.parse(content.formatted_body)
         text = parsed.text
         mentions = [Mention(thread_id=mention.extra_info['fbid'], offset=mention.offset,
                             length=mention.length)

@@ -351,7 +351,7 @@ class Portal:
             elif message.msgtype == MessageType.LOCATION:
                 fbid = await self._handle_matrix_location(sender, message)
             else:
-                self.log.warn(f"Unsupported msgtype in {message}")
+                self.log.warning(f"Unsupported msgtype in {message}")
                 return
             if not fbid:
                 return
@@ -453,8 +453,8 @@ class Portal:
             if self.invite_own_puppet_to_pm:
                 await self.main_intent.invite_user(self.mxid, sender.mxid)
             elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
-                self.log.warn(f"Ignoring own {mid} in private chat because own puppet is not in"
-                              " room.")
+                self.log.warning(f"Ignoring own {mid} in private chat because own puppet is not in"
+                                 " room.")
                 return False
         return True
 
@@ -485,7 +485,7 @@ class Portal:
         if not event_ids and message.text:
             event_ids = [await self._handle_facebook_text(intent, message)]
         else:
-            self.log.warn(f"Unhandled Messenger message: {message}")
+            self.log.warning(f"Unhandled Messenger message: {message}")
         DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.markAsDelivered(self.fbid, message.uid)
@@ -556,7 +556,7 @@ class Portal:
             content.relates_to = self._get_facebook_reply(reply_to)
             event_id = await intent.send_message(self.mxid, content)
         else:
-            self.log.warn(f"Unsupported attachment type: {attachment}")
+            self.log.warning(f"Unsupported attachment type: {attachment}")
             return None
         self._last_bridged_mxid = event_id
         return event_id

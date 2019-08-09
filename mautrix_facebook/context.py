@@ -14,29 +14,28 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Tuple, TYPE_CHECKING
+from asyncio import AbstractEventLoop
+
+from mautrix.appservice import AppService
+
+from .config import Config
 
 if TYPE_CHECKING:
-    import asyncio
-
-    from mautrix.appservice import AppService
-
-    from .config import Config
     from .matrix import MatrixHandler
 
 
 class Context:
-    az: 'AppService'
-    config: 'Config'
-    loop: 'asyncio.AbstractEventLoop'
+    az: AppService
+    config: Config
+    loop: AbstractEventLoop
     mx: Optional['MatrixHandler']
 
-    def __init__(self, az: 'AppService', config: 'Config', loop: 'asyncio.AbstractEventLoop'
-                 ) -> None:
+    def __init__(self, az: AppService, config: Config, loop: AbstractEventLoop) -> None:
         self.az = az
         self.config = config
         self.loop = loop
         self.mx = None
 
     @property
-    def core(self) -> Tuple['AppService', 'Config', 'asyncio.AbstractEventLoop']:
+    def core(self) -> Tuple[AppService, Config, AbstractEventLoop]:
         return self.az, self.config, self.loop

@@ -13,12 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, TYPE_CHECKING
+from typing import List, Union, TYPE_CHECKING
 
 from fbchat.models import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
                            RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
-                           ReactionEvent, ReactionEventContent, RelationType)
+                           ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,
+                           TypingEvent)
 from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
@@ -41,8 +42,8 @@ class MatrixHandler(BaseMatrixHandler):
     async def get_user(self, user_id: UserID) -> 'u.User':
         return u.User.get_by_mxid(user_id)
 
-    async def handle_puppet_invite(self, room_id: RoomID, puppet: 'pu.Puppet', invited_by: 'u.User'
-                                   ) -> None:
+    async def handle_puppet_invite(self, room_id: RoomID, puppet: 'pu.Puppet',
+                                   invited_by: 'u.User', event_id: EventID) -> None:
         intent = puppet.default_mxid_intent
         self.log.debug(f"{invited_by.mxid} invited puppet for {puppet.fbid} to {room_id}")
         if not await invited_by.is_logged_in():
@@ -92,12 +93,13 @@ class MatrixHandler(BaseMatrixHandler):
         portal.save()
         await intent.send_notice(room_id, "Portal to private chat created.")
 
-    async def handle_invite(self, room_id: RoomID, user_id: UserID, invited_by: 'u.User') -> None:
+    async def handle_invite(self, room_id: RoomID, user_id: UserID, invited_by: 'u.User',
+                            event_id: EventID) -> None:
         # TODO handle puppet and user invites for group chats
         # The rest can probably be ignored
         pass
 
-    async def handle_join(self, room_id: RoomID, user_id: UserID) -> None:
+    async def handle_join(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
         user = u.User.get_by_mxid(user_id)
 
         portal = po.Portal.get_by_mxid(room_id)
@@ -117,7 +119,7 @@ class MatrixHandler(BaseMatrixHandler):
         self.log.debug(f"{user} joined {room_id}")
         # await portal.join_matrix(user, event_id)
 
-    async def handle_leave(self, room_id: RoomID, user_id: UserID) -> None:
+    async def handle_leave(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
         portal = po.Portal.get_by_mxid(room_id)
         if not portal:
             return
@@ -193,10 +195,19 @@ class MatrixHandler(BaseMatrixHandler):
         await user.markAsRead(portal.fbid)
 
     def filter_matrix_event(self, evt: Event) -> bool:
-        if not isinstance(evt, (MessageEvent, StateEvent)):
-            return False
+        if not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent)):
+            return True
         return (evt.sender == self.az.bot_mxid
                 or pu.Puppet.get_id_from_mxid(evt.sender) is not None)
+
+    async def handle_ephemeral_event(self, evt: Union[ReceiptEvent, PresenceEvent, TypingEvent]
+                                     ) -> None:
+        if evt.type == EventType.PRESENCE:
+            await self.handle_presence(evt.sender, evt.content)
+        elif evt.type == EventType.TYPING:
+            await self.handle_typing(evt.room_id, evt.content.user_ids)
+        elif evt.type == EventType.RECEIPT:
+            await self.handle_receipt(evt)
 
     async def handle_event(self, evt: Event) -> None:
         if evt.type == EventType.ROOM_REDACTION:
@@ -205,9 +216,3 @@ class MatrixHandler(BaseMatrixHandler):
         elif evt.type == EventType.REACTION:
             evt: ReactionEvent
             await self.handle_reaction(evt.room_id, evt.sender, evt.event_id, evt.content)
-        elif evt.type == EventType.PRESENCE:
-            await self.handle_presence(evt.sender, evt.content)
-        elif evt.type == EventType.TYPING:
-            await self.handle_typing(evt.room_id, evt.content.user_ids)
-        elif evt.type == EventType.RECEIPT:
-            await self.handle_receipt(evt)

@@ -193,7 +193,7 @@ class User(Client):
                                              "You have two-factor authentication enabled. "
                                              "Please send the code here.")
             return await future
-        self.log.warn("Unexpected on2FACode call")
+        self.log.warning("Unexpected on2FACode call")
         # raise RuntimeError("No ongoing login command")
 
     async def onLoggedIn(self, email: str = None) -> None:
@@ -209,7 +209,7 @@ class User(Client):
             self.save()
             self.listen()
             asyncio.ensure_future(self.post_login(), loop=self.loop)
-        self.log.warn("Unexpected onLoggedIn call")
+        self.log.warning("Unexpected onLoggedIn call")
         # raise RuntimeError("No ongoing login command")
 
     async def onListening(self) -> None:
