@@ -255,6 +255,6 @@ def init(context: 'Context') -> Iterable[Awaitable[None]]:
     CustomPuppetMixin.sync_with_custom_puppets = config["bridge.sync_with_custom_puppets"]
     Puppet.hs_domain = config["homeserver"]["domain"]
     Puppet.mxid_template = SimpleTemplate(config["bridge.username_template"], "userid",
-                                          prefix="@", suffix=f":{Puppet.hs_domain}", type=int)
+                                          prefix="@", suffix=f":{Puppet.hs_domain}", type=str)
 
     return (puppet.start() for puppet in Puppet.get_all_with_custom_mxid())
