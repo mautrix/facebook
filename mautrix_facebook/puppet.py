@@ -145,7 +145,7 @@ class Puppet(CustomPuppetMixin):
     # region User info updating
 
     async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None
-                          ) -> None:
+                          ) -> 'Puppet':
         if not info:
             info = (await source.fetchUserInfo(self.fbid))[self.fbid]
         changed = any(await asyncio.gather(self._update_name(info),
@@ -153,6 +153,7 @@ class Puppet(CustomPuppetMixin):
                                            loop=self.loop))
         if changed:
             self.save()
+        return self
 
     @classmethod
     def _get_displayname(cls, info: FBUser) -> str:
