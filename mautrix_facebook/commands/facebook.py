@@ -13,10 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List
+from typing import Iterable, List
 import asyncio
 
-from .. import puppet as pu
+from fbchat.models import User
+
+from .. import puppet as pu, user as u
 from . import command_handler, CommandEvent, SECTION_MISC
 
 
@@ -25,13 +27,23 @@ from . import command_handler, CommandEvent, SECTION_MISC
                  help_args="<_search query_>")
 async def search(evt: CommandEvent) -> None:
     res = await evt.sender.searchForUsers(" ".join(evt.args))
+    await evt.reply(await _handle_search_result(evt.sender, res))
+
+
+@command_handler(needs_auth=True, management_only=False)
+async def search_by_id(evt: CommandEvent) -> None:
+    res = await evt.sender.fetchUserInfo(*evt.args)
+    await evt.reply(await _handle_search_result(evt.sender, res.values()))
+
+
+async def _handle_search_result(sender: 'u.User', res: Iterable[User]) -> str:
     puppets: List[pu.Puppet] = await asyncio.gather(*[pu.Puppet.get_by_fbid(user.uid, create=True)
-                                                    .update_info(evt.sender, user)
+                                                    .update_info(sender, user)
                                                       for user in res])
     results = "".join(
         f"* [{puppet.name}](https://matrix.to/#/{puppet.default_mxid})\n"
         for puppet in puppets)
     if results:
-        await evt.reply(f"Search results:\n\n{results}")
+        return f"Search results:\n\n{results}"
     else:
-        await evt.reply("No results :(")
+        return "No results :("
