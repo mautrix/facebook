@@ -257,4 +257,4 @@ def init(context: 'Context') -> Iterable[Awaitable[None]]:
     Puppet.mxid_template = SimpleTemplate(config["bridge.username_template"], "userid",
                                           prefix="@", suffix=f":{Puppet.hs_domain}", type=str)
 
-    return (puppet.start() for puppet in Puppet.get_all_with_custom_mxid())
+    return (puppet.try_start() for puppet in Puppet.get_all_with_custom_mxid())
