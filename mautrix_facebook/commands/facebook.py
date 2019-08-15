@@ -29,9 +29,9 @@ async def search(evt: CommandEvent) -> None:
                                                     .update_info(evt.sender, user)
                                                       for user in res])
     results = "".join(
-        f"<li><a href='https://matrix.to/#/{puppet.default_mxid}'>{puppet.name}</a></li>"
+        f"* [{puppet.name}](https://matrix.to/#/{puppet.default_mxid})\n"
         for puppet in puppets)
     if results:
-        await evt.reply(f"Search results:<br/><ul>{results}</ul>")
+        await evt.reply(f"Search results:\n\n{results}")
     else:
         await evt.reply("No results :(")
