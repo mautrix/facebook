@@ -23,9 +23,9 @@ setuptools.setup(
 
     install_requires=[
         "aiohttp>=3.0.1,<4",
-        "mautrix>=0.4.0.dev58,<0.5.0",
-        "ruamel.yaml>=0.15.94,<0.16",
-        "commonmark>=0.8,<0.9",
+        "mautrix>=0.4.0.dev61,<0.5.0",
+        "ruamel.yaml>=0.15.94,<0.17",
+        "commonmark>=0.8,<0.10",
         "python-magic>=0.4,<0.5",
         "fbchat-asyncio>=0.2.2,<0.3.0",
         "SQLAlchemy>=1.2,<2",
@@ -33,7 +33,7 @@ setuptools.setup(
     ],
 
     classifiers=[
-        "Development Status :: 2 - Pre-Alpha",
+        "Development Status :: 3 - Alpha",
         "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
         "Topic :: Communications :: Chat",
         "Framework :: AsyncIO",

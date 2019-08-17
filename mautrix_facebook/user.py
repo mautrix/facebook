@@ -20,12 +20,15 @@ import logging
 
 from fbchat import Client
 from fbchat.models import Message, ThreadType, User as FBUser, ActiveStatus, MessageReaction
+
 from mautrix.types import UserID, PresenceState
 from mautrix.appservice import AppService
+from mautrix.client import Client as MxClient
+from mautrix.bridge._community import CommunityHelper, CommunityID
 
 from .config import Config
 from .commands import enter_2fa_code
-from .db import User as DBUser
+from .db import User as DBUser, UserPortal as DBUserPortal, Contact as DBContact
 from . import portal as po, puppet as pu
 
 if TYPE_CHECKING:
@@ -48,6 +51,9 @@ class User(Client):
     _session_data: Optional[SimpleCookie]
     _db_instance: Optional[DBUser]
 
+    _community_helper: CommunityHelper
+    _community_id: Optional[CommunityID]
+
     def __init__(self, mxid: UserID, session: Optional[SimpleCookie] = None,
                  db_instance: Optional[DBUser] = None) -> None:
         super().__init__(loop=self.loop)
@@ -58,6 +64,7 @@ class User(Client):
         self._is_logged_in = None
         self._session_data = session
         self._db_instance = db_instance
+        self._community_id = None
 
         self.log = self.log.getChild(self.mxid)
         self._log = self._log.getChild(self.mxid)
@@ -155,11 +162,64 @@ class User(Client):
     async def post_login(self) -> None:
         self.log.info("Running post-login actions")
         self.by_fbid[self.fbid] = self
+        await self._create_community()
+        await self.sync_contacts()
         await self.sync_threads()
         self.log.debug("Updating own puppet info")
         own_info = (await self.fetchUserInfo(self.uid))[self.uid]
         puppet = pu.Puppet.get_by_fbid(self.uid, create=True)
         await puppet.update_info(source=self, info=own_info)
+
+    async def _create_community(self) -> None:
+        template = config["bridge.community_template"]
+        if not template:
+            return
+        localpart, server = MxClient.parse_user_id(self.mxid)
+        community_localpart = template.format(localpart=localpart, server=server)
+        self.log.debug(f"Creating personal filtering community {community_localpart}...")
+        self._community_id, created = await self._community_helper.create(community_localpart)
+        if created:
+            await self._community_helper.update(self._community_id, name="Facebook Messenger",
+                                                avatar_url=config["appservice.bot_avatar"],
+                                                short_desc="Your Facebook bridged chats")
+            await self._community_helper.invite(self._community_id, self.mxid)
+
+    async def _add_community(self, up: Optional[DBUserPortal], contact: Optional[DBContact],
+                             portal: 'po.Portal', puppet: Optional['pu.Puppet']) -> None:
+        if portal.mxid:
+            if not up or not up.in_community:
+                ic = await self._community_helper.add_room(self._community_id, portal.mxid)
+                if up and ic:
+                    up.edit(in_community=True)
+                elif not up:
+                    DBUserPortal(user=self.fbid, in_community=ic, portal=portal.fbid,
+                                 portal_receiver=portal.fb_receiver).insert()
+        if puppet:
+            await self._add_community_puppet(contact, puppet)
+
+    async def _add_community_puppet(self, contact: Optional[DBContact],
+                                    puppet: 'pu.Puppet') -> None:
+        if not contact or not contact.in_community:
+            await puppet.default_mxid_intent.ensure_registered()
+            ic = await self._community_helper.join(self._community_id,
+                                                   puppet.default_mxid_intent)
+            if contact and ic:
+                contact.edit(in_community=True)
+            elif not contact:
+                DBContact(user=self.fbid, contact=puppet.fbid, in_community=ic).insert()
+
+    async def sync_contacts(self):
+        try:
+            self.log.debug("Fetching contacts...")
+            users = await self.fetchAllUsers()
+            self.log.debug(f"Fetched {len(users)} contacts")
+            contacts = DBContact.all(self.fbid)
+            for user in users:
+                puppet = pu.Puppet.get_by_fbid(user.uid, create=True)
+                await puppet.update_info(self, user)
+                await self._add_community_puppet(contacts.get(puppet.fbid, None), puppet)
+        except Exception:
+            self.log.exception("Failed to sync contacts")
 
     async def sync_threads(self) -> None:
         try:
@@ -168,14 +228,23 @@ class User(Client):
                 return
             self.log.debug("Fetching threads...")
             threads = await self.fetchThreadList(limit=sync_count)
+            ups = DBUserPortal.all(self.fbid)
+            contacts = DBContact.all(self.fbid)
             for thread in threads:
                 self.log.debug(f"Syncing thread {thread.uid} {thread.name}")
                 fb_receiver = self.uid if thread.type == ThreadType.USER else None
                 portal = po.Portal.get_by_thread(thread, fb_receiver)
-                await portal.create_matrix_room(self, thread)
+                puppet = None
+
                 if isinstance(thread, FBUser):
                     puppet = pu.Puppet.get_by_fbid(thread.uid, create=True)
                     await puppet.update_info(self, thread)
+
+                await self._add_community(ups.get(portal.fbid, None),
+                                          contacts.get(puppet.fbid, None) if puppet else None,
+                                          portal, puppet)
+
+                await portal.create_matrix_room(self, thread)
         except Exception:
             self.log.exception("Failed to sync threads")
 
@@ -971,4 +1040,5 @@ class User(Client):
 def init(context: 'Context') -> Iterable[Awaitable[bool]]:
     global config
     User.az, config, User.loop = context.core
+    User._community_helper = CommunityHelper(User.az)
     return (user.load_session() for user in User.get_all())

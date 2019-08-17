@@ -36,7 +36,8 @@ from mautrix.errors import MForbidden, IntentError, MatrixError
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
-from .db import Portal as DBPortal, Message as DBMessage, Reaction as DBReaction
+from .db import (Portal as DBPortal, Message as DBMessage, Reaction as DBReaction,
+                 UserPortal as DBUserPortal)
 from . import puppet as p, user as u
 
 if TYPE_CHECKING:
@@ -282,6 +283,11 @@ class Portal:
             puppet = p.Puppet.get_by_custom_mxid(source.mxid)
             if puppet:
                 await puppet.intent.ensure_joined(self.mxid)
+
+        in_community = await source._community_helper.add_room(source._community_id, self.mxid)
+        DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
+                     in_community=in_community).upsert()
+
         return self.mxid
 
     # endregion

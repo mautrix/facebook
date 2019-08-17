@@ -16,7 +16,6 @@
 from typing import Optional, Iterator
 
 from sqlalchemy import Column, String, Enum, and_
-from sqlalchemy.engine.result import RowProxy
 
 from fbchat.models import ThreadType
 from mautrix.types import RoomID
@@ -39,12 +38,6 @@ class Portal(Base):
     photo_id = Column(String, nullable=True)
 
     @classmethod
-    def scan(cls, row: RowProxy) -> Optional['Portal']:
-        fbid, fb_receiver, fb_type, mxid, name, photo_id = row
-        return cls(fbid=fbid, fb_receiver=fb_receiver, fb_type=fb_type, mxid=mxid,
-                   name=name, photo_id=photo_id)
-
-    @classmethod
     def get_by_fbid(cls, fbid: str, fb_receiver: str) -> Optional['Portal']:
         return cls._select_one_or_none(and_(cls.c.fbid == fbid, cls.c.fb_receiver == fb_receiver))
 
@@ -56,13 +49,3 @@ class Portal(Base):
     def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
         return cls._select_all(and_(cls.c.fb_receiver == fb_receiver,
                                     cls.c.fb_type == ThreadType.USER))
-
-    @property
-    def _edit_identity(self):
-        return and_(self.c.fbid == self.fbid, self.c.fb_receiver == self.fb_receiver)
-
-    def insert(self) -> None:
-        with self.db.begin() as conn:
-            conn.execute(self.t.insert().values(fbid=self.fbid, fb_receiver=self.fb_receiver,
-                                                fb_type=self.fb_type, mxid=self.mxid,
-                                                name=self.name, photo_id=self.photo_id))

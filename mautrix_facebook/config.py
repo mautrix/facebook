@@ -25,9 +25,12 @@ class Config(BaseBridgeConfig):
 
         copy, copy_dict = helper.copy, helper.copy_dict
 
+        copy("appservice.community_id")
+
         copy("bridge.username_template")
         copy("bridge.displayname_template")
         copy("bridge.displayname_preference")
+        copy("bridge.community_template")
         copy("bridge.command_prefix")
 
         copy("bridge.initial_chat_sync")
@@ -59,10 +62,13 @@ class Config(BaseBridgeConfig):
         homeserver = self["homeserver.domain"]
 
         username_format = self["bridge.username_template"].lower().format(userid=".+")
+        group_id = ({"group_id": self["appservice.community_id"]}
+                    if self["appservice.community_id"] else {})
 
         return {
             "users": [{
                 "exclusive": True,
-                "regex": f"@{username_format}:{homeserver}"
+                "regex": f"@{username_format}:{homeserver}",
+                **group_id,
             }],
         }

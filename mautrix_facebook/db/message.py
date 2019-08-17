@@ -16,8 +16,6 @@
 from typing import Optional, Iterable, List
 
 from sqlalchemy import Column, String, SmallInteger, UniqueConstraint, and_
-from sqlalchemy.engine.result import RowProxy
-from sqlalchemy.sql.expression import ClauseElement
 
 from mautrix.types import RoomID, EventID
 from mautrix.bridge.db.base import Base
@@ -35,11 +33,6 @@ class Message(Base):
     __table_args__ = (UniqueConstraint("mxid", "mx_room", name="_mx_id_room"),)
 
     @classmethod
-    def scan(cls, row: RowProxy) -> 'Message':
-        mxid, mx_room, fbid, fb_receiver, index = row
-        return cls(mxid=mxid, mx_room=mx_room, fbid=fbid, fb_receiver=fb_receiver, index=index)
-
-    @classmethod
     def get_all_by_fbid(cls, fbid: str, fb_receiver: str) -> Iterable['Message']:
         return cls._select_all(cls.c.fbid == fbid, cls.c.fb_receiver == fb_receiver)
 
@@ -52,11 +45,6 @@ class Message(Base):
     def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Optional['Message']:
         return cls._select_one_or_none(and_(cls.c.mxid == mxid, cls.c.mx_room == mx_room))
 
-    @property
-    def _edit_identity(self) -> ClauseElement:
-        return and_(self.c.fbid == self.fbid, self.c.fb_receiver == self.fb_receiver,
-                    self.c.index == self.index)
-
     @classmethod
     def bulk_create(cls, fbid: str, fb_receiver: str, event_ids: List[EventID], mx_room: RoomID
                     ) -> None:
@@ -67,9 +55,3 @@ class Message(Base):
                          [dict(mxid=event_id, mx_room=mx_room, fbid=fbid, fb_receiver=fb_receiver,
                                index=i)
                           for i, event_id in enumerate(event_ids)])
-
-    def insert(self) -> None:
-        with self.db.begin() as conn:
-            conn.execute(self.t.insert().values(mxid=self.mxid, mx_room=self.mx_room,
-                                                fb_receiver=self.fb_receiver, fbid=self.fbid,
-                                                index=self.index))

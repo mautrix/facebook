@@ -148,11 +148,14 @@ class Puppet(CustomPuppetMixin):
                           ) -> 'Puppet':
         if not info:
             info = (await source.fetchUserInfo(self.fbid))[self.fbid]
-        changed = any(await asyncio.gather(self._update_name(info),
-                                           self._update_photo(info.photo),
-                                           loop=self.loop))
-        if changed:
-            self.save()
+        try:
+            changed = any(await asyncio.gather(self._update_name(info),
+                                               self._update_photo(info.photo),
+                                               loop=self.loop))
+            if changed:
+                self.save()
+        except Exception:
+            self.log.exception(f"Failed to update info from source {source.fbid}")
         return self
 
     @classmethod

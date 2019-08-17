@@ -13,30 +13,21 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Iterable
-from http.cookies import SimpleCookie
+from typing import Dict
 
-from sqlalchemy import Column, String, PickleType
+from sqlalchemy import Column, String, Boolean, ForeignKey
+from sqlalchemy.sql import expression
 
-from mautrix.types import UserID
 from mautrix.bridge.db.base import Base
 
 
-class User(Base):
-    __tablename__ = "user"
+class Contact(Base):
+    __tablename__ = "contact"
 
-    mxid: UserID = Column(String(255), primary_key=True)
-    session: SimpleCookie = Column(PickleType, nullable=True)
-    fbid: str = Column(String(255), nullable=True)
-
-    @classmethod
-    def all(cls) -> Iterable['User']:
-        return cls._select_all()
+    user: str = Column(String(255), primary_key=True)
+    contact: str = Column(String(255), ForeignKey("puppet.fbid"), primary_key=True)
+    in_community: bool = Column(Boolean, nullable=False, server_default=expression.false())
 
     @classmethod
-    def get_by_fbid(cls, fbid: str) -> Optional['User']:
-        return cls._select_one_or_none(cls.c.fbid == fbid)
-
-    @classmethod
-    def get_by_mxid(cls, mxid: UserID) -> Optional['User']:
-        return cls._select_one_or_none(cls.c.mxid == mxid)
+    def all(cls, user: str) -> Dict[str, 'Contact']:
+        return {c.contact: c for c in cls._select_all(cls.c.user == user)}
