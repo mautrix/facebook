@@ -44,6 +44,8 @@ class User(Client):
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[str, 'User'] = {}
 
+    user_agent: str
+
     command_status: Optional[Dict[str, Any]]
     is_whitelisted: bool
     is_admin: bool
@@ -55,10 +57,11 @@ class User(Client):
     _community_id: Optional[CommunityID]
 
     def __init__(self, mxid: UserID, session: Optional[SimpleCookie] = None,
-                 db_instance: Optional[DBUser] = None) -> None:
+                 user_agent: Optional[str] = None, db_instance: Optional[DBUser] = None) -> None:
         super().__init__(loop=self.loop)
         self.mxid = mxid
         self.by_mxid[mxid] = self
+        self.user_agent = user_agent
         self.command_status = None
         self.is_whitelisted, self.is_admin = config.get_permissions(mxid)
         self._is_logged_in = None
@@ -88,11 +91,13 @@ class User(Client):
         self.log.debug("Saving session")
         if _update_session_data:
             self._session_data = self.getSession()
-        self.db_instance.edit(session=self._session_data, fbid=self.uid)
+        self.db_instance.edit(session=self._session_data, fbid=self.uid,
+                              user_agent=self.user_agent)
 
     @classmethod
     def from_db(cls, db_user: DBUser) -> 'User':
-        return User(mxid=db_user.mxid, session=db_user.session, db_instance=db_user)
+        return User(mxid=db_user.mxid, session=db_user.session, user_agent=db_user.user_agent,
+                    db_instance=db_user)
 
     @classmethod
     def get_all(cls) -> Iterator['User']:
@@ -137,7 +142,8 @@ class User(Client):
             return True
         elif not self._session_data:
             return False
-        ok = await self.setSession(self._session_data) and await self.is_logged_in(True)
+        ok = (await self.setSession(self._session_data, user_agent=self.user_agent)
+              and await self.is_logged_in(True))
         if ok:
             self.log.info("Loaded session successfully")
             self.listen()

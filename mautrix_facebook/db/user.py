@@ -28,6 +28,7 @@ class User(Base):
     mxid: UserID = Column(String(255), primary_key=True)
     session: SimpleCookie = Column(PickleType, nullable=True)
     fbid: str = Column(String(255), nullable=True)
+    user_agent: str = Column(String(255), nullable=True)
 
     @classmethod
     def all(cls) -> Iterable['User']:
