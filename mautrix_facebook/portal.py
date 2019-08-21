@@ -235,10 +235,21 @@ class Portal:
 
     async def _update_matrix_room(self, source: 'u.User',
                                   info: Optional[ThreadClass] = None) -> None:
-        await self.main_intent.invite_user(self.mxid, source.mxid)
+        await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=True)
         puppet = p.Puppet.get_by_custom_mxid(source.mxid)
         if puppet:
             await puppet.intent.ensure_joined(self.mxid)
+
+        await self.update_info(source, info)
+
+        up = DBUserPortal.get(source.fbid, self.fbid, self.fb_receiver)
+        if not up:
+            in_community = await source._community_helper.add_room(source._community_id, self.mxid)
+            DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
+                         in_community=in_community).insert()
+        elif not up.in_community:
+            in_community = await source._community_helper.add_room(source._community_id, self.mxid)
+            up.edit(in_community=in_community)
 
     async def create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
                                  ) -> Optional[RoomID]:

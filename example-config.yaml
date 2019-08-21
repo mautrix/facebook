@@ -85,6 +85,8 @@ bridge:
     # Whether or not to bridge presence in both directions. Facebook allows users not to broadcast
     # presence, but then it won't send other users' presence to the client.
     presence: true
+    # Whether or not to update avatars when syncing all contacts at startup.
+    update_avatar_initial_sync: true
 
     # Permissions for using the bridge.
     # Permitted values:

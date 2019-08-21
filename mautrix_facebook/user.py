@@ -220,9 +220,10 @@ class User(Client):
             users = await self.fetchAllUsers()
             self.log.debug(f"Fetched {len(users)} contacts")
             contacts = DBContact.all(self.fbid)
+            update_avatars = config["bridge.update_avatar_initial_sync"]
             for user in users:
                 puppet = pu.Puppet.get_by_fbid(user.uid, create=True)
-                await puppet.update_info(self, user)
+                await puppet.update_info(self, user, update_avatar=update_avatars)
                 await self._add_community_puppet(contacts.get(puppet.fbid, None), puppet)
         except Exception:
             self.log.exception("Failed to sync contacts")

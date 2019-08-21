@@ -144,14 +144,14 @@ class Puppet(CustomPuppetMixin):
 
     # region User info updating
 
-    async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None
-                          ) -> 'Puppet':
+    async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None,
+                          update_avatar: bool = True) -> 'Puppet':
         if not info:
             info = (await source.fetchUserInfo(self.fbid))[self.fbid]
         try:
-            changed = any(await asyncio.gather(self._update_name(info),
-                                               self._update_photo(info.photo),
-                                               loop=self.loop))
+            changed = await self._update_name(info)
+            if update_avatar:
+                changed = await self._update_photo(info.photo) or changed
             if changed:
                 self.save()
         except Exception:

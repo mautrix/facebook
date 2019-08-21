@@ -13,9 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict
+from typing import Dict, Optional
 
-from sqlalchemy import Column, String, Boolean, ForeignKeyConstraint
+from sqlalchemy import Column, String, Boolean, ForeignKeyConstraint, and_
 from sqlalchemy.sql import expression
 
 from mautrix.bridge.db.base import Base
@@ -36,3 +36,8 @@ class UserPortal(Base):
     @classmethod
     def all(cls, user: str) -> Dict[str, 'UserPortal']:
         return {up.portal: up for up in cls._select_all(cls.c.user == user)}
+
+    @classmethod
+    def get(cls, user: str, portal: str, portal_receiver: str) -> Optional['UserPortal']:
+        return cls._select_one_or_none(and_(cls.c.user == user, cls.c.portal == portal,
+                                            cls.c.portal_receiver == portal_receiver))

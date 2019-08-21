@@ -16,9 +16,10 @@
 from typing import Iterable, List
 import asyncio
 
-from fbchat.models import User
+from fbchat.models import User, ThreadLocation
 
-from .. import puppet as pu, user as u
+from .. import puppet as pu, portal as po, user as u
+from ..db import UserPortal as DBUserPortal
 from . import command_handler, CommandEvent, SECTION_MISC
 
 
@@ -47,3 +48,33 @@ async def _handle_search_result(sender: 'u.User', res: Iterable[User]) -> str:
         return f"Search results:\n\n{results}"
     else:
         return "No results :("
+
+
+@command_handler(needs_auth=True, management_only=False, help_section=SECTION_MISC,
+                 help_text="Synchronize portals", help_args="[_limit_] [--create] [--contacts]")
+async def sync(evt: CommandEvent) -> None:
+    contacts = False
+    create_portals = False
+    limit = 0
+    for arg in evt.args:
+        arg = arg.lower()
+        if arg == "--contacts":
+            contacts = True
+        elif arg == "--create":
+            create_portals = True
+        else:
+            limit = int(arg)
+
+    threads = await evt.sender.fetchThreads(limit=limit, thread_location=ThreadLocation.INBOX)
+    ups = DBUserPortal.all(evt.sender.fbid)
+    for thread in threads:
+        portal = po.Portal.get_by_thread(thread, evt.sender.fbid)
+        if create_portals:
+            await portal.create_matrix_room(evt.sender, thread)
+        else:
+            await evt.sender._add_community(ups.get(portal.fbid, None), None, portal, None)
+
+    if contacts:
+        await evt.sender.sync_contacts()
+
+    await evt.reply("Syncing complete")
