@@ -27,7 +27,7 @@ RUN apk add --no-cache  \
 
 COPY . /opt/mautrix-facebook
 WORKDIR /opt/mautrix-facebook
-RUN pip3 install .
+RUN pip3 install . && pip3 install --upgrade 'https://github.com/tulir/fbchat-asyncio/tarball/master#egg=fbchat-asyncio'
 
 VOLUME /data
 
