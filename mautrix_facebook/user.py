@@ -84,7 +84,7 @@ class User(Client):
     @property
     def db_instance(self) -> DBUser:
         if not self._db_instance:
-            self._db_instance = DBUser(mxid=self.mxid)
+            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.uid)
         return self._db_instance
 
     def save(self, _update_session_data: bool = True) -> None:
