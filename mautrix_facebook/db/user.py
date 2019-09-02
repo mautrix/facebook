@@ -19,7 +19,7 @@ from http.cookies import SimpleCookie
 from sqlalchemy import Column, String, PickleType
 
 from mautrix.types import UserID
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class User(Base):

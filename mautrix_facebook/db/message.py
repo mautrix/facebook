@@ -18,7 +18,7 @@ from typing import Optional, Iterable, List
 from sqlalchemy import Column, String, SmallInteger, UniqueConstraint, and_
 
 from mautrix.types import RoomID, EventID
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class Message(Base):

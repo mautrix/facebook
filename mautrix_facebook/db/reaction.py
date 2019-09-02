@@ -18,7 +18,7 @@ from typing import Optional
 from sqlalchemy import Column, String, UniqueConstraint, and_
 
 from mautrix.types import RoomID, EventID
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class Reaction(Base):

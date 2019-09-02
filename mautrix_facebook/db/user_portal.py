@@ -18,7 +18,7 @@ from typing import Dict, Optional
 from sqlalchemy import Column, String, Boolean, ForeignKeyConstraint, and_
 from sqlalchemy.sql import expression
 
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class UserPortal(Base):

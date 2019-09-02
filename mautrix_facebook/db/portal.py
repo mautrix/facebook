@@ -19,7 +19,7 @@ from sqlalchemy import Column, String, Enum, and_
 
 from fbchat.models import ThreadType
 from mautrix.types import RoomID
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class Portal(Base):

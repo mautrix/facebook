@@ -18,7 +18,7 @@ from typing import Dict
 from sqlalchemy import Column, String, Boolean, ForeignKey
 from sqlalchemy.sql import expression
 
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class Contact(Base):

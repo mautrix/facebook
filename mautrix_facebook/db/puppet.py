@@ -19,7 +19,7 @@ from sqlalchemy import Column, String, Text, Boolean
 from sqlalchemy.sql import expression
 
 from mautrix.types import UserID, SyncToken
-from mautrix.bridge.db.base import Base
+from mautrix.util.db import Base
 
 
 class Puppet(Base):
