@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Union, TYPE_CHECKING
 
-from fbchat.models import ThreadType
+from fbchat import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
                            RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
                            ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,

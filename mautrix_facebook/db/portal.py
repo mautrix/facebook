@@ -17,7 +17,7 @@ from typing import Optional, Iterator
 
 from sqlalchemy import Column, String, Enum, and_
 
-from fbchat.models import ThreadType
+from fbchat import ThreadType
 from mautrix.types import RoomID
 from mautrix.util.db import Base
 

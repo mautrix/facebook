@@ -55,7 +55,7 @@ class MessengerBridge(Bridge):
             puppet.stop()
         self.log.debug("Saving user sessions and stopping listeners")
         for mxid, user in User.by_mxid.items():
-            user.stopListening()
+            user.stop_listening()
             user.save()
 
 

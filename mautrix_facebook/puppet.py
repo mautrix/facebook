@@ -18,7 +18,7 @@ import logging
 import asyncio
 import attr
 
-from fbchat.models import User as FBUser
+from fbchat import User as FBUser
 from mautrix.types import UserID, RoomID, SyncToken
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.bridge.custom_puppet import CustomPuppetMixin
