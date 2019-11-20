@@ -5,4 +5,5 @@ ruamel.yaml
 commonmark
 python-magic
 mautrix
-fbchat-asyncio
+#fbchat-asyncio
+https://github.com/tulir/fbchat-asyncio/tarball/yet-another-rewrite#egg=fbchat-asyncio

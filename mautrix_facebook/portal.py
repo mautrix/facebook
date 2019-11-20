@@ -188,6 +188,8 @@ class Portal:
     @staticmethod
     async def _reupload_fb_photo(url: str, intent: IntentAPI, filename: Optional[str] = None
                                  ) -> Tuple[ContentURI, str, int]:
+        if not url:
+            raise ValueError('URL not provided')
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
@@ -561,7 +563,8 @@ class Portal:
                                               file_name=attachment.name,
                                               relates_to=self._get_facebook_reply(reply_to))
         elif isinstance(attachment, ImageAttachment):
-            mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url, intent)
+            mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url
+                                                            or attachment.preview_url, intent)
             info = ImageInfo(size=size, mimetype=mime,
                              width=attachment.large_preview_width,
                              height=attachment.large_preview_height)
