@@ -127,6 +127,8 @@ logging:
             level: DEBUG
         fbchat:
             level: DEBUG
+        hbmqtt:
+            level: INFO
         aiohttp:
             level: INFO
     root:

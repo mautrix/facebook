@@ -332,7 +332,7 @@ class User(Client):
         if isinstance(event_data, bytearray):
             self.log.warning(f"MQTT JSON decoder error: {exception}")
         else:
-            self.log.exception("Failed to parse MQTT message")
+            self.log.exception("Failed to parse MQTT message: %s", event_data)
 
     async def on_message(self, mid: str = None, author_id: str = None, message: str = None,
                          message_object: Message = None, thread_id: str = None,
