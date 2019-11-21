@@ -146,7 +146,7 @@ class User(Client):
               and await self.is_logged_in(True))
         if ok:
             self.log.info("Loaded session successfully")
-            self.listen()
+            self.listen(long_polling=False, mqtt=True)
             asyncio.ensure_future(self.post_login(), loop=self.loop)
         return ok
 
@@ -283,7 +283,7 @@ class User(Client):
             await self.az.intent.send_notice(self.command_status["room_id"],
                                              f"Successfully logged in with {email}")
             self.save()
-            self.listen()
+            self.listen(long_polling=False, mqtt=True)
             asyncio.ensure_future(self.post_login(), loop=self.loop)
         self.log.warning("Unexpected onLoggedIn call")
         # raise RuntimeError("No ongoing login command")
