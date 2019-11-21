@@ -260,7 +260,7 @@ class User(Client):
     async def on_logging_in(self, email: str = None) -> None:
         self.log.info("Logging in {}...".format(email))
 
-    async def on2fa_code(self) -> str:
+    async def on_2fa_code(self) -> str:
         if self.command_status and self.command_status.get("action", "") == "Login":
             future = self.loop.create_future()
             self.command_status["future"] = future
@@ -289,8 +289,12 @@ class User(Client):
         # raise RuntimeError("No ongoing login command")
 
     async def on_listening(self) -> None:
-        """Called when the client is listening"""
-        self.log.info("Listening...")
+        """Called when the client is listening."""
+        self.log.info("Listening with long polling...")
+
+    async def on_listening_mqtt(self) -> None:
+        """Called when the client is listening with MQTT."""
+        self.log.info("Listening with MQTT...")
 
     async def on_listen_error(self, exception: Exception = None) -> bool:
         """
@@ -299,9 +303,36 @@ class User(Client):
         :param exception: The exception that was encountered
         :return: Whether the loop should keep running
         """
-        self.log.exception("Got exception while listening")
+        self.log.exception("Got exception while listening, reconnecting in 10s")
         await asyncio.sleep(10)
         return True
+
+    async def on_mqtt_fatal_error(self, exception: Exception = None) -> bool:
+        """Called when an error was encountered while listening.
+
+        Args:
+            exception: The exception that was encountered
+
+        Returns:
+            Whether the client should reconnect
+        """
+        self.log.exception("MQTT connection failed, reconnecting in 10s")
+        await asyncio.sleep(10)
+        return True
+
+    async def on_mqtt_parse_error(self, event_type=None, event_data=None, exception=None):
+        """Called when an error was encountered while parsing a MQTT message.
+
+        Args:
+            event_type: The event type
+            event_data: The event data, either as a bytearray if JSON decoding failed or as a dict
+                if JSON decoding was successful.
+            exception: The exception that was encountered
+        """
+        if isinstance(event_data, bytearray):
+            self.log.warning(f"MQTT JSON decoder error: {exception}")
+        else:
+            self.log.exception("Failed to parse MQTT message")
 
     async def on_message(self, mid: str = None, author_id: str = None, message: str = None,
                          message_object: Message = None, thread_id: str = None,
