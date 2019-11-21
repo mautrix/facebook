@@ -169,7 +169,7 @@ class Portal:
     async def update_info(self, source: Optional['u.User'] = None,
                           info: Optional[ThreadClass] = None) -> ThreadClass:
         if not info:
-            info = (await source.fetchThreadInfo(self.fbid))[self.fbid]
+            info = (await source.fetch_thread_info(self.fbid))[self.fbid]
         changed = any(await asyncio.gather(self._update_name(info.name),
                                            self._update_photo(info.photo),
                                            self._update_participants(source, info),
