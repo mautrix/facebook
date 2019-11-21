@@ -22,10 +22,10 @@ from yarl import URL
 import aiohttp
 import magic
 
-from fbchat.models import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
-                           Message as FBMessage, Sticker as FBSticker, AudioAttachment,
-                           VideoAttachment, FileAttachment, ImageAttachment, LocationAttachment,
-                           ShareAttachment, TypingStatus, MessageReaction)
+from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
+                    Message as FBMessage, Sticker as FBSticker, AudioAttachment, VideoAttachment,
+                    FileAttachment, ImageAttachment, LocationAttachment, ShareAttachment,
+                    TypingStatus, MessageReaction)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format, RelatesTo,
@@ -188,6 +188,8 @@ class Portal:
     @staticmethod
     async def _reupload_fb_photo(url: str, intent: IntentAPI, filename: Optional[str] = None
                                  ) -> Tuple[ContentURI, str, int]:
+        if not url:
+            raise ValueError('URL not provided')
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
@@ -223,12 +225,12 @@ class Portal:
             return
         elif not self.mxid:
             return
-        users = await source.fetchAllUsersFromThreads([info])
-        puppets = {user: p.Puppet.get_by_fbid(user.uid) for user in users}
+        users = await source.fetch_all_users_from_threads([info])
+        puppets = [(user, p.Puppet.get_by_fbid(user.uid)) for user in users]
         await asyncio.gather(*[puppet.update_info(source=source, info=user)
-                               for user, puppet in puppets.items()])
+                               for user, puppet in puppets])
         await asyncio.gather(*[puppet.intent_for(self).ensure_joined(self.mxid)
-                               for puppet in puppets.values()])
+                               for user, puppet in puppets])
 
     # endregion
     # region Matrix room creation
@@ -386,7 +388,7 @@ class Portal:
         data = await self.main_intent.download_media(message.url)
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
         files = await sender._upload([(message.body, data, mime)])
-        return await sender._sendFiles(files, thread_id=self.fbid, thread_type=self.fb_type)
+        return await sender._send_files(files, thread_id=self.fbid, thread_type=self.fb_type)
 
     async def _handle_matrix_location(self, sender: 'u.User',
                                       message: LocationMessageEventContent) -> str:
@@ -409,7 +411,7 @@ class Portal:
         if reaction:
             try:
                 reaction.delete()
-                await sender.reactToMessage(reaction.fb_msgid, reaction=None)
+                await sender.react_to_message(reaction.fb_msgid, reaction=None)
             except Exception:
                 self.log.exception("Removing reaction failed")
 
@@ -442,7 +444,7 @@ class Portal:
             if existing and existing.reaction == reaction.value:
                 return
 
-            await sender.reactToMessage(message.fbid, reaction)
+            await sender.react_to_message(message.fbid, reaction)
             await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
                                         reaction.value)
 
@@ -455,9 +457,9 @@ class Portal:
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
 
     async def handle_matrix_typing(self, users: Set['u.User']) -> None:
-        stopped_typing = [user.setTypingStatus(TypingStatus.STOPPED, self.fbid, self.fb_type)
+        stopped_typing = [user.set_typing_status(TypingStatus.STOPPED, self.fbid, self.fb_type)
                           for user in self._typing - users]
-        started_typing = [user.setTypingStatus(TypingStatus.TYPING, self.fbid, self.fb_type)
+        started_typing = [user.set_typing_status(TypingStatus.TYPING, self.fbid, self.fb_type)
                           for user in users - self._typing]
         self._typing = users
         await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
@@ -479,7 +481,7 @@ class Portal:
                                       message: FBMessage) -> None:
         async with self.optional_send_lock(sender.fbid):
             if message.uid in self._dedup:
-                await source.markAsDelivered(self.fbid, message.uid)
+                await source.mark_as_delivered(self.fbid, message.uid)
                 return
             self._dedup.appendleft(message.uid)
         if not self.mxid:
@@ -505,7 +507,7 @@ class Portal:
             self.log.warning(f"Unhandled Messenger message: {message}")
         DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
-        await source.markAsDelivered(self.fbid, message.uid)
+        await source.mark_as_delivered(self.fbid, message.uid)
 
     async def _add_facebook_reply(self, content: TextMessageEventContent, reply: str) -> None:
         if reply:
@@ -561,7 +563,8 @@ class Portal:
                                               file_name=attachment.name,
                                               relates_to=self._get_facebook_reply(reply_to))
         elif isinstance(attachment, ImageAttachment):
-            mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url, intent)
+            mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url
+                                                            or attachment.preview_url, intent)
             info = ImageInfo(size=size, mimetype=mime,
                              width=attachment.large_preview_width,
                              height=attachment.large_preview_height)
@@ -631,7 +634,7 @@ class Portal:
         # When we fetch thread info manually, we only get the URL instead of the ID,
         # so we can't use the actual ID here either.
         # self.photo_id = new_photo_id
-        photo_url = await source.fetchImageUrl(new_photo_id)
+        photo_url = await source.fetch_image_url(new_photo_id)
         photo_id = self._get_photo_id(photo_url)
         if self.photo_id == photo_id:
             return

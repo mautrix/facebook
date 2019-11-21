@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, cast
 
-from fbchat.models import Message, Mention
+from fbchat import Message, Mention
 
 from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,

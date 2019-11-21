@@ -18,7 +18,7 @@ import random
 
 from aiohttp.cookiejar import SimpleCookie
 
-from fbchat.models import FBchatUserError
+from fbchat import FBchatException
 from mautrix.client import Client
 
 from .. import puppet as pu
@@ -31,13 +31,14 @@ USER_AGENTS = [
 
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0",
 
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 12_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like"
-    " Gecko) Version/12.1.1 Mobile/15E148 Safari/604.1",
+    # "Mozilla/5.0 (iPhone; CPU iPhone OS 12_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like"
+    # " Gecko) Version/12.1.1 Mobile/15E148 Safari/604.1",
 
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:68.0) Gecko/20100101 Firefox/68.0",
 
-    "Mozilla/5.0 (Linux; Android 9; SM-G960F Build/PPR1.180610.011; wv) AppleWebKit/537.36 (KHTML,"
-    " like Gecko) Version/4.0 Chrome/74.0.3729.157 Mobile Safari/537.36",
+    # "Mozilla/5.0 (Linux; Android 9; SM-G960F Build/PPR1.180610.011; wv) AppleWebKit/537.36
+    # (KHTML,"
+    # " like Gecko) Version/4.0 Chrome/74.0.3729.157 Mobile Safari/537.36",
 ]
 
 
@@ -56,10 +57,10 @@ async def login(evt: CommandEvent) -> None:
         evt.sender.user_agent = random.choice(USER_AGENTS)
     await evt.reply("Logging in...")
     try:
-        await evt.sender.login(evt.args[0], " ".join(evt.args[1:]), max_tries=1,
+        await evt.sender.login(evt.args[0], " ".join(evt.args[1:]),
                                user_agent=evt.sender.user_agent)
         evt.sender.command_status = None
-    except FBchatUserError as e:
+    except FBchatException as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
         evt.log.exception("Failed to log in")
@@ -122,12 +123,12 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
     cookie = SimpleCookie()
     cookie["c_user"] = evt.sender.command_status["c_user"]
     cookie["xs"] = evt.args[0]
-    ok = (await evt.sender.setSession(cookie, user_agent=evt.sender.user_agent)
+    ok = (await evt.sender.set_session(cookie, user_agent=evt.sender.user_agent)
           and await evt.sender.is_logged_in(True))
     if not ok:
         await evt.reply("Failed to log in (see logs for more details)")
     else:
-        await evt.sender.onLoggedIn(evt.sender.command_status["c_user"])
+        await evt.sender.on_logged_in(evt.sender.command_status["c_user"])
     evt.sender.command_status = None
 
 

@@ -17,7 +17,7 @@ from typing import Tuple, List, Optional, Match
 from html import escape
 import re
 
-from fbchat.models import Message
+from fbchat import Message
 
 from mautrix.types import TextMessageEventContent, Format, MessageType
 

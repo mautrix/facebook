@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Union, TYPE_CHECKING
 
-from fbchat.models import ThreadType
+from fbchat import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
                            RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
                            ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,
@@ -165,7 +165,7 @@ class MatrixHandler(BaseMatrixHandler):
             return
         user = u.User.get_by_mxid(user_id, create=False)
         if user:
-            user.setActiveStatus(info.presence == PresenceState.ONLINE)
+            user.set_active_status(info.presence == PresenceState.ONLINE)
 
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: List[UserID]) -> None:
@@ -192,7 +192,7 @@ class MatrixHandler(BaseMatrixHandler):
         if not portal:
             return
 
-        await user.markAsRead(portal.fbid)
+        await user.mark_as_read(portal.fbid)
 
     def filter_matrix_event(self, evt: Event) -> bool:
         if not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent)):

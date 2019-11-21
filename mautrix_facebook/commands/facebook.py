@@ -16,7 +16,7 @@
 from typing import Iterable, List
 import asyncio
 
-from fbchat.models import User, ThreadLocation
+from fbchat import User, ThreadLocation
 
 from .. import puppet as pu, portal as po, user as u
 from ..db import UserPortal as DBUserPortal
@@ -27,13 +27,13 @@ from . import command_handler, CommandEvent, SECTION_MISC
                  help_section=SECTION_MISC, help_text="Search for a Facebook user",
                  help_args="<_search query_>")
 async def search(evt: CommandEvent) -> None:
-    res = await evt.sender.searchForUsers(" ".join(evt.args))
+    res = await evt.sender.search_for_users(" ".join(evt.args))
     await evt.reply(await _handle_search_result(evt.sender, res))
 
 
 @command_handler(needs_auth=True, management_only=False)
 async def search_by_id(evt: CommandEvent) -> None:
-    res = await evt.sender.fetchUserInfo(*evt.args)
+    res = await evt.sender.fetch_user_info(*evt.args)
     await evt.reply(await _handle_search_result(evt.sender, res.values()))
 
 
@@ -65,7 +65,7 @@ async def sync(evt: CommandEvent) -> None:
         else:
             limit = int(arg)
 
-    threads = await evt.sender.fetchThreads(limit=limit, thread_location=ThreadLocation.INBOX)
+    threads = await evt.sender.fetch_threads(limit=limit, thread_location=ThreadLocation.INBOX)
     ups = DBUserPortal.all(evt.sender.fbid)
     for thread in threads:
         portal = po.Portal.get_by_thread(thread, evt.sender.fbid)
