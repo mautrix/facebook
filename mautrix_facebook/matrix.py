@@ -150,7 +150,7 @@ class MatrixHandler(BaseMatrixHandler):
                                                "You are not whitelisted on this "
                                                "Facebook Messenger bridge.")
             return
-        elif not await user.is_logged_in():
+        elif not await user.is_logged_in() and not self.config["bridge.allow_invites"]:
             await portal.main_intent.kick_user(room_id, user.mxid, "You are not logged in to this "
                                                                    "Facebook Messenger bridge.")
             return
