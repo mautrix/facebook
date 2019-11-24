@@ -5,4 +5,4 @@ ruamel.yaml
 commonmark
 python-magic
 mautrix
-fbchat-asyncio>=0.3.0rc1
+fbchat-asyncio>=0.3.0rc3
