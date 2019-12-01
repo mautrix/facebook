@@ -1,15 +1,25 @@
 import setuptools
 import glob
-import mautrix_facebook
+
+from mautrix_facebook.get_version import git_tag, git_revision, version, linkified_version
 
 try:
     long_desc = open("README.md").read()
 except IOError:
     long_desc = "Failed to read README.md"
 
+with open("mautrix_facebook/version.py", "w") as version_file:
+    version_file.write(f"""# Generated in setup.py
+
+git_tag = {git_tag!r}
+git_revision = {git_revision!r}
+version = {version!r}
+linkified_version = {linkified_version!r}
+""")
+
 setuptools.setup(
     name="mautrix-facebook",
-    version=mautrix_facebook.__version__,
+    version=version,
     url="https://github.com/tulir/mautrix-facebook",
 
     author="Tulir Asokan",
@@ -23,7 +33,7 @@ setuptools.setup(
 
     install_requires=[
         "aiohttp>=3.0.1,<4",
-        "mautrix>=0.4.0.dev70,<0.5.0",
+        "mautrix>=0.4.0rc2,<0.5.0",
         "ruamel.yaml>=0.15.94,<0.17",
         "commonmark>=0.8,<0.10",
         "python-magic>=0.4,<0.5",
@@ -41,6 +51,7 @@ setuptools.setup(
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
     ],
     entry_points="""
         [console_scripts]

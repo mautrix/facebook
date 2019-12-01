@@ -25,15 +25,17 @@ from .portal import init as init_portal
 from .puppet import Puppet, init as init_puppet
 from .matrix import MatrixHandler
 from .context import Context
-from . import __version__
+from .version import version, linkified_version
 
 
 class MessengerBridge(Bridge):
     name = "mautrix-facebook"
     command = "python -m mautrix-facebook"
     description = "A Matrix-Facebook Messenger puppeting bridge."
+    repo_url = "https://github.com/tulir/mautrix-facebook"
     real_user_content_key = "net.maunium.facebook.puppet"
-    version = __version__
+    version = version
+    markdown_version = linkified_version
     config_class = Config
     matrix_class = MatrixHandler
     state_store_class = SQLStateStore
@@ -42,7 +44,7 @@ class MessengerBridge(Bridge):
 
     def prepare_bridge(self) -> None:
         init_db(self.db)
-        context = Context(az=self.az, config=self.config, loop=self.loop)
+        context = Context(az=self.az, config=self.config, loop=self.loop, bridge=self)
         self.matrix = context.mx = MatrixHandler(context)
         user_startup = init_user(context)
         init_portal(context)

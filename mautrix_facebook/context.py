@@ -22,6 +22,7 @@ from .config import Config
 
 if TYPE_CHECKING:
     from .matrix import MatrixHandler
+    from .__main__ import MessengerBridge
 
 
 class Context:
@@ -29,12 +30,15 @@ class Context:
     config: Config
     loop: AbstractEventLoop
     mx: Optional['MatrixHandler']
+    bridge: 'MessengerBridge'
 
-    def __init__(self, az: AppService, config: Config, loop: AbstractEventLoop) -> None:
+    def __init__(self, az: AppService, config: Config, loop: AbstractEventLoop,
+                 bridge: 'MessengerBridge') -> None:
         self.az = az
         self.config = config
         self.loop = loop
         self.mx = None
+        self.bridge = bridge
 
     @property
     def core(self) -> Tuple[AppService, Config, AbstractEventLoop]:

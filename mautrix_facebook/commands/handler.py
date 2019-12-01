@@ -74,4 +74,4 @@ def command_handler(_func: Optional[Callable[[CommandEvent], Awaitable[Dict]]] =
 class CommandProcessor(BaseCommandProcessor):
     def __init__(self, context: c.Context) -> None:
         super().__init__(az=context.az, config=context.config, event_class=CommandEvent,
-                         loop=context.loop)
+                         loop=context.loop, bridge=context.bridge)
