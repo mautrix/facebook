@@ -49,4 +49,5 @@ else:
 #     else:
 #         linkified_version = version
 version = __version__
-linkified_version = f"{version}+[{git_revision}]({git_revision_url})" if git_revision else version
+linkified_version = (f"{version}+[{git_revision}]({git_revision_url})"
+                     if git_revision_url else f"{version}+{git_revision}")
