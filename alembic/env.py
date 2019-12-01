@@ -15,8 +15,7 @@ config = context.config
 mxfb_config_path = context.get_x_argument(as_dictionary=True).get("config", "config.yaml")
 mxfb_config = Config(mxfb_config_path, None, None)
 mxfb_config.load()
-config.set_main_option("sqlalchemy.url",
-                       mxfb_config.get("appservice.database", "sqlite:///mautrix-facebook.db"))
+config.set_main_option("sqlalchemy.url", mxfb_config["appservice.database"].replace("%", "%%"))
 fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 
