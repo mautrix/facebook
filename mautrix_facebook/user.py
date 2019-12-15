@@ -168,6 +168,16 @@ class User(Client):
     async def post_login(self) -> None:
         self.log.info("Running post-login actions")
         self.by_fbid[self.fbid] = self
+
+        try:
+            puppet = pu.Puppet.get_by_fbid(self.fbid)
+
+            if puppet.custom_mxid != self.mxid and puppet.can_auto_login(self.mxid):
+                self.log.info(f"Automatically enabling custom puppet")
+                await puppet.switch_mxid(access_token="auto", mxid=self.mxid)
+        except Exception:
+            self.log.exception("Failed to automatically enable custom puppet")
+
         await self._create_community()
         await self.sync_contacts()
         await self.sync_threads()

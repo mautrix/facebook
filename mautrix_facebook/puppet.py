@@ -260,4 +260,7 @@ def init(context: 'Context') -> Iterable[Awaitable[None]]:
     Puppet.mxid_template = SimpleTemplate(config["bridge.username_template"], "userid",
                                           prefix="@", suffix=f":{Puppet.hs_domain}", type=str)
 
+    Puppet.login_shared_secret = config["bridge.login_shared_secret"].encode("utf-8")
+    Puppet.login_device_name = "Facebook Messenger Bridge"
+
     return (puppet.try_start() for puppet in Puppet.get_all_with_custom_mxid())
