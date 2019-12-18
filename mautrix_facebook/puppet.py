@@ -147,7 +147,7 @@ class Puppet(CustomPuppetMixin):
     async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None,
                           update_avatar: bool = True) -> 'Puppet':
         if not info:
-            info = (await source.fetchUserInfo(self.fbid))[self.fbid]
+            info = (await source.fetch_user_info(self.fbid))[self.fbid]
         try:
             changed = await self._update_name(info)
             if update_avatar:
