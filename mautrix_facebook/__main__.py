@@ -26,6 +26,7 @@ from .puppet import Puppet, init as init_puppet
 from .matrix import MatrixHandler
 from .context import Context
 from .version import version, linkified_version
+from .web import PublicBridgeWebsite
 
 
 class MessengerBridge(Bridge):
@@ -41,6 +42,7 @@ class MessengerBridge(Bridge):
     state_store_class = SQLStateStore
 
     config: Config
+    public_website: PublicBridgeWebsite
 
     def prepare_bridge(self) -> None:
         init_db(self.db)
@@ -50,6 +52,11 @@ class MessengerBridge(Bridge):
         init_portal(context)
         puppet_startup = init_puppet(context)
         self.startup_actions = chain(user_startup, puppet_startup)
+        self._prepare_website()
+
+    def _prepare_website(self) -> None:
+        self.public_website = PublicBridgeWebsite()
+        self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
 
     def prepare_shutdown(self) -> None:
         self.log.debug("Stopping puppet syncers")

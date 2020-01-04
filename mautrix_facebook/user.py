@@ -159,7 +159,7 @@ class User(Client):
 
     async def logout(self) -> bool:
         self.stop_listening()
-        ok = await super().logout()
+        ok = await super().logout(safe=False)
         self._session_data = None
         self._is_logged_in = False
         self.save(_update_session_data=False)

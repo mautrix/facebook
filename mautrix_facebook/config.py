@@ -16,16 +16,30 @@
 from typing import Dict, Tuple, List, Any
 
 from mautrix.types import UserID
-from mautrix.bridge.config import BaseBridgeConfig, ConfigUpdateHelper
+from mautrix.bridge.config import (BaseBridgeConfig, ConfigUpdateHelper, ForbiddenDefault,
+                                   ForbiddenKey)
 
 
 class Config(BaseBridgeConfig):
+    @property
+    def forbidden_defaults(self) -> List[ForbiddenDefault]:
+        return [
+            *super().forbidden_defaults,
+            ForbiddenDefault("appservice.public.external", "https://example.com/public",
+                             condition="appservice.public.enabled"),
+            ForbiddenDefault("bridge.permissions", ForbiddenKey("example.com"))
+        ]
+
     def do_update(self, helper: ConfigUpdateHelper) -> None:
         super().do_update(helper)
 
-        copy, copy_dict = helper.copy, helper.copy_dict
+        copy, copy_dict, base = helper
 
         copy("appservice.community_id")
+
+        copy("appservice.public.enabled")
+        copy("appservice.public.prefix")
+        copy("appservice.public.external")
 
         copy("bridge.username_template")
         copy("bridge.displayname_template")
