@@ -157,9 +157,9 @@ class User(Client):
 
     # endregion
 
-    async def logout(self) -> bool:
+    async def logout(self, safe: bool = False) -> bool:
         self.stop_listening()
-        ok = await super().logout(safe=False)
+        ok = await super().logout(safe)
         self._session_data = None
         self._is_logged_in = False
         self.save(_update_session_data=False)
