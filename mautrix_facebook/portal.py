@@ -504,13 +504,8 @@ class Portal:
                 event_ids = [await self._handle_facebook_text(intent, message)]
 
             if len(message.attachments) > 0:
-                # Get URLs in the original message to prevent sending unnecessary ShareAttachments
-                urls = self._urlRegex.findall(message.text)
-                # not great... attachment.original_url adds a trailing slash in urls like https://example.com
-                urls.extend([url + '/' for url in urls if url[-1] != '/'])
-
                 attach_ids = await asyncio.gather(
-                    *[self._handle_facebook_attachment(intent, attachment, message.reply_to_id, urls)
+                    *[self._handle_facebook_attachment(intent, attachment, message.reply_to_id, message.text)
                       for attachment in message.attachments])
                 event_ids.extend([attach_id for attach_id in attach_ids if attach_id])
 
@@ -555,7 +550,7 @@ class Portal:
                                          relates_to=self._get_facebook_reply(reply_to))
 
     async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass,
-                                          reply_to: str, message_urls: list) -> Optional[EventID]:
+                                          reply_to: str, message_text: str) -> Optional[EventID]:
         if isinstance(attachment, AudioAttachment):
             mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
                                                             attachment.filename)
@@ -587,8 +582,13 @@ class Portal:
             content.relates_to = self._get_facebook_reply(reply_to)
             event_id = await intent.send_message(self.mxid, content)
         elif isinstance(attachment, ShareAttachment):
+            # remove trailing slash for url searching
+            url = attachment.original_url
+            if url[-1] == "/":
+                url = url[0:-1]
+
             # Prevent sending urls that are already in the original message text
-            if attachment.original_url not in message_urls:
+            if url not in message_text:
                 content = TextMessageEventContent(msgtype=MessageType.TEXT, body=f"{attachment.title}: {attachment.original_url}")
                 content.format = Format.HTML
                 content.formatted_body = f"<a href='{attachment.original_url}'>{attachment.title}</a>"
