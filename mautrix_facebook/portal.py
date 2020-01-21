@@ -436,8 +436,7 @@ class Portal(BasePortal):
         except MatrixError:
             members = []
         for user_id in members:
-            puppet = p.Puppet.get_by_mxid(user_id, create=False)
-            if not puppet:
+            if p.Puppet.get_id_from_mxid(user_id) is None:
                 return False
         return True
 
