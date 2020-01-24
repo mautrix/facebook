@@ -429,17 +429,6 @@ class Portal(BasePortal):
         except MatrixError:
             pass
 
-    @staticmethod
-    async def are_only_puppets_left(intent: IntentAPI, room_id: RoomID) -> bool:
-        try:
-            members = await intent.get_room_members(room_id)
-        except MatrixError:
-            members = []
-        for user_id in members:
-            if p.Puppet.get_id_from_mxid(user_id) is None:
-                return False
-        return True
-
     async def unbridge(self) -> None:
         await self.cleanup_room(self.main_intent, self.mxid, "Room unbridged", puppets_only=True)
         self.delete()
@@ -589,9 +578,9 @@ class Portal(BasePortal):
 
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
-            self.log.info(f"{user.mxid} left private chat portal with {self.fbid},"
-                          " cleaning up and deleting (if only puppets remain)...")
-            if await self.are_only_puppets_left(self.main_intent, self.mxid):
+            self.log.info(f"{user.mxid} left private chat portal with {self.fbid}")
+            if user.fbid == self.fb_receiver:
+                self.log.info(f"{user.mxid} was the recipient of this portal. Cleaning up and deleting...")
                 await self.cleanup_and_delete()
         else:
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
