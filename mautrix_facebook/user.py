@@ -48,6 +48,7 @@ class User(Client):
     command_status: Optional[Dict[str, Any]]
     is_whitelisted: bool
     is_admin: bool
+    permission_level: str
     _is_logged_in: Optional[bool]
     _session_data: Optional[SimpleCookie]
     _db_instance: Optional[DBUser]
@@ -62,7 +63,7 @@ class User(Client):
         self.by_mxid[mxid] = self
         self.user_agent = user_agent
         self.command_status = None
-        self.is_whitelisted, self.is_admin = config.get_permissions(mxid)
+        self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
         self._session_data = session
         self._db_instance = db_instance

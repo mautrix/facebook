@@ -55,7 +55,7 @@ class MessengerBridge(Bridge):
         self._prepare_website()
 
     def _prepare_website(self) -> None:
-        self.public_website = PublicBridgeWebsite()
+        self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
         self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
 
     def prepare_shutdown(self) -> None:
