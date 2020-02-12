@@ -57,6 +57,9 @@ setuptools.setup(
         [console_scripts]
         mautrix-facebook=mautrix_facebook.__main__:main
     """,
+    package_data={"mautrix_facebook": [
+        "web/static/*",
+    ]},
     data_files=[
         (".", ["example-config.yaml", "alembic.ini"]),
         ("alembic", ["alembic/env.py"]),
