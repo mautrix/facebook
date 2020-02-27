@@ -17,6 +17,9 @@ RUN apk add --no-cache \
         py3-six \
       #fbchat
         py3-beautifulsoup4 \
+        #hbmqtt
+          py3-yaml \
+          py3-docopt \
       py3-idna \
       # Other dependencies
       ca-certificates \
