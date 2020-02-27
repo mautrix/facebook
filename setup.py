@@ -8,6 +8,9 @@ try:
 except IOError:
     long_desc = "Failed to read README.md"
 
+with open("requirements.txt") as reqs:
+    install_requires = reqs.read().splitlines()
+
 with open("mautrix_facebook/version.py", "w") as version_file:
     version_file.write(f"""# Generated in setup.py
 
@@ -31,16 +34,7 @@ setuptools.setup(
 
     packages=setuptools.find_packages(),
 
-    install_requires=[
-        "aiohttp>=3.0.1,<4",
-        "mautrix>=0.4.1,<0.5.0",
-        "ruamel.yaml>=0.15.94,<0.17",
-        "commonmark>=0.8,<0.10",
-        "python-magic>=0.4,<0.5",
-        "fbchat-asyncio>=0.3.1b4",
-        "SQLAlchemy>=1.2,<2",
-        "alembic>=1,<2",
-    ],
+    install_requires=install_requires,
 
     classifiers=[
         "Development Status :: 3 - Alpha",

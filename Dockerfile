@@ -1,7 +1,4 @@
-FROM docker.io/alpine:3.10
-
-ENV UID=1337 \
-    GID=1337
+FROM docker.io/alpine:3.11
 
 RUN apk add --no-cache \
       py3-pillow \
@@ -25,10 +22,14 @@ RUN apk add --no-cache \
       ca-certificates \
       su-exec
 
-COPY . /opt/mautrix-facebook
+COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 WORKDIR /opt/mautrix-facebook
+RUN pip3 install -r requirements.txt
+
+COPY . /opt/mautrix-facebook
 RUN apk add --no-cache git && pip3 install . && apk del git
 
+ENV UID=1337 GID=1337
 VOLUME /data
 
 CMD ["/opt/mautrix-facebook/docker-run.sh"]
