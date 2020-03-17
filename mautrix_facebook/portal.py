@@ -282,6 +282,11 @@ class Portal:
             name = self.name
             initial_state.append({"type": str(EventType.ROOM_AVATAR),
                                   "content": {"avatar_url": self._avatar_uri}})
+        if config["appservice.community_id"]:
+            initial_state.append({
+                "type": "m.room.related_groups",
+                "content": {"groups": [config["appservice.community_id"]]},
+            })
         self.mxid = await self.main_intent.create_room(name=name, is_direct=self.is_direct,
                                                        initial_state=initial_state,
                                                        invitees=[source.mxid])
