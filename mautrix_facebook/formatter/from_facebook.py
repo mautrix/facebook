@@ -17,7 +17,7 @@ from typing import Tuple, List, Optional, Match
 from html import escape
 import re
 
-from fbchat import Message
+from fbchat import Message, ShareAttachment
 
 from mautrix.types import TextMessageEventContent, Format, MessageType
 
@@ -159,6 +159,14 @@ def facebook_to_matrix(message: Message) -> TextMessageEventContent:
         if i != len(lines) - 1:
             output.append("<br/>")
         _handle_codeblock_post(output, *post_args)
+    links = [attachment for attachment in message.attachments
+             if isinstance(attachment, ShareAttachment)]
+    message.attachments = [attachment for attachment in message.attachments
+                           if not isinstance(attachment, ShareAttachment)]
+    for attachment in links:
+        if attachment.original_url.rstrip("/") not in message.text:
+            output.append(f"<br/><a href='{attachment.original_url}'>{attachment.title}</a>")
+            content.body += f"\n{attachment.title}: {attachment.original_url}"
     html = "".join(output)
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
