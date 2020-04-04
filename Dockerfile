@@ -38,6 +38,7 @@ RUN apk add --no-cache \
       su-exec
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
+COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
 WORKDIR /opt/mautrix-facebook
 RUN apk add --virtual .build-deps python3-dev build-base \
  && sed -Ei 's/psycopg2-binary.+//' optional-requirements.txt \
