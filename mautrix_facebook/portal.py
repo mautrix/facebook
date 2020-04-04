@@ -545,10 +545,11 @@ class Portal(BasePortal):
                 *[self._handle_facebook_attachment(intent, attachment, message.reply_to_id)
                   for attachment in message.attachments])
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
-        if not event_ids and message.text:
-            event_ids = [await self._handle_facebook_text(intent, message)]
-        else:
-            self.log.warning(f"Unhandled Messenger message: {message}")
+        if not event_ids:
+            if message.text:
+                event_ids = [await self._handle_facebook_text(intent, message)]
+            else:
+                self.log.warning(f"Unhandled Messenger message: {message}")
         DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.mark_as_delivered(self.fbid, message.uid)
