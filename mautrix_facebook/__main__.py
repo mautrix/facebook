@@ -31,6 +31,7 @@ from .web import PublicBridgeWebsite
 
 class MessengerBridge(Bridge):
     name = "mautrix-facebook"
+    module = "mautrix_facebook"
     command = "python -m mautrix-facebook"
     description = "A Matrix-Facebook Messenger puppeting bridge."
     repo_url = "https://github.com/tulir/mautrix-facebook"
@@ -48,10 +49,9 @@ class MessengerBridge(Bridge):
         init_db(self.db)
         context = Context(az=self.az, config=self.config, loop=self.loop, bridge=self)
         self.matrix = context.mx = MatrixHandler(context)
-        user_startup = init_user(context)
+        self.add_startup_actions(init_user(context))
         init_portal(context)
-        puppet_startup = init_puppet(context)
-        self.startup_actions = chain(user_startup, puppet_startup)
+        self.add_startup_actions(init_puppet(context))
         self._prepare_website()
 
     def _prepare_website(self) -> None:

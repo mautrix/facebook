@@ -19,7 +19,7 @@ from fbchat import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
                            RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
                            ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,
-                           TypingEvent)
+                           TypingEvent, TextMessageEventContent, MessageType, EncryptedEvent)
 from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
@@ -31,7 +31,12 @@ if TYPE_CHECKING:
 
 class MatrixHandler(BaseMatrixHandler):
     def __init__(self, context: 'Context') -> None:
-        super().__init__(context.az, context.config, command_processor=c.CommandProcessor(context))
+        prefix, suffix = context.config["bridge.username_template"].format(userid=":").split(":")
+        homeserver = context.config["homeserver.domain"]
+        self.user_id_prefix = f"@{prefix}"
+        self.user_id_suffix = f"{suffix}:{homeserver}"
+        super().__init__(context.az, context.config, command_processor=c.CommandProcessor(context),
+                         bridge=context.bridge)
 
     async def get_portal(self, room_id: RoomID) -> 'po.Portal':
         return po.Portal.get_by_mxid(room_id)
@@ -90,8 +95,32 @@ class MatrixHandler(BaseMatrixHandler):
             except MatrixError:
                 pass
         portal.mxid = room_id
+        e2be_ok = None
+        if self.config["bridge.encryption.default"] and self.e2ee:
+            e2be_ok = await self.enable_dm_encryption(portal, members=members)
         portal.save()
-        await intent.send_notice(room_id, "Portal to private chat created.")
+        if e2be_ok is True:
+            evt_type, content = await self.e2ee.encrypt(
+                room_id, EventType.ROOM_MESSAGE,
+                TextMessageEventContent(msgtype=MessageType.NOTICE,
+                                        body="Portal to private chat created and end-to-bridge"
+                                             " encryption enabled."))
+            await intent.send_message_event(room_id, evt_type, content)
+        else:
+            message = "Portal to private chat created."
+            if e2be_ok is False:
+                message += "\n\nWarning: Failed to enable end-to-bridge encryption"
+            await intent.send_notice(room_id, message)
+
+    async def enable_dm_encryption(self, portal: po.Portal, members: List[UserID]) -> bool:
+        ok = await super().enable_dm_encryption(portal, members)
+        if ok:
+            try:
+                puppet = pu.Puppet.get_by_fbid(portal.fbid)
+                await portal.main_intent.set_room_name(portal.mxid, puppet.name)
+            except Exception:
+                self.log.warning(f"Failed to set room name for {portal.mxid}", exc_info=True)
+        return ok
 
     async def handle_invite(self, room_id: RoomID, user_id: UserID, invited_by: 'u.User',
                             event_id: EventID) -> None:
@@ -195,7 +224,8 @@ class MatrixHandler(BaseMatrixHandler):
         await user.mark_as_read(portal.fbid)
 
     def filter_matrix_event(self, evt: Event) -> bool:
-        if not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent)):
+        if not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent,
+                                EncryptedEvent)):
             return True
         return (evt.sender == self.az.bot_mxid
                 or pu.Puppet.get_id_from_mxid(evt.sender) is not None)
@@ -216,3 +246,10 @@ class MatrixHandler(BaseMatrixHandler):
         elif evt.type == EventType.REACTION:
             evt: ReactionEvent
             await self.handle_reaction(evt.room_id, evt.sender, evt.event_id, evt.content)
+
+    async def handle_state_event(self, evt: StateEvent) -> None:
+        if evt.type == EventType.ROOM_ENCRYPTION:
+            portal = po.Portal.get_by_mxid(evt.room_id)
+            if portal:
+                portal.encrypted = True
+                portal.save()

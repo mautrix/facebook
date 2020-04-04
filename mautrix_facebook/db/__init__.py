@@ -8,6 +8,11 @@ from .user import User
 from .user_portal import UserPortal
 from .user_contact import Contact
 
+try:
+    from mautrix.bridge.db.nio_state_store import init as init_nio_db
+except ImportError:
+    init_nio_db = None
+
 
 def init(db_engine) -> None:
     for table in (Portal, Message, Reaction, User, Puppet, UserPortal, Contact, UserProfile,
@@ -16,3 +21,4 @@ def init(db_engine) -> None:
         table.t = table.__table__
         table.c = table.t.c
         table.column_names = table.c.keys()
+    init_nio_db(db_engine)

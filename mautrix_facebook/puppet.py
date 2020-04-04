@@ -180,8 +180,8 @@ class Puppet(CustomPuppetMixin):
         if photo_id != self.photo_id:
             self.photo_id = photo_id
             if photo_url:
-                avatar_uri, _, _ = await p.Portal._reupload_fb_photo(photo_url,
-                                                                     self.default_mxid_intent)
+                avatar_uri, *_ = await p.Portal._reupload_fb_file(photo_url,
+                                                                  self.default_mxid_intent)
             else:
                 avatar_uri = ""
             await self.default_mxid_intent.set_avatar_url(avatar_uri)

@@ -57,6 +57,8 @@ class Config(BaseBridgeConfig):
         copy("bridge.login_shared_secret")
         copy("bridge.presence")
         copy("bridge.update_avatar_initial_sync")
+        copy("bridge.encryption.allow")
+        copy("bridge.encryption.default")
 
         copy_dict("bridge.permissions")
 

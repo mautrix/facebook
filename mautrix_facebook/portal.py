@@ -16,7 +16,6 @@
 from typing import Dict, Deque, Optional, Tuple, Union, Set, Iterator, TYPE_CHECKING
 from collections import deque
 import asyncio
-import logging
 
 from yarl import URL
 import aiohttp
@@ -28,11 +27,12 @@ from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page a
                     TypingStatus, MessageReaction)
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
-                           ThumbnailInfo, FileInfo, AudioInfo, VideoInfo, Format, RelatesTo,
+                           ThumbnailInfo, FileInfo, AudioInfo, Format, RelatesTo, RelationType,
                            TextMessageEventContent, MediaMessageEventContent, Membership,
-                           RelationType)
-from mautrix.appservice import AppService, IntentAPI
+                           EncryptedFile)
+from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
+from mautrix.bridge import BasePortal
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
@@ -42,6 +42,12 @@ from . import puppet as p, user as u
 
 if TYPE_CHECKING:
     from .context import Context
+    from .matrix import MatrixHandler
+
+try:
+    from nio.crypto import decrypt_attachment, encrypt_attachment
+except ImportError:
+    decrypt_attachment = encrypt_attachment = None
 
 config: Config
 
@@ -58,18 +64,17 @@ class FakeLock:
         pass
 
 
-class Portal:
-    az: AppService
-    loop: asyncio.AbstractEventLoop
-    log: logging.Logger = logging.getLogger("mau.portal")
+class Portal(BasePortal):
     invite_own_puppet_to_pm: bool = False
     by_mxid: Dict[RoomID, 'Portal'] = {}
     by_fbid: Dict[Tuple[str, str], 'Portal'] = {}
+    matrix: 'MatrixHandler'
 
     fbid: str
     fb_receiver: str
     fb_type: ThreadType
     mxid: Optional[RoomID]
+    encrypted: bool
 
     name: str
     photo_id: str
@@ -86,12 +91,13 @@ class Portal:
     _typing: Set['u.User']
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
-                 mxid: Optional[RoomID] = None, name: str = "", photo_id: str = "",
-                 db_instance: Optional[DBPortal] = None) -> None:
+                 mxid: Optional[RoomID] = None, encrypted: bool = False, name: str = "",
+                 photo_id: str = "", db_instance: Optional[DBPortal] = None) -> None:
         self.fbid = fbid
         self.fb_receiver = fb_receiver
         self.fb_type = fb_type
         self.mxid = mxid
+        self.encrypted = encrypted
 
         self.name = name
         self.photo_id = photo_id
@@ -119,17 +125,19 @@ class Portal:
         if not self._db_instance:
             self._db_instance = DBPortal(fbid=self.fbid, fb_receiver=self.fb_receiver,
                                          fb_type=self.fb_type, mxid=self.mxid, name=self.name,
-                                         photo_id=self.photo_id)
+                                         encrypted=self.encrypted, photo_id=self.photo_id)
         return self._db_instance
 
     @classmethod
     def from_db(cls, db_portal: DBPortal) -> 'Portal':
         return Portal(fbid=db_portal.fbid, fb_receiver=db_portal.fb_receiver,
                       fb_type=db_portal.fb_type, mxid=db_portal.mxid, name=db_portal.name,
-                      photo_id=db_portal.photo_id, db_instance=db_portal)
+                      encrypted=db_portal.encrypted, photo_id=db_portal.photo_id,
+                      db_instance=db_portal)
 
     def save(self) -> None:
-        self.db_instance.edit(mxid=self.mxid, name=self.name, photo_id=self.photo_id)
+        self.db_instance.edit(mxid=self.mxid, name=self.name, photo_id=self.photo_id,
+                              encrypted=self.encrypted)
 
     def delete(self) -> None:
         self.by_fbid.pop(self.fbid_full, None)
@@ -158,8 +166,7 @@ class Portal:
     def main_intent(self) -> IntentAPI:
         if not self._main_intent:
             self._main_intent = (p.Puppet.get_by_fbid(self.fbid).default_mxid_intent
-                                 if self.is_direct
-                                 else self.az.intent)
+                                 if self.is_direct else self.az.intent)
 
         return self._main_intent
 
@@ -186,32 +193,42 @@ class Portal:
         return path[path.rfind("/") + 1:]
 
     @staticmethod
-    async def _reupload_fb_photo(url: str, intent: IntentAPI, filename: Optional[str] = None
-                                 ) -> Tuple[ContentURI, str, int]:
+    async def _reupload_fb_file(url: str, intent: IntentAPI, filename: Optional[str] = None,
+                                encrypt: bool = False
+                                ) -> Tuple[ContentURI, str, int, Optional[EncryptedFile]]:
         if not url:
             raise ValueError('URL not provided')
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
-        return await intent.upload_media(data, mime_type=mime, filename=filename), mime, len(data)
+        upload_mime_type = mime
+        decryption_info = None
+        if encrypt and encrypt_attachment:
+            data, decryption_info_dict = encrypt_attachment(data)
+            decryption_info = EncryptedFile.deserialize(decryption_info_dict)
+            upload_mime_type = "application/octet-stream"
+        url = await intent.upload_media(data, mime_type=upload_mime_type, filename=filename)
+        if decryption_info:
+            decryption_info.url = url
+        return url, mime, len(data), decryption_info
 
     async def _update_name(self, name: str) -> bool:
         if self.name != name:
             self.name = name
-            if self.mxid and not self.is_direct:
+            if self.mxid and (self.encrypted or not self.is_direct):
                 await self.main_intent.set_room_name(self.mxid, self.name)
             return True
         return False
 
     async def _update_photo(self, photo_url: str) -> bool:
-        if self.is_direct:
+        if self.is_direct and not self.encrypted:
             return False
         photo_id = self._get_photo_id(photo_url)
         if self.photo_id != photo_id:
             self.photo_id = photo_id
             if photo_url:
-                self._avatar_uri, _, _ = await self._reupload_fb_photo(photo_url, self.main_intent)
+                self._avatar_uri, *_ = await self._reupload_fb_file(photo_url, self.main_intent)
             else:
                 self._avatar_uri = ContentURI("")
             if self.mxid:
@@ -278,7 +295,16 @@ class Portal:
         self.log.debug(f"Creating Matrix room")
         name: Optional[str] = None
         initial_state = []
-        if not self.is_direct:
+        invites = [source.mxid]
+        if config["bridge.encryption.default"] and self.matrix.e2ee:
+            self.encrypted = True
+            initial_state.append({
+                "type": "m.room.encryption",
+                "content": {"algorithm": "m.megolm.v1.aes-sha2"},
+            })
+            if self.is_direct:
+                invites.append(self.az.bot_mxid)
+        if self.encrypted or not self.is_direct:
             name = self.name
             initial_state.append({"type": str(EventType.ROOM_AVATAR),
                                   "content": {"avatar_url": self._avatar_uri}})
@@ -289,11 +315,24 @@ class Portal:
             })
         self.mxid = await self.main_intent.create_room(name=name, is_direct=self.is_direct,
                                                        initial_state=initial_state,
-                                                       invitees=[source.mxid])
+                                                       invitees=invites)
+        if not self.mxid:
+            raise Exception("Failed to create room: no mxid returned")
+
+        if self.encrypted and self.matrix.e2ee:
+            members = [self.main_intent.mxid]
+            if self.is_direct:
+                # This isn't very accurate, but let's do it anyway
+                members += [source.mxid]
+                try:
+                    await self.az.intent.join_room_by_id(self.mxid)
+                    members += [self.az.intent.mxid]
+                except Exception:
+                    self.log.warning(f"Failed to add bridge bot to new private chat {self.mxid}")
+            await self.matrix.e2ee.add_room(self.mxid, members=members, encrypted=True)
+
         self.save()
         self.log.debug(f"Matrix room created: {self.mxid}")
-        if not self.mxid:
-            raise Exception("Failed to create room: no mxid required")
         self.by_mxid[self.mxid] = self
         if not self.is_direct:
             await self._update_participants(source, info)
@@ -531,55 +570,62 @@ class Portal:
                 return RelatesTo(rel_type=RelationType.REFERENCE, event_id=message.mxid)
         return None
 
+    async def _send_message(self, intent: IntentAPI, content: MessageEventContent,
+                            event_type: EventType = EventType.ROOM_MESSAGE, **kwargs) -> EventID:
+        if self.encrypted and self.matrix.e2ee:
+            event_type, content = await self.matrix.e2ee.encrypt(self.mxid, event_type, content)
+        return await intent.send_message_event(self.mxid, event_type, content, **kwargs)
+
     async def _handle_facebook_text(self, intent: IntentAPI, message: FBMessage) -> EventID:
         content = facebook_to_matrix(message)
         await self._add_facebook_reply(content, message.reply_to_id)
-        return await intent.send_message(self.mxid, content)
+        return await self._send_message(intent, content)
 
     async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker,
                                        reply_to: str) -> EventID:
         # TODO handle animated stickers?
-        mxc, mime, size = await self._reupload_fb_photo(sticker.url, intent)
-        return await intent.send_sticker(room_id=self.mxid, url=mxc,
-                                         info=ImageInfo(width=sticker.width,
-                                                        height=sticker.height,
-                                                        mimetype=mime,
-                                                        size=size),
-                                         text=sticker.label,
-                                         relates_to=self._get_facebook_reply(reply_to))
+        mxc, mime, size, decryption_info = await self._reupload_fb_file(
+            sticker.url, intent, encrypt=self.encrypted)
+        return await self._send_message(intent, event_type=EventType.STICKER,
+                                        content=MediaMessageEventContent(
+                                            url=mxc, file=decryption_info,
+                                            msgtype=MessageType.STICKER, body=sticker.label,
+                                            info=ImageInfo(width=sticker.width, size=size,
+                                                           height=sticker.height, mimetype=mime),
+                                            relates_to=self._get_facebook_reply(reply_to)))
 
     async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass,
                                           reply_to: str) -> Optional[EventID]:
         if isinstance(attachment, AudioAttachment):
-            mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
-                                                            attachment.filename)
-            event_id = await intent.send_file(self.mxid, mxc, file_type=MessageType.AUDIO,
-                                              info=AudioInfo(size=size, mimetype=mime,
-                                                             duration=attachment.duration),
-                                              file_name=attachment.filename,
-                                              relates_to=self._get_facebook_reply(reply_to))
+            mxc, mime, size, decryption_info = await self._reupload_fb_file(
+                attachment.url, intent, attachment.filename, encrypt=self.encrypted)
+            event_id = await self._send_message(intent, MediaMessageEventContent(
+                url=mxc, file=decryption_info, msgtype=MessageType.AUDIO, body=attachment.filename,
+                info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration),
+                relates_to=self._get_facebook_reply(reply_to)))
         # elif isinstance(attachment, VideoAttachment):
         # TODO
         elif isinstance(attachment, FileAttachment):
-            mxc, mime, size = await self._reupload_fb_photo(attachment.url, intent,
-                                                            attachment.name)
-            event_id = await intent.send_file(self.mxid, mxc,
-                                              info=FileInfo(size=size, mimetype=mime),
-                                              file_name=attachment.name,
-                                              relates_to=self._get_facebook_reply(reply_to))
+            mxc, mime, size, decryption_info = await self._reupload_fb_file(
+                attachment.url, intent, attachment.name, encrypt=self.encrypted)
+            event_id = await self._send_message(intent, MediaMessageEventContent(
+                url=mxc, file=decryption_info, msgtype=MessageType.FILE, body=attachment.name,
+                info=FileInfo(size=size, mimetype=mime),
+                relates_to=self._get_facebook_reply(reply_to)))
         elif isinstance(attachment, ImageAttachment):
-            mxc, mime, size = await self._reupload_fb_photo(attachment.large_preview_url
-                                                            or attachment.preview_url, intent)
-            info = ImageInfo(size=size, mimetype=mime,
-                             width=attachment.large_preview_width,
-                             height=attachment.large_preview_height)
-            event_id = await intent.send_image(self.mxid, mxc, info=info,
-                                               file_name=f"image.{attachment.original_extension}",
-                                               relates_to=self._get_facebook_reply(reply_to))
+            mxc, mime, size, decryption_info = await self._reupload_fb_file(
+                attachment.large_preview_url or attachment.preview_url, intent,
+                encrypt=self.encrypted)
+            event_id = await self._send_message(intent, MediaMessageEventContent(
+                url=mxc, file=decryption_info, msgtype=MessageType.IMAGE,
+                body=f"image.{attachment.original_extension}",
+                info=ImageInfo(size=size, mimetype=mime, width=attachment.large_preview_width,
+                               height=attachment.large_preview_height),
+                relates_to=self._get_facebook_reply(reply_to)))
         elif isinstance(attachment, LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)
             content.relates_to = self._get_facebook_reply(reply_to)
-            event_id = await intent.send_message(self.mxid, content)
+            event_id = await self._send_message(intent, content)
         else:
             self.log.warning(f"Unsupported attachment type: {attachment}")
             return None
@@ -597,12 +643,14 @@ class Portal:
         text = f"{rounded_lat}° {lat_char}, {rounded_long}° {long_char}"
         url = f"https://maps.google.com/?q={lat},{long}"
 
-        thumbnail_url, mime, size = await self._reupload_fb_photo(location.image_url, intent)
+        thumbnail_url, mime, size, decryption_info = await self._reupload_fb_file(
+            location.image_url, intent, encrypt=True)
         thumbnail_info = ThumbnailInfo(mimetype=mime, width=location.image_width,
                                        height=location.image_height, size=size)
         content = LocationMessageEventContent(
             body=f"{location.address}\nLocation: {text}\n{url}", geo_uri=f"geo:{lat},{long}",
             msgtype=MessageType.LOCATION, info=LocationInfo(thumbnail_url=thumbnail_url,
+                                                            thumbnail_file=decryption_info,
                                                             thumbnail_info=thumbnail_info))
         # Some clients support formatted body in m.location, so add that as well.
         content["format"] = Format.HTML
@@ -644,7 +692,7 @@ class Portal:
         if self.photo_id == photo_id:
             return
         self.photo_id = photo_id
-        self._avatar_uri, _, _ = await self._reupload_fb_photo(photo_url, sender.intent)
+        self._avatar_uri, *_ = await self._reupload_fb_file(photo_url, sender.intent)
         try:
             event_id = await sender.intent.set_room_avatar(self.mxid, self._avatar_uri)
         except IntentError:
@@ -781,4 +829,5 @@ class Portal:
 def init(context: 'Context') -> None:
     global config
     Portal.az, config, Portal.loop = context.core
+    Portal.matrix = context.mx
     Portal.invite_own_puppet_to_pm = config["bridge.invite_own_puppet_to_pm"]

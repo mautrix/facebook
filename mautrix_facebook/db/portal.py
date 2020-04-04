@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Iterator
 
-from sqlalchemy import Column, String, Enum, and_
+from sqlalchemy import Column, String, Enum, Boolean, false, and_
 
 from fbchat import ThreadType
 from mautrix.types import RoomID
@@ -32,6 +32,7 @@ class Portal(Base):
 
     # Matrix portal information
     mxid: RoomID = Column(String(255), unique=True, nullable=True)
+    encrypted: bool = Column(Boolean, nullable=False, server_default=false())
 
     # Facebook chat metadata
     name = Column(String, nullable=True)
