@@ -20,6 +20,7 @@ RUN apk add --no-cache \
           py3-yaml \
           py3-docopt \
       py3-idna \
+      py3-cffi \
       # matrix-nio
       olm-dev@edge_community \
       py3-future \
