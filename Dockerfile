@@ -32,7 +32,7 @@ RUN apk add --no-cache \
       py3-cachetools@edge_community \
       py3-unpaddedbase64 \
       py3-pyaes@edge_testing \
-      py3-logbook@edge_testing
+      py3-logbook@edge_testing \
       # Other dependencies
       ca-certificates \
       su-exec
