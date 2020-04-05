@@ -428,8 +428,15 @@ class Portal(BasePortal):
         return await sender.send(matrix_to_facebook(message, self.mxid), self.fbid, self.fb_type)
 
     async def _handle_matrix_image(self, sender: 'u.User',
-                                   message: MediaMessageEventContent) -> str:
-        data = await self.main_intent.download_media(message.url)
+                                   message: MediaMessageEventContent) -> Optional[str]:
+        if message.file and decrypt_attachment:
+            data = await self.main_intent.download_media(message.file.url)
+            data = decrypt_attachment(data, message.file.key.key,
+                                      message.file.hashes.get("sha256"), message.file.iv)
+        elif message.url:
+            data = await self.main_intent.download_media(message.url)
+        else:
+            return None
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
         files = await sender._upload([(message.body, data, mime)])
         return await sender._send_files(files, thread_id=self.fbid, thread_type=self.fb_type)
