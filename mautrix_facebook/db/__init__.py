@@ -21,4 +21,5 @@ def init(db_engine) -> None:
         table.t = table.__table__
         table.c = table.t.c
         table.column_names = table.c.keys()
-    init_nio_db(db_engine)
+    if init_nio_db:
+        init_nio_db(db_engine)
