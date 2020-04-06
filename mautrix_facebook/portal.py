@@ -553,7 +553,8 @@ class Portal(BasePortal):
                   for attachment in message.attachments])
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
         if not event_ids:
-            if message.text:
+            if message.text or any(x for x in message.attachments
+                                   if isinstance(x, ShareAttachment)):
                 event_ids = [await self._handle_facebook_text(intent, message)]
             else:
                 self.log.warning(f"Unhandled Messenger message: {message}")
@@ -634,6 +635,9 @@ class Portal(BasePortal):
             content = await self._convert_facebook_location(intent, attachment)
             content.relates_to = self._get_facebook_reply(reply_to)
             event_id = await self._send_message(intent, content)
+        elif isinstance(attachment, ShareAttachment):
+            # These are handled in the text formatter
+            return None
         else:
             self.log.warning(f"Unsupported attachment type: {attachment}")
             return None
