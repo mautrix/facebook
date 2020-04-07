@@ -139,8 +139,8 @@ def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptSt
 
 
 def facebook_to_matrix(message: Message) -> TextMessageEventContent:
-    content = TextMessageEventContent(msgtype=MessageType.TEXT, body=message.text)
-    text = message.text
+    text = message.text or ""
+    content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
     for m in reversed(message.mentions):
         original = text[m.offset:m.offset + m.length]
         if len(original) > 0 and original[0] == "@":
@@ -148,17 +148,18 @@ def facebook_to_matrix(message: Message) -> TextMessageEventContent:
         text = f"{text[:m.offset]}@{m.thread_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
     html = escape(text)
     output = []
-    codeblock = False
-    blockquote = False
-    line: str
-    lines = html.split("\n")
-    for i, line in enumerate(lines):
-        blockquote, line = _handle_blockquote(output, blockquote, line)
-        codeblock, line, post_args = _handle_codeblock_pre(output, codeblock, line)
-        output.append(_convert_formatting(line))
-        if i != len(lines) - 1:
-            output.append("<br/>")
-        _handle_codeblock_post(output, *post_args)
+    if html:
+        codeblock = False
+        blockquote = False
+        line: str
+        lines = html.split("\n")
+        for i, line in enumerate(lines):
+            blockquote, line = _handle_blockquote(output, blockquote, line)
+            codeblock, line, post_args = _handle_codeblock_pre(output, codeblock, line)
+            output.append(_convert_formatting(line))
+            if i != len(lines) - 1:
+                output.append("<br/>")
+            _handle_codeblock_post(output, *post_args)
     links = [attachment for attachment in message.attachments
              if isinstance(attachment, ShareAttachment)]
     message.attachments = [attachment for attachment in message.attachments
