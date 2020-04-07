@@ -165,7 +165,7 @@ def facebook_to_matrix(message: Message) -> TextMessageEventContent:
     message.attachments = [attachment for attachment in message.attachments
                            if not isinstance(attachment, ShareAttachment)]
     for attachment in links:
-        if attachment.original_url.rstrip("/") not in message.text:
+        if attachment.original_url.rstrip("/") not in text:
             output.append(f"<br/><a href='{attachment.original_url}'>{attachment.title}</a>")
             content.body += f"\n{attachment.title}: {attachment.original_url}"
     html = "".join(output)
