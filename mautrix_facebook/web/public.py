@@ -57,11 +57,17 @@ class PublicBridgeWebsite:
         return None
 
     @property
-    def _headers(self) -> Dict[str, str]:
+    def _acao_headers(self) -> Dict[str, str]:
         return {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Authorization, Content-Type",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
+        }
+
+    @property
+    def _headers(self) -> Dict[str, str]:
+        return {
+            **self._acao_headers,
             "Content-Type": "application/json",
         }
 
@@ -93,7 +99,6 @@ class PublicBridgeWebsite:
         return user
 
     async def status(self, request: web.Request) -> web.Response:
-        print("HI")
         user = self.check_token(request)
         data = {
             "permissions": user.permission_level,
@@ -103,7 +108,7 @@ class PublicBridgeWebsite:
         if await user.is_logged_in():
             info: FBUser = (await user.fetch_user_info(user.fbid))[user.fbid]
             data["facebook"] = attr.asdict(info)
-        return web.json_response(data)
+        return web.json_response(data, headers=self._acao_headers)
 
     async def login(self, request: web.Request) -> web.Response:
         user = self.check_token(request)
@@ -111,13 +116,12 @@ class PublicBridgeWebsite:
         try:
             user_agent = request.headers["User-Agent"]
         except KeyError:
-            return web.json_response({"error": "Missing User-Agent header"}, status=400,
+            raise web.HTTPBadRequest(body='{"error": "Missing User-Agent header"}',
                                      headers=self._headers)
         try:
             data = await request.json()
         except json.JSONDecodeError:
-            return web.json_response({"error": "Malformed JSON"}, status=400,
-                                     headers=self._headers)
+            raise web.HTTPBadRequest(body='{"error": "Malformed JSON"}', headers=self._headers)
 
         cookie = SimpleCookie()
         cookie["c_user"] = data["c_user"]
@@ -126,12 +130,12 @@ class PublicBridgeWebsite:
         user.save()
         ok = await user.set_session(cookie, user_agent) and await user.is_logged_in(True)
         if not ok:
-            return web.json_response({"error": "Facebook authorization failed"}, status=401,
-                                     headers=self._headers)
+            raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
+                                       headers=self._headers)
         await user.on_logged_in(data["c_user"])
         if user.command_status and user.command_status.get("action") == "Login":
             user.command_status = None
-        return web.json_response({}, status=200, headers=self._headers)
+        return web.Response(body='{}', status=200, headers=self._headers)
 
     async def logout(self, request: web.Request) -> web.Response:
         user = self.check_token(request)
@@ -140,4 +144,4 @@ class PublicBridgeWebsite:
         await user.logout()
         if puppet.is_real_user:
             await puppet.switch_mxid(None, None)
-        return web.json_response({})
+        return web.json_response({}, headers=self._acao_headers)
