@@ -595,10 +595,11 @@ class Portal(BasePortal):
         # TODO handle animated stickers?
         mxc, mime, size, decryption_info = await self._reupload_fb_file(
             sticker.url, intent, encrypt=self.encrypted)
+        body = ('No label' if sticker.label is None else sticker.label)
         return await self._send_message(intent, event_type=EventType.STICKER,
                                         content=MediaMessageEventContent(
                                             url=mxc, file=decryption_info,
-                                            msgtype=MessageType.STICKER, body=sticker.label,
+                                            msgtype=MessageType.STICKER, body=body,
                                             info=ImageInfo(width=sticker.width, size=size,
                                                            height=sticker.height, mimetype=mime),
                                             relates_to=self._get_facebook_reply(reply_to)))
