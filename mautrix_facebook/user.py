@@ -50,6 +50,7 @@ class User(Client):
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
+    _on_logged_in_done: bool
     _session_data: Optional[SimpleCookie]
     _db_instance: Optional[DBUser]
 
@@ -65,6 +66,7 @@ class User(Client):
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
+        self._on_logged_in_done = False
         self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
@@ -163,6 +165,7 @@ class User(Client):
         ok = await super().logout(safe)
         self._session_data = None
         self._is_logged_in = False
+        self._on_logged_in_done = False
         self.save(_update_session_data=False)
         return ok
 
@@ -289,10 +292,10 @@ class User(Client):
 
         :param email: The email of the client
         """
-        if self._is_logged_in:
-            self.log.warning("Got on_logged_in call while already logged in, ignoring")
+        if self._on_logged_in_done:
+            self.log.warning("Got duplicate on_logged_in call, ignoring")
             return
-        self._is_logged_in = True
+        self._on_logged_in_done = True
         if self.command_status and self.command_status.get("action", "") == "Login":
             await self.az.intent.send_notice(self.command_status["room_id"],
                                              f"Successfully logged in with {email}")
