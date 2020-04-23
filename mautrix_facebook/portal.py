@@ -582,6 +582,8 @@ class Portal(BasePortal):
     async def _send_message(self, intent: IntentAPI, content: MessageEventContent,
                             event_type: EventType = EventType.ROOM_MESSAGE, **kwargs) -> EventID:
         if self.encrypted and self.matrix.e2ee:
+            if intent.api.is_real_user:
+                content[intent.api.real_user_content_key] = True
             event_type, content = await self.matrix.e2ee.encrypt(self.mxid, event_type, content)
         return await intent.send_message_event(self.mxid, event_type, content, **kwargs)
 
