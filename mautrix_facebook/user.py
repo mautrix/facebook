@@ -289,15 +289,16 @@ class User(Client):
 
         :param email: The email of the client
         """
+        if self._is_logged_in:
+            self.log.warning("Got on_logged_in call while already logged in, ignoring")
+            return
         self._is_logged_in = True
         if self.command_status and self.command_status.get("action", "") == "Login":
             await self.az.intent.send_notice(self.command_status["room_id"],
                                              f"Successfully logged in with {email}")
-            self.save()
-            self.listen(long_polling=False, mqtt=True)
-            asyncio.ensure_future(self.post_login(), loop=self.loop)
-        self.log.warning("Unexpected onLoggedIn call")
-        # raise RuntimeError("No ongoing login command")
+        self.save()
+        self.listen(long_polling=False, mqtt=True)
+        asyncio.ensure_future(self.post_login(), loop=self.loop)
 
     async def on_listening(self) -> None:
         """Called when the client is listening."""
