@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -294,7 +294,22 @@ class Portal(BasePortal):
         info = await self.update_info(source=source, info=info)
         self.log.debug(f"Creating Matrix room")
         name: Optional[str] = None
-        initial_state = []
+        initial_state = [{
+            "type": "m.bridge",
+            "state_key": f"net.maunium.facebook://facebook/{self.fbid}",
+            "content": {
+                "bridgebot": self.az.bot_mxid,
+                "creator": self.main_intent.mxid,
+                "protocol": {
+                    "id": "facebook",
+                    "displayname": "Facebook Messenger",
+                    "avatar_url": config["appservice.bot_avatar"],
+                },
+                "channel": {
+                    "id": self.fbid
+                }
+            }
+        }]
         invites = [source.mxid]
         if config["bridge.encryption.default"] and self.matrix.e2ee:
             self.encrypted = True
