@@ -21,10 +21,7 @@ from yarl import URL
 import aiohttp
 import magic
 
-from fbchat import (ThreadType, Thread, User as FBUser, Group as FBGroup, Page as FBPage,
-                    Message as FBMessage, Sticker as FBSticker, AudioAttachment, VideoAttachment,
-                    FileAttachment, ImageAttachment, LocationAttachment, ShareAttachment,
-                    TypingStatus, MessageReaction)
+import fbchat
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, Format, RelatesTo, RelationType,
@@ -37,7 +34,7 @@ from mautrix.bridge import BasePortal
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
 from .db import (Portal as DBPortal, Message as DBMessage, Reaction as DBReaction,
-                 UserPortal as DBUserPortal)
+                 UserPortal as DBUserPortal, ThreadType)
 from . import puppet as p, user as u
 
 if TYPE_CHECKING:
@@ -51,9 +48,10 @@ except ImportError:
 
 config: Config
 
-ThreadClass = Union[FBUser, FBGroup, FBPage]
-AttachmentClass = Union[AudioAttachment, VideoAttachment, FileAttachment, ImageAttachment,
-                        LocationAttachment, ShareAttachment]
+ThreadClass = Union[fbchat.UserData, fbchat.GroupData, fbchat.PageData]
+AttachmentClass = Union[fbchat.AudioAttachment, fbchat.VideoAttachment, fbchat.FileAttachment,
+                        fbchat.ImageAttachment, fbchat.LocationAttachment,
+                        fbchat.ShareAttachment]
 
 
 class FakeLock:
@@ -158,6 +156,16 @@ class Portal(BasePortal):
             return f"{self.fbid}<->{self.fb_receiver}"
         return self.fbid
 
+    def thread_for(self, user: 'u.User') -> Union[fbchat.User, fbchat.Group, fbchat.Page]:
+        if self.fb_type == ThreadType.USER:
+            return fbchat.User(session=user.session, id=self.fbid)
+        elif self.fb_type == ThreadType.GROUP:
+            return fbchat.Group(session=user.session, id=self.fbid)
+        elif self.fb_type == ThreadType.PAGE:
+            return fbchat.Page(session=user.session, id=self.fbid)
+        else:
+            raise ValueError("Unsupported thread type")
+
     @property
     def is_direct(self) -> bool:
         return self.fb_type == ThreadType.USER
@@ -176,7 +184,8 @@ class Portal(BasePortal):
     async def update_info(self, source: Optional['u.User'] = None,
                           info: Optional[ThreadClass] = None) -> ThreadClass:
         if not info:
-            info = (await source.fetch_thread_info(self.fbid))[self.fbid]
+            info = await source.client.fetch_thread_info(self.fbid).__anext__()
+            # TODO validate that we got some sane info?
         changed = any(await asyncio.gather(self._update_name(info.name),
                                            self._update_photo(info.photo),
                                            self._update_participants(source, info),
@@ -186,10 +195,12 @@ class Portal(BasePortal):
         return info
 
     @staticmethod
-    def _get_photo_id(url: Optional[str]) -> Optional[str]:
-        if not url:
+    def _get_photo_id(photo: Optional[Union[fbchat.Image, str]]) -> Optional[str]:
+        if not photo:
             return None
-        path = URL(url).path
+        elif isinstance(photo, fbchat.Image):
+            photo = photo.url
+        path = URL(photo).path
         return path[path.rfind("/") + 1:]
 
     @staticmethod
@@ -221,14 +232,14 @@ class Portal(BasePortal):
             return True
         return False
 
-    async def _update_photo(self, photo_url: str) -> bool:
+    async def _update_photo(self, photo: fbchat.Image) -> bool:
         if self.is_direct and not self.encrypted:
             return False
-        photo_id = self._get_photo_id(photo_url)
+        photo_id = self._get_photo_id(photo)
         if self.photo_id != photo_id:
             self.photo_id = photo_id
-            if photo_url:
-                self._avatar_uri, *_ = await self._reupload_fb_file(photo_url, self.main_intent)
+            if photo:
+                self._avatar_uri, *_ = await self._reupload_fb_file(photo.url, self.main_intent)
             else:
                 self._avatar_uri = ContentURI("")
             if self.mxid:
@@ -238,16 +249,18 @@ class Portal(BasePortal):
 
     async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
         if self.is_direct:
-            await p.Puppet.get_by_fbid(info.uid).update_info(source=source, info=info)
+            await p.Puppet.get_by_fbid(info.id).update_info(source=source, info=info)
             return
         elif not self.mxid:
             return
-        users = await source.fetch_all_users_from_threads([info])
-        puppets = [(user, p.Puppet.get_by_fbid(user.uid)) for user in users]
-        await asyncio.gather(*[puppet.update_info(source=source, info=user)
-                               for user, puppet in puppets])
-        await asyncio.gather(*[puppet.intent_for(self).ensure_joined(self.mxid)
-                               for user, puppet in puppets])
+        # TODO maybe change this back to happen simultaneously
+        async for user in source.client.fetch_thread_info([user.id for user in info.participants]):
+            if not isinstance(user, fbchat.UserData):
+                # TODO log
+                continue
+            puppet = p.Puppet.get_by_fbid(user.id)
+            await puppet.update_info(source, user)
+            await puppet.intent_for(self).ensure_joined(self.mxid)
 
     # endregion
     # region Matrix room creation
@@ -421,7 +434,7 @@ class Portal(BasePortal):
             return
         # TODO this probably isn't nice for bridging images, it really only needs to lock the
         #      actual message send call and dedup queue append.
-        async with self.require_send_lock(sender.uid):
+        async with self.require_send_lock(sender.fbid):
             if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
                 fbid = await self._handle_matrix_text(sender, message)
             elif message.msgtype == MessageType.IMAGE:
@@ -440,7 +453,7 @@ class Portal(BasePortal):
             self._last_bridged_mxid = event_id
 
     async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> str:
-        return await sender.send(matrix_to_facebook(message, self.mxid), self.fbid, self.fb_type)
+        return await self.thread_for(sender).send_text(**matrix_to_facebook(message, self.mxid))
 
     async def _handle_matrix_image(self, sender: 'u.User',
                                    message: MediaMessageEventContent) -> Optional[str]:
@@ -453,8 +466,8 @@ class Portal(BasePortal):
         else:
             return None
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
-        files = await sender._upload([(message.body, data, mime)])
-        return await sender._send_files(files, thread_id=self.fbid, thread_type=self.fb_type)
+        files = await sender.client.upload([(message.body, data, mime)])
+        return await self.thread_for(sender).send_files(files)
 
     async def _handle_matrix_location(self, sender: 'u.User',
                                       message: LocationMessageEventContent) -> str:
@@ -468,7 +481,7 @@ class Portal(BasePortal):
         if message:
             try:
                 message.delete()
-                await sender.unsend(message.fbid)
+                await fbchat.Message(thread=self.thread_for(sender), id=message.fbid).unsend()
             except Exception:
                 self.log.exception("Unsend failed")
             return
@@ -477,42 +490,27 @@ class Portal(BasePortal):
         if reaction:
             try:
                 reaction.delete()
-                await sender.react_to_message(reaction.fb_msgid, reaction=None)
+                await fbchat.Message(thread=self.thread_for(sender),
+                                     id=reaction.fb_msgid).react(None)
             except Exception:
                 self.log.exception("Removing reaction failed")
 
-    _matrix_to_facebook_reaction = {
-        "❤": MessageReaction.HEART,
-        "❤️": MessageReaction.HEART,
-        "😍": MessageReaction.LOVE,
-        "😆": MessageReaction.SMILE,
-        "😮": MessageReaction.WOW,
-        "😢": MessageReaction.SAD,
-        "😠": MessageReaction.ANGRY,
-        "👍": MessageReaction.YES,
-        "👎": MessageReaction.NO
-    }
-
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
-                                     reacting_to: EventID, raw_reaction: str) -> None:
-        async with self.require_send_lock(sender.uid):
-            try:
-                reaction = self._matrix_to_facebook_reaction[raw_reaction]
-            except KeyError:
-                return
-
+                                     reacting_to: EventID, reaction: str) -> None:
+        async with self.require_send_lock(sender.fbid):
             message = DBMessage.get_by_mxid(reacting_to, self.mxid)
             if not message:
                 self.log.debug(f"Ignoring reaction to unknown event {reacting_to}")
                 return
 
-            existing = DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.uid)
-            if existing and existing.reaction == reaction.value:
+            existing = DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.fbid)
+            if existing and existing.reaction == reaction:
                 return
 
-            await sender.react_to_message(message.fbid, reaction)
+            # TODO normalize reaction emoji bytes and maybe pre-reject invalid emojis
+            await fbchat.Message(thread=self.thread_for(sender), id=message.fbid).react(reaction)
             await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
-                                        reaction.value)
+                                        reaction)
 
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
@@ -523,10 +521,8 @@ class Portal(BasePortal):
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
 
     async def handle_matrix_typing(self, users: Set['u.User']) -> None:
-        stopped_typing = [user.set_typing_status(TypingStatus.STOPPED, self.fbid, self.fb_type)
-                          for user in self._typing - users]
-        started_typing = [user.set_typing_status(TypingStatus.TYPING, self.fbid, self.fb_type)
-                          for user in users - self._typing]
+        stopped_typing = [self.thread_for(user).stop_typing() for user in self._typing - users]
+        started_typing = [self.thread_for(user).start_typing() for user in self._typing - users]
         self._typing = users
         await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
 
@@ -534,7 +530,7 @@ class Portal(BasePortal):
     # region Facebook event handling
 
     async def _bridge_own_message_pm(self, source: 'u.User', sender: 'p.Puppet', mid: str) -> bool:
-        if self.is_direct and sender.fbid == source.uid and not sender.is_real_user:
+        if self.is_direct and sender.fbid == source.fbid and not sender.is_real_user:
             if self.invite_own_puppet_to_pm:
                 await self.main_intent.invite_user(self.mxid, sender.mxid)
             elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
@@ -544,18 +540,18 @@ class Portal(BasePortal):
         return True
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
-                                      message: FBMessage) -> None:
+                                      message: fbchat.MessageData) -> None:
         async with self.optional_send_lock(sender.fbid):
-            if message.uid in self._dedup:
-                await source.mark_as_delivered(self.fbid, message.uid)
+            if message.id in self._dedup:
+                await source.client.mark_as_delivered(message)
                 return
-            self._dedup.appendleft(message.uid)
+            self._dedup.appendleft(message.id)
         if not self.mxid:
             mxid = await self.create_matrix_room(source)
             if not mxid:
                 # Failed to create
                 return
-        if not await self._bridge_own_message_pm(source, sender, f"message {message.uid}"):
+        if not await self._bridge_own_message_pm(source, sender, f"message {message.id}"):
             return
         intent = sender.intent_for(self)
         event_ids = []
@@ -569,13 +565,13 @@ class Portal(BasePortal):
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
         if not event_ids:
             if message.text or any(x for x in message.attachments
-                                   if isinstance(x, ShareAttachment)):
+                                   if isinstance(x, fbchat.ShareAttachment)):
                 event_ids = [await self._handle_facebook_text(intent, message)]
             else:
                 self.log.warning(f"Unhandled Messenger message: {message}")
-        DBMessage.bulk_create(fbid=message.uid, fb_receiver=self.fb_receiver, mx_room=self.mxid,
+        DBMessage.bulk_create(fbid=message.id, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
-        await source.mark_as_delivered(self.fbid, message.uid)
+        await source.client.mark_as_delivered(message)
 
     async def _add_facebook_reply(self, content: TextMessageEventContent, reply: str) -> None:
         if reply:
@@ -602,12 +598,12 @@ class Portal(BasePortal):
             event_type, content = await self.matrix.e2ee.encrypt(self.mxid, event_type, content)
         return await intent.send_message_event(self.mxid, event_type, content, **kwargs)
 
-    async def _handle_facebook_text(self, intent: IntentAPI, message: FBMessage) -> EventID:
+    async def _handle_facebook_text(self, intent: IntentAPI, message: fbchat.Message) -> EventID:
         content = facebook_to_matrix(message)
         await self._add_facebook_reply(content, message.reply_to_id)
         return await self._send_message(intent, content)
 
-    async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: FBSticker,
+    async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: fbchat.Sticker,
                                        reply_to: str) -> EventID:
         # TODO handle animated stickers?
         mxc, mime, size, decryption_info = await self._reupload_fb_file(
@@ -622,23 +618,23 @@ class Portal(BasePortal):
 
     async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass,
                                           reply_to: str) -> Optional[EventID]:
-        if isinstance(attachment, AudioAttachment):
+        if isinstance(attachment, fbchat.AudioAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.url, intent, attachment.filename, encrypt=self.encrypted)
             event_id = await self._send_message(intent, MediaMessageEventContent(
                 url=mxc, file=decryption_info, msgtype=MessageType.AUDIO, body=attachment.filename,
                 info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration),
                 relates_to=self._get_facebook_reply(reply_to)))
-        # elif isinstance(attachment, VideoAttachment):
+        # elif isinstance(attachment, fbchat.VideoAttachment):
         # TODO
-        elif isinstance(attachment, FileAttachment):
+        elif isinstance(attachment, fbchat.FileAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.url, intent, attachment.name, encrypt=self.encrypted)
             event_id = await self._send_message(intent, MediaMessageEventContent(
                 url=mxc, file=decryption_info, msgtype=MessageType.FILE, body=attachment.name,
                 info=FileInfo(size=size, mimetype=mime),
                 relates_to=self._get_facebook_reply(reply_to)))
-        elif isinstance(attachment, ImageAttachment):
+        elif isinstance(attachment, fbchat.ImageAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.large_preview_url or attachment.preview_url, intent,
                 encrypt=self.encrypted)
@@ -648,11 +644,11 @@ class Portal(BasePortal):
                 info=ImageInfo(size=size, mimetype=mime, width=attachment.large_preview_width,
                                height=attachment.large_preview_height),
                 relates_to=self._get_facebook_reply(reply_to)))
-        elif isinstance(attachment, LocationAttachment):
+        elif isinstance(attachment, fbchat.LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)
             content.relates_to = self._get_facebook_reply(reply_to)
             event_id = await self._send_message(intent, content)
-        elif isinstance(attachment, ShareAttachment):
+        elif isinstance(attachment, fbchat.ShareAttachment):
             # These are handled in the text formatter
             return None
         else:
@@ -661,7 +657,8 @@ class Portal(BasePortal):
         self._last_bridged_mxid = event_id
         return event_id
 
-    async def _convert_facebook_location(self, intent: IntentAPI, location: LocationAttachment
+    async def _convert_facebook_location(self, intent: IntentAPI,
+                                         location: fbchat.LocationAttachment
                                          ) -> LocationMessageEventContent:
         long, lat = location.longitude, location.latitude
         long_char = "E" if long > 0 else "W"
@@ -716,7 +713,7 @@ class Portal(BasePortal):
         # When we fetch thread info manually, we only get the URL instead of the ID,
         # so we can't use the actual ID here either.
         # self.photo_id = new_photo_id
-        photo_url = await source.fetch_image_url(new_photo_id)
+        photo_url = await source.client.fetch_image_url(new_photo_id)
         photo_id = self._get_photo_id(photo_url)
         if self.photo_id == photo_id:
             return
@@ -849,8 +846,9 @@ class Portal(BasePortal):
                 yield cls.from_db(db_portal)
 
     @classmethod
-    def get_by_thread(cls, thread: Thread, fb_receiver: Optional[str] = None) -> 'Portal':
-        return cls.get_by_fbid(thread.uid, fb_receiver, thread.type)
+    def get_by_thread(cls, thread: fbchat.ThreadABC, fb_receiver: Optional[str] = None
+                      ) -> 'Portal':
+        return cls.get_by_fbid(thread.id, fb_receiver, ThreadType.from_thread(thread))
 
     # endregion
 

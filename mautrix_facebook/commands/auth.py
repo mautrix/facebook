@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -20,7 +20,7 @@ import time
 from http.cookies import SimpleCookie
 from yarl import URL
 
-from fbchat import FBchatException
+import fbchat
 from mautrix.client import Client
 from mautrix.util.signed_token import sign_token
 
@@ -52,6 +52,9 @@ async def login(evt: CommandEvent) -> None:
     if len(evt.args) < 2:
         await evt.reply("Usage: `$cmdprefix+sp login <email> <password>`")
         return
+    elif evt.sender.client:
+        await evt.reply("You're already logged in")
+        return
     evt.sender.command_status = {
         "action": "Login",
         "room_id": evt.room_id,
@@ -60,10 +63,13 @@ async def login(evt: CommandEvent) -> None:
         evt.sender.user_agent = random.choice(USER_AGENTS)
     await evt.reply("Logging in...")
     try:
-        await evt.sender.login(evt.args[0], " ".join(evt.args[1:]),
-                               user_agent=evt.sender.user_agent)
+        session = await fbchat.Session.login(evt.args[0], " ".join(evt.args[1:]),
+                                             on_2fa_callback=evt.sender.on_2fa_callback)
+        evt.sender.session = session
+        evt.sender.client = fbchat.Client(session=session)
+        # TODO call on_logged_in somehow
         evt.sender.command_status = None
-    except FBchatException as e:
+    except fbchat.FacebookError as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
         evt.log.exception("Failed to log in")
@@ -92,6 +98,9 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
 @command_handler(needs_auth=False, management_only=True,
                  help_section=SECTION_AUTH, help_text="Log in to Facebook with Cookie Monster")
 async def login_web(evt: CommandEvent) -> None:
+    if evt.sender.client:
+        await evt.reply("You're already logged in")
+        return
     external_url = URL(evt.config["appservice.public.external"])
     token = sign_token(evt.processor.bridge.public_website.secret_key, {
         "mxid": evt.sender.mxid,
@@ -111,6 +120,9 @@ async def login_web(evt: CommandEvent) -> None:
 @command_handler(needs_auth=False, management_only=True,
                  help_section=SECTION_AUTH, help_text="Log in to Facebook manually")
 async def login_cookie(evt: CommandEvent) -> None:
+    if evt.sender.client:
+        await evt.reply("You're already logged in")
+        return
     evt.sender.command_status = {
         "action": "Login",
         "room_id": evt.room_id,
@@ -145,18 +157,19 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
     cookie = SimpleCookie()
     cookie["c_user"] = evt.sender.command_status["c_user"]
     cookie["xs"] = evt.args[0]
-    ok = (await evt.sender.set_session(cookie, user_agent=evt.sender.user_agent)
-          and await evt.sender.is_logged_in(True))
-    if not ok:
+    session = await fbchat.Session.from_cookies(cookie)
+    if not await session.is_logged_in():
         await evt.reply("Failed to log in (see logs for more details)")
     else:
+        evt.sender.session = session
+        evt.sender.client = fbchat.Client(session=session)
         await evt.sender.on_logged_in(evt.sender.command_status["c_user"])
     evt.sender.command_status = None
 
 
 @command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
 async def logout(evt: CommandEvent) -> None:
-    puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
+    puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
     await evt.sender.logout()
     if puppet.is_real_user:
         await puppet.switch_mxid(None, None)
@@ -166,7 +179,7 @@ async def logout(evt: CommandEvent) -> None:
                  help_section=SECTION_AUTH, help_text="Replace your Facebook Messenger account's "
                                                       "Matrix puppet with your Matrix account")
 async def login_matrix(evt: CommandEvent) -> None:
-    puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
+    puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
     _, homeserver = Client.parse_mxid(evt.sender.mxid)
     if homeserver != pu.Puppet.hs_domain:
         await evt.reply("You can't log in with an account on a different homeserver")
@@ -184,7 +197,7 @@ async def login_matrix(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_AUTH,
                  help_text="Revert your Facebook Messenger account's Matrix puppet to the original")
 async def logout_matrix(evt: CommandEvent) -> None:
-    puppet = pu.Puppet.get_by_fbid(evt.sender.uid)
+    puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
     if not puppet.is_real_user:
         await evt.reply("You're not logged in with your Matrix account")
         return

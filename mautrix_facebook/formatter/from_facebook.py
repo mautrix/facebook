@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -17,8 +17,7 @@ from typing import Tuple, List, Optional, Match
 from html import escape
 import re
 
-from fbchat import Message, ShareAttachment
-
+import fbchat
 from mautrix.types import TextMessageEventContent, Format, MessageType
 
 from .. import puppet as pu, user as u
@@ -138,7 +137,7 @@ def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptSt
             output.append(_convert_formatting(post_cb_content))
 
 
-def facebook_to_matrix(message: Message) -> TextMessageEventContent:
+def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
     text = message.text or ""
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
     for m in reversed(message.mentions):
@@ -161,9 +160,9 @@ def facebook_to_matrix(message: Message) -> TextMessageEventContent:
                 output.append("<br/>")
             _handle_codeblock_post(output, *post_args)
     links = [attachment for attachment in message.attachments
-             if isinstance(attachment, ShareAttachment)]
+             if isinstance(attachment, fbchat.ShareAttachment)]
     message.attachments = [attachment for attachment in message.attachments
-                           if not isinstance(attachment, ShareAttachment)]
+                           if not isinstance(attachment, fbchat.ShareAttachment)]
     for attachment in links:
         if attachment.original_url.rstrip("/") not in text:
             output.append(f"<br/><a href='{attachment.original_url}'>{attachment.title}</a>")

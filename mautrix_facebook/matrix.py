@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Union, TYPE_CHECKING
+from datetime import datetime
+import time
 
-from fbchat import ThreadType
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
                            RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
                            ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,
@@ -24,6 +25,7 @@ from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
 from . import user as u, portal as po, puppet as pu, commands as c
+from .db import ThreadType
 
 if TYPE_CHECKING:
     from .context import Context
@@ -79,7 +81,7 @@ class MatrixHandler(BaseMatrixHandler):
                                               "multi-user rooms.")
             await intent.leave_room(room_id)
             return
-        portal = po.Portal.get_by_fbid(puppet.fbid, invited_by.uid, ThreadType.USER)
+        portal = po.Portal.get_by_fbid(puppet.fbid, invited_by.fbid, ThreadType.USER)
         if portal.mxid:
             try:
                 await intent.invite_user(portal.mxid, invited_by.mxid, check_cache=False)
@@ -194,7 +196,9 @@ class MatrixHandler(BaseMatrixHandler):
             return
         user = u.User.get_by_mxid(user_id, create=False)
         if user:
-            user.set_active_status(info.presence == PresenceState.ONLINE)
+            # FIXME
+            # user.set_active_status(info.presence == PresenceState.ONLINE)
+            pass
 
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: List[UserID]) -> None:
@@ -221,7 +225,8 @@ class MatrixHandler(BaseMatrixHandler):
         if not portal:
             return
 
-        await user.mark_as_read(portal.fbid)
+        timestamp = datetime.utcfromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
+        await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
 
     def filter_matrix_event(self, evt: Event) -> bool:
         if not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent,

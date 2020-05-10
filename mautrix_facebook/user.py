@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,8 +18,7 @@ from http.cookies import SimpleCookie
 import asyncio
 import logging
 
-from fbchat import Client, Message, ThreadType, User as FBUser, ActiveStatus, MessageReaction
-
+import fbchat
 from mautrix.types import UserID, PresenceState
 from mautrix.appservice import AppService
 from mautrix.client import Client as MxClient
@@ -27,7 +26,7 @@ from mautrix.bridge._community import CommunityHelper, CommunityID
 
 from .config import Config
 from .commands import enter_2fa_code
-from .db import User as DBUser, UserPortal as DBUserPortal, Contact as DBContact
+from .db import User as DBUser, UserPortal as DBUserPortal, Contact as DBContact, ThreadType
 from . import portal as po, puppet as pu
 
 if TYPE_CHECKING:
@@ -36,13 +35,17 @@ if TYPE_CHECKING:
 config: Config
 
 
-class User(Client):
+class User:
     az: AppService
     loop: asyncio.AbstractEventLoop
     log: logging.Logger = logging.getLogger("mau.user")
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[str, 'User'] = {}
 
+    session: Optional[fbchat.Session]
+    client: Optional[fbchat.Client]
+    listener: Optional[fbchat.Listener]
+    listen_task: Optional[asyncio.Task]
     user_agent: str
 
     command_status: Optional[Dict[str, Any]]
@@ -59,7 +62,6 @@ class User(Client):
 
     def __init__(self, mxid: UserID, session: Optional[SimpleCookie] = None,
                  user_agent: Optional[str] = None, db_instance: Optional[DBUser] = None) -> None:
-        super().__init__(loop=self.loop)
         self.mxid = mxid
         self.by_mxid[mxid] = self
         self.user_agent = user_agent
@@ -72,29 +74,32 @@ class User(Client):
         self._community_id = None
 
         self.log = self.log.getChild(self.mxid)
-        self._log = self._log.getChild(self.mxid)
-        self._req_log = self._req_log.getChild(self.mxid)
-        self._util_log = self._util_log.getChild(self.mxid)
-        self.set_active_status(False)
+
+        self.client = None
+        self.session = None
+        self.listener = None
+        self.listen_task = None
 
     # region Sessions
 
     @property
-    def fbid(self) -> str:
-        return self.uid
+    def fbid(self) -> Optional[str]:
+        if not self.session:
+            return None
+        return self.session.user.id
 
     @property
     def db_instance(self) -> DBUser:
         if not self._db_instance:
-            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.uid,
-                                       user_agent=self.user_agent)
+            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data,
+                                       fbid=self.fbid, user_agent=self.user_agent)
         return self._db_instance
 
     def save(self, _update_session_data: bool = True) -> None:
         self.log.debug("Saving session")
-        if _update_session_data:
-            self._session_data = self.get_session()
-        self.db_instance.edit(session=self._session_data, fbid=self.uid,
+        if _update_session_data and self.session:
+            self._session_data = self.session.get_cookies()
+        self.db_instance.edit(session=self._session_data, fbid=self.fbid,
                               user_agent=self.user_agent)
 
     @classmethod
@@ -145,27 +150,40 @@ class User(Client):
             return True
         elif not self._session_data:
             return False
-        ok = (await self.set_session(self._session_data, user_agent=self.user_agent)
-              and await self.is_logged_in(True))
-        if ok:
+        session = await fbchat.Session.from_cookies(self._session_data)
+        if await session.is_logged_in():
             self.log.info("Loaded session successfully")
-            self.listen(long_polling=False, mqtt=True)
+            self.session = session
+            self.client = fbchat.Client(session=self.session)
+            if self.listen_task:
+                self.listen_task.cancel()
+            self.listen_task = self.loop.create_task(self.try_listen())
             asyncio.ensure_future(self.post_login(), loop=self.loop)
-        return ok
+            return True
+        return False
 
     async def is_logged_in(self, _override: bool = False) -> bool:
+        if not self.session:
+            return False
         if self._is_logged_in is None or _override:
-            self._is_logged_in = await super().is_logged_in()
+            self._is_logged_in = await self.session.is_logged_in()
         return self._is_logged_in
 
     # endregion
 
-    async def logout(self, safe: bool = False) -> bool:
-        self.stop_listening()
-        ok = await super().logout(safe)
+    async def logout(self) -> bool:
+        ok = True
+        if self.session:
+            try:
+                await self.session.logout()
+            except fbchat.FacebookError:
+                self.log.exception("Error while logging out")
+                ok = False
         self._session_data = None
         self._is_logged_in = False
         self._on_logged_in_done = False
+        self.client = None
+        self.session = None
         self.save(_update_session_data=False)
         return ok
 
@@ -186,8 +204,9 @@ class User(Client):
         await self.sync_contacts()
         await self.sync_threads()
         self.log.debug("Updating own puppet info")
-        own_info = (await self.fetch_user_info(self.uid))[self.uid]
-        puppet = pu.Puppet.get_by_fbid(self.uid, create=True)
+        # TODO this might not be right (if it is, check that we got something sensible?)
+        own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
+        puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
         await puppet.update_info(source=self, info=own_info)
 
     async def _create_community(self) -> None:
@@ -231,12 +250,12 @@ class User(Client):
     async def sync_contacts(self):
         try:
             self.log.debug("Fetching contacts...")
-            users = await self.fetch_all_users()
+            users = await self.client.fetch_users()
             self.log.debug(f"Fetched {len(users)} contacts")
             contacts = DBContact.all(self.fbid)
             update_avatars = config["bridge.update_avatar_initial_sync"]
             for user in users:
-                puppet = pu.Puppet.get_by_fbid(user.uid, create=True)
+                puppet = pu.Puppet.get_by_fbid(user.id, create=True)
                 await puppet.update_info(self, user, update_avatar=update_avatars)
                 await self._add_community_puppet(contacts.get(puppet.fbid, None), puppet)
         except Exception:
@@ -248,17 +267,19 @@ class User(Client):
             if sync_count <= 0:
                 return
             self.log.debug("Fetching threads...")
-            threads = await self.fetch_thread_list(limit=sync_count)
             ups = DBUserPortal.all(self.fbid)
             contacts = DBContact.all(self.fbid)
-            for thread in threads:
-                self.log.debug(f"Syncing thread {thread.uid} {thread.name}")
-                fb_receiver = self.uid if thread.type == ThreadType.USER else None
+            async for thread in self.client.fetch_threads(limit=sync_count):
+                if not isinstance(thread, (fbchat.UserData, fbchat.PageData, fbchat.GroupData)):
+                    # TODO log?
+                    continue
+                self.log.debug(f"Syncing thread {thread.id} {thread.name}")
+                fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
                 portal = po.Portal.get_by_thread(thread, fb_receiver)
                 puppet = None
 
-                if isinstance(thread, FBUser):
-                    puppet = pu.Puppet.get_by_fbid(thread.uid, create=True)
+                if isinstance(thread, fbchat.UserData):
+                    puppet = pu.Puppet.get_by_fbid(thread.id, create=True)
                     await puppet.update_info(self, thread)
 
                 await self._add_community(ups.get(portal.fbid, None),
@@ -269,12 +290,7 @@ class User(Client):
         except Exception:
             self.log.exception("Failed to sync threads")
 
-    # region Facebook event handling
-
-    async def on_logging_in(self, email: str = None) -> None:
-        self.log.info("Logging in {}...".format(email))
-
-    async def on_2fa_code(self) -> str:
+    async def on_2fa_callback(self) -> str:
         if self.command_status and self.command_status.get("action", "") == "Login":
             future = self.loop.create_future()
             self.command_status["future"] = future
@@ -285,6 +301,36 @@ class User(Client):
             return await future
         self.log.warning("Unexpected on2FACode call")
         # raise RuntimeError("No ongoing login command")
+
+    # region Facebook event handling
+
+    async def try_listen(self) -> None:
+        try:
+            await self.listen()
+        except Exception:
+            self.log.exception("Fatal error in listener")
+
+    async def listen(self) -> None:
+        self.listener = fbchat.Listener(session=self.session, chat_on=False, foreground=False)
+        handlers = {
+            fbchat.MessageEvent: self.on_message,
+            fbchat.TitleSet: self.on_title_change,
+        }
+        self.log.debug("Starting fbchat listener")
+        async for event in self.listener.listen():
+            self.log.debug("Handling fbchat event %s", event)
+            try:
+                handler = handlers[type(event)]
+            except KeyError:
+                self.log.debug(f"Received unknown event type {type(event)}")
+            else:
+                await handler(event)
+
+    def stop_listening(self) -> None:
+        if self.listener:
+            self.listener.disconnect()
+        if self.listen_task:
+            self.listen_task.cancel()
 
     async def on_logged_in(self, email: str = None) -> None:
         """
@@ -300,152 +346,30 @@ class User(Client):
             await self.az.intent.send_notice(self.command_status["room_id"],
                                              f"Successfully logged in with {email}")
         self.save()
-        self.listen(long_polling=False, mqtt=True)
+        if self.listen_task:
+            self.listen_task.cancel()
+        self.listen_task = self.loop.create_task(self.try_listen())
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
-    async def on_listening(self) -> None:
-        """Called when the client is listening."""
-        self.log.info("Listening with long polling...")
+    async def on_message(self, evt: fbchat.MessageEvent) -> None:
+        self.log.debug(f"onMessage({evt})")
 
-    async def on_listening_mqtt(self) -> None:
-        """Called when the client is listening with MQTT."""
-        self.log.info("Listening with MQTT...")
-
-    async def on_listen_error(self, exception: Exception = None) -> bool:
-        """
-        Called when an error was encountered while listening
-
-        :param exception: The exception that was encountered
-        :return: Whether the loop should keep running
-        """
-        self.log.exception("Got exception while listening, reconnecting in 10s")
-        await asyncio.sleep(10)
-        return True
-
-    async def on_mqtt_fatal_error(self, exception: Exception = None) -> bool:
-        """Called when an error was encountered while listening.
-
-        Args:
-            exception: The exception that was encountered
-
-        Returns:
-            Whether the client should reconnect
-        """
-        self.log.exception("MQTT connection failed, reconnecting in 10s")
-        await asyncio.sleep(10)
-        return True
-
-    async def on_mqtt_parse_error(self, event_type=None, event_data=None, exception=None):
-        """Called when an error was encountered while parsing a MQTT message.
-
-        Args:
-            event_type: The event type
-            event_data: The event data, either as a bytearray if JSON decoding failed or as a dict
-                if JSON decoding was successful.
-            exception: The exception that was encountered
-        """
-        if isinstance(event_data, bytearray):
-            self.log.warning(f"MQTT JSON decoder error: {exception}")
-        else:
-            self.log.exception("Failed to parse MQTT message: %s", event_data)
-
-    async def on_message(self, mid: str = None, author_id: str = None, message: str = None,
-                         message_object: Message = None, thread_id: str = None,
-                         thread_type: ThreadType = ThreadType.USER, at: int = None,
-                         metadata: Any = None, msg: Any = None) -> None:
-        """
-        Called when the client is listening, and somebody sends a message
-
-        :param mid: The message ID
-        :param author_id: The ID of the author
-        :param message: (deprecated. Use `message_object.text` instead)
-        :param message_object: The message (As a `Message` object)
-        :param thread_id: Thread ID that the message was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the message was sent to. See :ref:`intro_threads`
-        :param at: The timestamp of the message
-        :param metadata: Extra metadata about the message
-        :param msg: A full set of the data recieved
-        :type message_object: models.Message
-        :type thread_type: models.ThreadType
-        """
-        self.log.debug(f"onMessage({message_object}, {thread_id}, {thread_type})")
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get_by_fbid(author_id)
+        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+        puppet = pu.Puppet.get_by_fbid(evt.author.id)
         if not puppet.name:
             await puppet.update_info(self)
-        message_object.uid = mid
-        await portal.handle_facebook_message(self, puppet, message_object)
+        await portal.handle_facebook_message(self, puppet, evt.message)
 
-    async def on_color_change(self, mid=None, author_id=None, new_color=None, thread_id=None,
-                              thread_type=ThreadType.USER, at=None, metadata=None, msg=None
-                              ) -> None:
-        """
-        Called when the client is listening, and somebody changes a thread's color
-
-        :param mid: The action ID
-        :param author_id: The ID of the person who changed the color
-        :param new_color: The new color
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type new_color: models.ThreadColor
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "Color change from {} in {} ({}): {}".format(
-                author_id, thread_id, thread_type.name, new_color
-            )
-        )
-
-    async def on_emoji_change(self, mid=None, author_id=None, new_emoji=None, thread_id=None,
-                              thread_type=ThreadType.USER, at=None, metadata=None, msg=None
-                              ) -> None:
-        """
-        Called when the client is listening, and somebody changes a thread's emoji
-
-        :param mid: The action ID
-        :param author_id: The ID of the person who changed the emoji
-        :param new_emoji: The new emoji
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "Emoji change from {} in {} ({}): {}".format(
-                author_id, thread_id, thread_type.name, new_emoji
-            )
-        )
-
-    async def on_title_change(self, mid=None, author_id=None, new_title=None, thread_id=None,
-                              thread_type=ThreadType.USER, at=None, metadata=None, msg=None
-                              ) -> None:
-        """
-        Called when the client is listening, and somebody changes the title of a thread
-
-        :param mid: The action ID
-        :param author_id: The ID of the person who changed the title
-        :param new_title: The new title
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
+    async def on_title_change(self, evt: fbchat.TitleSet) -> None:
+        portal = po.Portal.get_by_thread(evt.thread)
         if not portal:
             return
-        sender = pu.Puppet.get_by_fbid(author_id)
+        sender = pu.Puppet.get_by_fbid(evt.author.id)
         if not sender:
             return
-        await portal.handle_facebook_name(self, sender, new_title, mid)
+        # TODO find messageId for the event
+        await portal.handle_facebook_name(self, sender, evt.title, str(evt.at.timestamp()))
 
     async def on_image_change(self, mid: str = None, author_id: str = None, new_image: str = None,
                               thread_id: str = None, thread_type: ThreadType = ThreadType.GROUP,
@@ -462,7 +386,7 @@ class User(Client):
         :param msg: A full set of the data recieved
         :type thread_type: models.ThreadType
         """
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
+        fb_receiver = self.fbid if thread_type == ThreadType.USER else None
         portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
         if not portal:
             return
@@ -713,7 +637,7 @@ class User(Client):
             )
         )
 
-    async def on_reaction_added(self, mid: str = None, reaction: MessageReaction = None,
+    async def on_reaction_added(self, mid: str = None, reaction = None,
                                 author_id: str = None, thread_id: str = None,
                                 thread_type: ThreadType = None, at: int = None, msg: Any = None
                                 ) -> None:
@@ -1048,7 +972,7 @@ class User(Client):
         """
         pass
 
-    async def on_chat_timestamp(self, buddylist: Dict[str, ActiveStatus] = None, msg: Any = None
+    async def on_chat_timestamp(self, buddylist = None, msg: Any = None
                                 ) -> None:
         """
         Called when the client receives chat online presence update
@@ -1063,7 +987,7 @@ class User(Client):
                     presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
                     ignore_cache=True)
 
-    async def on_buddylist_overlay(self, statuses: Dict[str, ActiveStatus] = None, msg: Any = None
+    async def on_buddylist_overlay(self, statuses = None, msg: Any = None
                                    ) -> None:
         """
         Called when the client is listening and client receives information about friend active status

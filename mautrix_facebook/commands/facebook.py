@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,7 +16,7 @@
 from typing import Iterable, List
 import asyncio
 
-from fbchat import User, ThreadLocation
+import fbchat
 
 from .. import puppet as pu, portal as po, user as u
 from ..db import UserPortal as DBUserPortal
@@ -27,18 +27,18 @@ from . import command_handler, CommandEvent, SECTION_MISC
                  help_section=SECTION_MISC, help_text="Search for a Facebook user",
                  help_args="<_search query_>")
 async def search(evt: CommandEvent) -> None:
-    res = await evt.sender.search_for_users(" ".join(evt.args))
+    res = await evt.sender.client.search_for_users(" ".join(evt.args), limit=10)
     await evt.reply(await _handle_search_result(evt.sender, res))
 
 
 @command_handler(needs_auth=True, management_only=False)
 async def search_by_id(evt: CommandEvent) -> None:
-    res = await evt.sender.fetch_user_info(*evt.args)
-    await evt.reply(await _handle_search_result(evt.sender, res.values()))
+    res = [item async for item in evt.sender.client.fetch_thread_info(*evt.args)]
+    await evt.reply(await _handle_search_result(evt.sender, res))
 
 
-async def _handle_search_result(sender: 'u.User', res: Iterable[User]) -> str:
-    puppets: List[pu.Puppet] = await asyncio.gather(*[pu.Puppet.get_by_fbid(user.uid, create=True)
+async def _handle_search_result(sender: 'u.User', res: Iterable[fbchat.UserData]) -> str:
+    puppets: List[pu.Puppet] = await asyncio.gather(*[pu.Puppet.get_by_fbid(user.id, create=True)
                                                     .update_info(sender, user)
                                                       for user in res])
     results = "".join(
@@ -65,9 +65,9 @@ async def sync(evt: CommandEvent) -> None:
         else:
             limit = int(arg)
 
-    threads = await evt.sender.fetch_threads(limit=limit, thread_location=ThreadLocation.INBOX)
     ups = DBUserPortal.all(evt.sender.fbid)
-    for thread in threads:
+    async for thread in evt.sender.client.fetch_threads(limit, fbchat.ThreadLocation.INBOX):
+        # TODO check thread type?
         portal = po.Portal.get_by_thread(thread, evt.sender.fbid)
         if create_portals:
             await portal.create_matrix_room(evt.sender, thread)

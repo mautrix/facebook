@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,9 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, cast
+from typing import Optional, Dict, Any, cast, TYPE_CHECKING
 
-from fbchat import Message, Mention
+from fbchat import Mention
 
 from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
@@ -23,6 +23,15 @@ from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownSt
 
 from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
+
+
+if TYPE_CHECKING:
+    from typing import TypedDict, List
+
+    class SendParams(TypedDict):
+        text: str
+        mentions: List[Mention]
+        reply_to_id: str
 
 
 class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownString):
@@ -82,7 +91,7 @@ class MatrixParser(BaseMatrixParser[FacebookFormatString]):
         return cast(FacebookFormatString, super().parse(data))
 
 
-def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> Message:
+def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> 'SendParams':
     mentions = []
     reply_to_id = None
     if content.relates_to.rel_type == RelationType.REFERENCE:
@@ -98,4 +107,4 @@ def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> Mes
                     for mention in parsed.entities]
     else:
         text = content.body
-    return Message(text=text, mentions=mentions, reply_to_id=reply_to_id)
+    return {"text": text, "mentions": mentions, "reply_to_id": reply_to_id}
