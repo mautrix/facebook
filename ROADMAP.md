@@ -48,8 +48,8 @@
   * [x] Read receipts
   * [ ] Admin status
   * [ ] Membership actions
-    * [ ] Add member
-    * [ ] Remove member
+    * [x] Add member
+    * [x] Remove member
     * [ ] Leave
   * [ ] Chat metadata changes
     * [x] Title

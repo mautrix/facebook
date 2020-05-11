@@ -319,6 +319,8 @@ class User:
             fbchat.ReactionEvent: self.on_reaction,
             fbchat.Presence: self.on_presence,
             fbchat.Typing: self.on_typing,
+            fbchat.PeopleAdded: self.on_members_added,
+            fbchat.PersonRemoved: self.on_member_removed,
         }
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
@@ -358,9 +360,8 @@ class User:
         await portal.handle_facebook_message(self, puppet, evt.message)
 
     async def on_title_change(self, evt: fbchat.TitleSet) -> None:
-        # TODO this check is probably useless, users' titles don't change
-        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+        assert isinstance(evt.thread, fbchat.Group)
+        portal = po.Portal.get_by_thread(evt.thread)
         if not portal:
             return
         sender = pu.Puppet.get_by_fbid(evt.author.id)
@@ -424,6 +425,22 @@ class User:
         if portal.mxid:
             puppet = pu.Puppet.get_by_fbid(evt.author.id)
             await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
+
+    async def on_members_added(self, evt: fbchat.PeopleAdded) -> None:
+        assert isinstance(evt.thread, fbchat.Group)
+        portal = po.Portal.get_by_thread(evt.thread)
+        if portal.mxid:
+            sender = pu.Puppet.get_by_fbid(evt.author.id)
+            users = [pu.Puppet.get_by_fbid(user.id) for user in evt.added]
+            await portal.handle_facebook_join(self, sender, users)
+
+    async def on_member_removed(self, evt: fbchat.PersonRemoved) -> None:
+        assert isinstance(evt.thread, fbchat.Group)
+        portal = po.Portal.get_by_thread(evt.thread)
+        if portal.mxid:
+            sender = pu.Puppet.get_by_fbid(evt.author.id)
+            user = pu.Puppet.get_by_fbid(evt.removed.id)
+            await portal.handle_facebook_leave(self, sender, user)
 
     # endregion
 

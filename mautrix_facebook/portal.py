@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Deque, Optional, Tuple, Union, Set, Iterator, TYPE_CHECKING
+from typing import Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, TYPE_CHECKING
 from collections import deque
 import asyncio
 
@@ -797,12 +797,29 @@ class Portal(BasePortal):
             return
         reaction = DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
         if reaction:
-            self.log.debug(f"redacting {reaction.mxid}")
             try:
                 await sender.intent_for(self).redact(reaction.mx_room, reaction.mxid)
             except MForbidden:
                 await self.main_intent.redact(reaction.mx_room, reaction.mxid)
             reaction.delete()
+
+    async def handle_facebook_join(self, source: 'u.User', sender: 'p.Puppet',
+                                   users: List['p.Puppet']) -> None:
+        sender_intent = sender.intent_for(self)
+        for user in users:
+            await sender_intent.invite_user(self.mxid, user.mxid)
+            await user.intent_for(self).join_room_by_id(self.mxid)
+
+    async def handle_facebook_leave(self, source: 'u.User', sender: 'p.Puppet', removed: 'p.Puppet'
+                                    ) -> None:
+        if sender == removed:
+            await removed.intent_for(self).leave_room(self.mxid)
+        else:
+            try:
+                await sender.intent_for(self).kick_user(self.mxid, removed.mxid)
+            except MForbidden:
+                await self.main_intent.kick_user(self.mxid, removed.mxid,
+                                                 reason=f"Kicked by {sender.name}")
 
     # endregion
     # region Getters
