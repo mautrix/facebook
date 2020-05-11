@@ -569,6 +569,9 @@ class Portal(BasePortal):
                 event_ids = [await self._handle_facebook_text(intent, message)]
             else:
                 self.log.warning(f"Unhandled Messenger message: {message}")
+                return
+        if event_ids:
+            self._last_bridged_mxid = event_ids[-1]
         DBMessage.bulk_create(fbid=message.id, fb_receiver=self.fb_receiver, mx_room=self.mxid,
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.client.mark_as_delivered(message)
@@ -655,7 +658,6 @@ class Portal(BasePortal):
         else:
             self.log.warning(f"Unsupported attachment type: {attachment}")
             return None
-        self._last_bridged_mxid = event_id
         return event_id
 
     async def _convert_facebook_location(self, intent: IntentAPI,

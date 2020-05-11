@@ -225,7 +225,7 @@ class MatrixHandler(BaseMatrixHandler):
         if not portal:
             return
 
-        timestamp = datetime.utcfromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
+        timestamp = datetime.fromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
         await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
 
     def filter_matrix_event(self, evt: Event) -> bool:
