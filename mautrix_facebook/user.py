@@ -176,6 +176,7 @@ class User:
 
     async def logout(self) -> bool:
         ok = True
+        self.stop_listening()
         if self.session:
             try:
                 await self.session.logout()
@@ -345,10 +346,9 @@ class User:
         if self.listen_task:
             self.listen_task.cancel()
 
-    async def on_logged_in(self, email: str = None) -> None:
-        if self.command_status and self.command_status.get("action", "") == "Login":
-            await self.az.intent.send_notice(self.command_status["room_id"],
-                                             f"Successfully logged in with {email}")
+    async def on_logged_in(self, session: fbchat.Session) -> None:
+        self.session = session
+        self.client = fbchat.Client(session=session)
         self.save()
         if self.listen_task:
             self.listen_task.cancel()

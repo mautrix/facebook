@@ -128,13 +128,16 @@ class PublicBridgeWebsite:
         cookie["xs"] = data["xs"]
         user.user_agent = user_agent
         user.save()
-        session = await fbchat.Session.from_cookies(cookie)
+        try:
+            session = await fbchat.Session.from_cookies(cookie)
+        except fbchat.FacebookError:
+            self.log.debug("Failed to log in", exc_info=True)
+            raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
+                                       headers=self._headers)
         if not await session.is_logged_in():
             raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
                                        headers=self._headers)
-        user.session = session
-        user.client = fbchat.Client(session=session)
-        await user.on_logged_in(data["c_user"])
+        await user.on_logged_in(session)
         if user.command_status and user.command_status.get("action") == "Login":
             user.command_status = None
         return web.Response(body='{}', status=200, headers=self._headers)

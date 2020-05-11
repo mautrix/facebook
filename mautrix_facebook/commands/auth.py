@@ -65,10 +65,9 @@ async def login(evt: CommandEvent) -> None:
     try:
         session = await fbchat.Session.login(evt.args[0], " ".join(evt.args[1:]),
                                              on_2fa_callback=evt.sender.on_2fa_callback)
-        evt.sender.session = session
-        evt.sender.client = fbchat.Client(session=session)
-        # TODO call on_logged_in somehow
+        await evt.sender.on_logged_in(session)
         evt.sender.command_status = None
+        await evt.reply("Successfully logged in")
     except fbchat.FacebookError as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
@@ -129,10 +128,10 @@ async def login_cookie(evt: CommandEvent) -> None:
         "next": enter_login_cookies,
         "c_user": None,
     }
-    await evt.reply("1. Log in to Facebook normally.\n"
+    await evt.reply("1. Log in to Messenger normally (https://www.messenger.com/).\n"
                     "2. Press `F12` to open developer tools.\n"
                     "3. Select the \"Application\" (Chrome) or \"Storage\" (Firefox) tab.\n"
-                    "4. In the sidebar, expand \"Cookies\" and select `https://www.facebook.com`.\n"
+                    "4. In the sidebar, expand \"Cookies\" and select `https://www.messenger.com`.\n"
                     "5. In the cookie list, find the `c_user` row and double click on the value"
                     r", then copy the value and send it here.")
 
@@ -157,13 +156,19 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
     cookie = SimpleCookie()
     cookie["c_user"] = evt.sender.command_status["c_user"]
     cookie["xs"] = evt.args[0]
-    session = await fbchat.Session.from_cookies(cookie)
+    try:
+        session = await fbchat.Session.from_cookies(cookie)
+    except fbchat.FacebookError as e:
+        evt.sender.command_status = None
+        await evt.reply(f"Failed to log in: {e}")
+        evt.log.exception("Failed to log in")
+        return
+
     if not await session.is_logged_in():
-        await evt.reply("Failed to log in (see logs for more details)")
+        await evt.reply("Failed to log in")
     else:
-        evt.sender.session = session
-        evt.sender.client = fbchat.Client(session=session)
-        await evt.sender.on_logged_in(evt.sender.command_status["c_user"])
+        await evt.sender.on_logged_in(session)
+        await evt.reply("Successfully logged in")
     evt.sender.command_status = None
 
 
@@ -173,6 +178,7 @@ async def logout(evt: CommandEvent) -> None:
     await evt.sender.logout()
     if puppet.is_real_user:
         await puppet.switch_mxid(None, None)
+    await evt.reply("Successfully logged out")
 
 
 @command_handler(needs_auth=True, management_only=True, help_args="<_access token_>",
