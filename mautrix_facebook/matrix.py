@@ -196,7 +196,7 @@ class MatrixHandler(BaseMatrixHandler):
             return
         user = u.User.get_by_mxid(user_id, create=False)
         if user and user.listener:
-            self.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
+            user.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
             user.listener.set_foreground(info.presence == PresenceState.ONLINE)
 
     @staticmethod
