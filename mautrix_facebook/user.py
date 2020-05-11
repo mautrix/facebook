@@ -149,7 +149,11 @@ class User:
             return True
         elif not self._session_data:
             return False
-        session = await fbchat.Session.from_cookies(self._session_data)
+        try:
+            session = await fbchat.Session.from_cookies(self._session_data)
+        except fbchat.FacebookError:
+            self.log.exception("Failed to restore session")
+            return False
         if await session.is_logged_in():
             self.log.info("Loaded session successfully")
             self.session = session
