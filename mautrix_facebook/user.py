@@ -13,7 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Dict, Iterator, Optional, Iterable, Awaitable, TYPE_CHECKING
+from typing import (Any, Dict, Iterator, Optional, Iterable, Type, Callable, Awaitable,
+                    Union, TYPE_CHECKING)
 from http.cookies import SimpleCookie
 import asyncio
 import logging
@@ -53,7 +54,6 @@ class User:
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
-    _on_logged_in_done: bool
     _session_data: Optional[SimpleCookie]
     _db_instance: Optional[DBUser]
 
@@ -68,7 +68,6 @@ class User:
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
-        self._on_logged_in_done = False
         self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
@@ -181,7 +180,6 @@ class User:
                 ok = False
         self._session_data = None
         self._is_logged_in = False
-        self._on_logged_in_done = False
         self.client = None
         self.session = None
         self.save(_update_session_data=False)
@@ -312,19 +310,28 @@ class User:
 
     async def listen(self) -> None:
         self.listener = fbchat.Listener(session=self.session, chat_on=False, foreground=False)
-        handlers = {
+        handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]] = {
             fbchat.MessageEvent: self.on_message,
+            fbchat.MessageReplyEvent: self.on_message,
             fbchat.TitleSet: self.on_title_change,
+            fbchat.UnsendEvent: self.on_message_unsent,
+            fbchat.ThreadsRead: self.on_message_seen,
+            fbchat.ReactionEvent: self.on_reaction,
+            fbchat.Presence: self.on_presence,
+            fbchat.Typing: self.on_typing,
         }
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
-            self.log.debug("Handling fbchat event %s", event)
+            self.log.debug("Handling facebook event %s", event)
             try:
                 handler = handlers[type(event)]
             except KeyError:
                 self.log.debug(f"Received unknown event type {type(event)}")
             else:
-                await handler(event)
+                try:
+                    await handler(event)
+                except Exception:
+                    self.log.exception("Failed to handle facebook event")
 
     def stop_listening(self) -> None:
         if self.listener:
@@ -333,15 +340,6 @@ class User:
             self.listen_task.cancel()
 
     async def on_logged_in(self, email: str = None) -> None:
-        """
-        Called when the client is successfully logged in
-
-        :param email: The email of the client
-        """
-        if self._on_logged_in_done:
-            self.log.warning("Got duplicate on_logged_in call, ignoring")
-            return
-        self._on_logged_in_done = True
         if self.command_status and self.command_status.get("action", "") == "Login":
             await self.az.intent.send_notice(self.command_status["room_id"],
                                              f"Successfully logged in with {email}")
@@ -351,9 +349,7 @@ class User:
         self.listen_task = self.loop.create_task(self.try_listen())
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
-    async def on_message(self, evt: fbchat.MessageEvent) -> None:
-        self.log.debug(f"onMessage({evt})")
-
+    async def on_message(self, evt: Union[fbchat.MessageEvent, fbchat.MessageReplyEvent]) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
         puppet = pu.Puppet.get_by_fbid(evt.author.id)
@@ -362,30 +358,23 @@ class User:
         await portal.handle_facebook_message(self, puppet, evt.message)
 
     async def on_title_change(self, evt: fbchat.TitleSet) -> None:
-        portal = po.Portal.get_by_thread(evt.thread)
+        # TODO this check is probably useless, users' titles don't change
+        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
         if not portal:
             return
         sender = pu.Puppet.get_by_fbid(evt.author.id)
         if not sender:
             return
-        # TODO find messageId for the event
+        # TODO find actual messageId for the event
         await portal.handle_facebook_name(self, sender, evt.title, str(evt.at.timestamp()))
 
     async def on_image_change(self, mid: str = None, author_id: str = None, new_image: str = None,
                               thread_id: str = None, thread_type: ThreadType = ThreadType.GROUP,
                               at: int = None, msg: Any = None) -> None:
-        """
-        Called when the client is listening, and somebody changes the image of a thread
-
-        :param mid: The action ID
-        :param author_id: The ID of the person who changed the image
-        :param new_image: The ID of the new image
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
+        # FIXME this method isn't called
+        #       It seems to be a maunually fetched event in fbchat.UnfetchedThreadEvent
+        #       But the Message.fetch() doesn't return the necessary info
         fb_receiver = self.fbid if thread_type == ThreadType.USER else None
         portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
         if not portal:
@@ -395,625 +384,46 @@ class User:
             return
         await portal.handle_facebook_photo(self, sender, new_image, mid)
 
-    async def on_nickname_change(self, mid=None, author_id=None, changed_for=None,
-                                 new_nickname=None,
-                                 thread_id=None, thread_type=ThreadType.USER, at=None,
-                                 metadata=None,
-                                 msg=None) -> None:
-        """
-        Called when the client is listening, and somebody changes the nickname of a person
+    async def on_message_seen(self, evt: fbchat.ThreadsRead) -> None:
+        puppet = pu.Puppet.get_by_fbid(evt.author.id)
+        for thread in evt.threads:
+            fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
+            portal = po.Portal.get_by_thread(thread, fb_receiver)
+            if portal.mxid:
+                await portal.handle_facebook_seen(self, puppet)
 
-        :param mid: The action ID
-        :param author_id: The ID of the person who changed the nickname
-        :param changed_for: The ID of the person whom got their nickname changed
-        :param new_nickname: The new nickname
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "Nickname change from {} in {} ({}) for {}: {}".format(
-                author_id, thread_id, thread_type.name, changed_for, new_nickname
-            )
-        )
+    async def on_message_unsent(self, evt: fbchat.UnsendEvent) -> None:
+        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+        if portal.mxid:
+            puppet = pu.Puppet.get_by_fbid(evt.author.id)
+            await portal.handle_facebook_unsend(self, puppet, evt.message.id)
 
-    async def on_admin_added(self, mid=None, added_id=None, author_id=None, thread_id=None,
-                             thread_type=ThreadType.GROUP, at=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody adds an admin to a group thread
-
-        :param mid: The action ID
-        :param added_id: The ID of the admin who got added
-        :param author_id: The ID of the person who added the admins
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        """
-        self.log.info("{} added admin: {} in {}".format(author_id, added_id, thread_id))
-
-    async def on_admin_removed(self, mid=None, removed_id=None, author_id=None, thread_id=None,
-                               thread_type=ThreadType.GROUP, at=None, msg=None):
-        """
-        Called when the client is listening, and somebody removes an admin from a group thread
-
-        :param mid: The action ID
-        :param removed_id: The ID of the admin who got removed
-        :param author_id: The ID of the person who removed the admins
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        """
-        self.log.info("{} removed admin: {} in {}".format(author_id, removed_id, thread_id))
-
-    async def on_approval_mode_change(self, mid=None, approval_mode=None, author_id=None,
-                                      thread_id=None, thread_type=ThreadType.GROUP, at=None,
-                                      msg=None) -> None:
-        """
-        Called when the client is listening, and somebody changes approval mode in a group thread
-
-        :param mid: The action ID
-        :param approval_mode: True if approval mode is activated
-        :param author_id: The ID of the person who changed approval mode
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        """
-        if approval_mode:
-            self.log.info("{} activated approval mode in {}".format(author_id, thread_id))
+    async def on_reaction(self, evt: fbchat.ReactionEvent) -> None:
+        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+        if not portal.mxid:
+            return
+        puppet = pu.Puppet.get_by_fbid(evt.author.id)
+        if evt.reaction is None:
+            await portal.handle_facebook_reaction_remove(self, puppet, evt.message.id)
         else:
-            self.log.info("{} disabled approval mode in {}".format(author_id, thread_id))
+            await portal.handle_facebook_reaction_add(self, puppet, evt.message.id, evt.reaction)
 
-    async def on_message_seen(self, seen_by: str = None, thread_id: str = None,
-                              thread_type=ThreadType.USER, seen_at: int = None, at: int = None,
-                              metadata: Any = None, msg: Any = None) -> None:
-        """
-        Called when the client is listening, and somebody marks a message as seen
-
-        :param seen_by: The ID of the person who marked the message as seen
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param seen_at: A timestamp of when the person saw the message
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get_by_fbid(seen_by)
-        await portal.handle_facebook_seen(self, puppet)
-
-    async def on_message_delivered(self, msg_ids=None, delivered_for=None, thread_id=None,
-                                   thread_type=ThreadType.USER, at=None, metadata=None, msg=None
-                                   ) -> None:
-        """
-        Called when the client is listening, and somebody marks messages as delivered
-
-        :param msg_ids: The messages that are marked as delivered
-        :param delivered_for: The person that marked the messages as delivered
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "Messages {} delivered to {} in {} ({}) at {}s".format(
-                msg_ids, delivered_for, thread_id, thread_type.name, at
-            )
-        )
-
-    async def on_marked_seen(self, threads=None, seen_at=None, at=None, metadata=None, msg=None
-                             ) -> None:
-        """
-        Called when the client is listening, and the client has successfully marked threads as seen
-
-        :param threads: The threads that were marked
-        :param seen_at: A timestamp of when the threads were seen
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        """
-        self.log.info(
-            "Marked messages as seen in threads {} at {}s".format(
-                [(x[0], x[1].name) for x in threads], seen_at
-            )
-        )
-
-    async def on_message_unsent(self, mid: str = None, author_id: str = None,
-                                thread_id: str = None, thread_type: ThreadType = None,
-                                at: int = None, msg: Any = None) -> None:
-        """
-        Called when the client is listening, and someone unsends (deletes for everyone) a message
-
-        :param mid: ID of the unsent message
-        :param author_id: The ID of the person who unsent the message
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get_by_fbid(author_id)
-        await portal.handle_facebook_unsend(self, puppet, mid)
-
-    async def on_people_added(self, mid=None, added_ids=None, author_id=None, thread_id=None,
-                              at=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody adds people to a group thread
-
-        :param mid: The action ID
-        :param added_ids: The IDs of the people who got added
-        :param author_id: The ID of the person who added the people
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        """
-        self.log.info(
-            "{} added: {} in {}".format(author_id, ", ".join(added_ids), thread_id)
-        )
-
-    async def on_person_removed(self, mid=None, removed_id=None, author_id=None, thread_id=None,
-                                at=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody removes a person from a group thread
-
-        :param mid: The action ID
-        :param removed_id: The ID of the person who got removed
-        :param author_id: The ID of the person who removed the person
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        """
-        self.log.info("{} removed: {} in {}".format(author_id, removed_id, thread_id))
-
-    async def on_friend_request(self, from_id=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody sends a friend request
-
-        :param from_id: The ID of the person that sent the request
-        :param msg: A full set of the data recieved
-        """
-        self.log.info("Friend request from {}".format(from_id))
-
-    async def on_inbox(self, unseen=None, unread=None, recent_unread=None, msg=None) -> None:
-        """
-        .. todo::
-            Documenting this
-
-        :param unseen: --
-        :param unread: --
-        :param recent_unread: --
-        :param msg: A full set of the data recieved
-        """
-        self.log.info("Inbox event: {}, {}, {}".format(unseen, unread, recent_unread))
-
-    async def on_typing(self, author_id=None, status=None, thread_id=None, thread_type=None,
-                        msg=None) -> None:
-        """
-        Called when the client is listening, and somebody starts or stops typing into a chat
-
-        :param author_id: The ID of the person who sent the action
-        :param status: The typing status
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(f"User is typing: {author_id} {status} in {thread_id} {thread_type}")
-
-    async def on_game_played(self, mid=None, author_id=None, game_id=None, game_name=None,
-                             score=None, leaderboard=None, thread_id=None, thread_type=None,
-                             at=None,
-                             metadata=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody plays a game
-
-        :param mid: The action ID
-        :param author_id: The ID of the person who played the game
-        :param game_id: The ID of the game
-        :param game_name: Name of the game
-        :param score: Score obtained in the game
-        :param leaderboard: Actual leaderboard of the game in the thread
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            '{} played "{}" in {} ({})'.format(
-                author_id, game_name, thread_id, thread_type.name
-            )
-        )
-
-    async def on_reaction_added(self, mid: str = None, reaction = None,
-                                author_id: str = None, thread_id: str = None,
-                                thread_type: ThreadType = None, at: int = None, msg: Any = None
-                                ) -> None:
-        """
-        Called when the client is listening, and somebody reacts to a message
-
-        :param mid: Message ID, that user reacted to
-        :param reaction: Reaction
-        :param author_id: The ID of the person who reacted to the message
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type reaction: models.MessageReaction
-        :type thread_type: models.ThreadType
-        """
-        self.log.debug(f"onReactionAdded({mid}, {reaction}, {author_id}, {thread_id}, "
-                       f"{thread_type})")
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get_by_fbid(author_id)
-        await portal.handle_facebook_reaction_add(self, puppet, mid, reaction.value)
-
-    async def on_reaction_removed(self, mid: str = None, author_id: str = None,
-                                  thread_id: str = None, thread_type: ThreadType = None,
-                                  at: int = None, msg: Any = None) -> None:
-        """
-        Called when the client is listening, and somebody removes reaction from a message
-
-        :param mid: Message ID, that user reacted to
-        :param author_id: The ID of the person who removed reaction
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.debug(f"onReactionRemoved({mid}, {author_id}, {thread_id}, {thread_type})")
-        fb_receiver = self.uid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver, thread_type)
-        puppet = pu.Puppet.get_by_fbid(author_id)
-        await portal.handle_facebook_reaction_remove(self, puppet, mid)
-
-    async def on_block(self, author_id=None, thread_id=None, thread_type=None, at=None, msg=None
-                       ) -> None:
-        """
-        Called when the client is listening, and somebody blocks client
-
-        :param author_id: The ID of the person who blocked
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} blocked {} ({}) thread".format(author_id, thread_id, thread_type.name)
-        )
-
-    async def on_unblock(self, author_id=None, thread_id=None, thread_type=None, at=None, msg=None
-                         ) -> None:
-        """
-        Called when the client is listening, and somebody blocks client
-
-        :param author_id: The ID of the person who unblocked
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} unblocked {} ({}) thread".format(author_id, thread_id, thread_type.name)
-        )
-
-    async def on_live_location(self, mid=None, location=None, author_id=None, thread_id=None,
-                               thread_type=None, at=None, msg=None) -> None:
-        """
-        Called when the client is listening and somebody sends live location info
-
-        :param mid: The action ID
-        :param location: Sent location info
-        :param author_id: The ID of the person who sent location info
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        :type location: models.LiveLocationAttachment
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} sent live location info in {} ({}) with latitude {} and longitude {}".format(
-                author_id, thread_id, thread_type, location.latitude, location.longitude
-            )
-        )
-
-    async def on_call_started(self, mid=None, caller_id=None, is_video_call=None, thread_id=None,
-                              thread_type=None, at=None, metadata=None, msg=None) -> None:
-        """
-        .. todo::
-            Make this work with private calls
-
-        Called when the client is listening, and somebody starts a call in a group
-
-        :param mid: The action ID
-        :param caller_id: The ID of the person who started the call
-        :param is_video_call: True if it's video call
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} started call in {} ({})".format(caller_id, thread_id, thread_type.name)
-        )
-
-    async def on_call_ended(self, mid=None, caller_id=None, is_video_call=None, call_duration=None,
-                            thread_id=None, thread_type=None, at=None, metadata=None, msg=None
-                            ) -> None:
-        """
-        .. todo::
-            Make this work with private calls
-
-        Called when the client is listening, and somebody ends a call in a group
-
-        :param mid: The action ID
-        :param caller_id: The ID of the person who ended the call
-        :param is_video_call: True if it was video call
-        :param call_duration: Call duration in seconds
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} ended call in {} ({})".format(caller_id, thread_id, thread_type.name)
-        )
-
-    async def on_user_joined_call(self, mid=None, joined_id=None, is_video_call=None,
-                                  thread_id=None,
-                                  thread_type=None, at=None, metadata=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody joins a group call
-
-        :param mid: The action ID
-        :param joined_id: The ID of the person who joined the call
-        :param is_video_call: True if it's video call
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} joined call in {} ({})".format(joined_id, thread_id, thread_type.name)
-        )
-
-    async def on_poll_created(self, mid=None, poll=None, author_id=None, thread_id=None,
-                              thread_type=None, at=None, metadata=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody creates a group poll
-
-        :param mid: The action ID
-        :param poll: Created poll
-        :param author_id: The ID of the person who created the poll
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type poll: models.Poll
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} created poll {} in {} ({})".format(
-                author_id, poll, thread_id, thread_type.name
-            )
-        )
-
-    async def on_poll_voted(self, mid=None, poll=None, added_options=None, removed_options=None,
-                            author_id=None, thread_id=None, thread_type=None, at=None,
-                            metadata=None,
-                            msg=None) -> None:
-        """
-        Called when the client is listening, and somebody votes in a group poll
-
-        :param mid: The action ID
-        :param poll: Poll, that user voted in
-        :param author_id: The ID of the person who voted in the poll
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type poll: models.Poll
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} voted in poll {} in {} ({})".format(
-                author_id, poll, thread_id, thread_type.name
-            )
-        )
-
-    async def on_plan_created(self, mid=None, plan=None, author_id=None, thread_id=None,
-                              thread_type=None, at=None, metadata=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody creates a plan
-
-        :param mid: The action ID
-        :param plan: Created plan
-        :param author_id: The ID of the person who created the plan
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type plan: models.Plan
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} created plan {} in {} ({})".format(
-                author_id, plan, thread_id, thread_type.name
-            )
-        )
-
-    async def on_plan_ended(self, mid=None, plan=None, thread_id=None, thread_type=None, at=None,
-                            metadata=None, msg=None):
-        """
-        Called when the client is listening, and a plan ends
-
-        :param mid: The action ID
-        :param plan: Ended plan
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type plan: models.Plan
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "Plan {} has ended in {} ({})".format(plan, thread_id, thread_type.name)
-        )
-
-    async def on_plan_edited(self, mid=None, plan=None, author_id=None, thread_id=None,
-                             thread_type=None, at=None, metadata=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody edits a plan
-
-        :param mid: The action ID
-        :param plan: Edited plan
-        :param author_id: The ID of the person who edited the plan
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type plan: models.Plan
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} edited plan {} in {} ({})".format(
-                author_id, plan, thread_id, thread_type.name
-            )
-        )
-
-    async def on_plan_deleted(self, mid=None, plan=None, author_id=None, thread_id=None,
-                              thread_type=None, at=None, metadata=None, msg=None) -> None:
-        """
-        Called when the client is listening, and somebody deletes a plan
-
-        :param mid: The action ID
-        :param plan: Deleted plan
-        :param author_id: The ID of the person who deleted the plan
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type plan: models.Plan
-        :type thread_type: models.ThreadType
-        """
-        self.log.info(
-            "{} deleted plan {} in {} ({})".format(
-                author_id, plan, thread_id, thread_type.name
-            )
-        )
-
-    async def on_plan_participation(self, mid=None, plan=None, take_part=None, author_id=None,
-                                    thread_id=None, thread_type=None, at=None, metadata=None,
-                                    msg=None) -> None:
-        """
-        Called when the client is listening, and somebody takes part in a plan or not
-
-        :param mid: The action ID
-        :param plan: Plan
-        :param take_part: Whether the person takes part in the plan or not
-        :param author_id: The ID of the person who will participate in the plan or not
-        :param thread_id: Thread ID that the action was sent to. See :ref:`intro_threads`
-        :param thread_type: Type of thread that the action was sent to. See :ref:`intro_threads`
-        :param at: A timestamp of the action
-        :param metadata: Extra metadata about the action
-        :param msg: A full set of the data recieved
-        :type plan: models.Plan
-        :type take_part: bool
-        :type thread_type: models.ThreadType
-        """
-        if take_part:
-            self.log.info(
-                "{} will take part in {} in {} ({})".format(
-                    author_id, plan, thread_id, thread_type.name
-                )
-            )
-        else:
-            self.log.info(
-                "{} won't take part in {} in {} ({})".format(
-                    author_id, plan, thread_id, thread_type.name
-                )
-            )
-
-    async def on_qprimer(self, at=None, msg=None) -> None:
-        """
-        Called when the client just started listening
-
-        :param at: A timestamp of the action
-        :param msg: A full set of the data recieved
-        """
-        pass
-
-    async def on_chat_timestamp(self, buddylist = None, msg: Any = None
-                                ) -> None:
-        """
-        Called when the client receives chat online presence update
-
-        :param buddylist: A list of dicts with friend id and last seen timestamp
-        :param msg: A full set of the data recieved
-        """
-        for user, status in buddylist.items():
+    async def on_presence(self, evt: fbchat.Presence) -> None:
+        for user, status in evt.statuses.items():
             puppet = pu.Puppet.get_by_fbid(user, create=False)
             if puppet:
                 await puppet.default_mxid_intent.set_presence(
                     presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
                     ignore_cache=True)
 
-    async def on_buddylist_overlay(self, statuses = None, msg: Any = None
-                                   ) -> None:
-        """
-        Called when the client is listening and client receives information about friend active status
-
-        :param statuses: Dictionary with user IDs as keys and :class:`models.ActiveStatus` as values
-        :param msg: A full set of the data recieved
-        :type statuses: dict
-        """
-        await self.on_chat_timestamp(statuses, msg)
-
-    async def on_unknown_messsage_type(self, msg: Any = None) -> None:
-        """
-        Called when the client is listening, and some unknown data was recieved
-
-        :param msg: A full set of the data recieved
-        """
-        self.log.debug("Unknown message received: {}".format(msg))
-
-    async def on_message_error(self, exception: Exception = None, msg: Any = None) -> None:
-        """
-        Called when an error was encountered while parsing recieved data
-
-        :param exception: The exception that was encountered
-        :param msg: A full set of the data recieved
-        """
-        self.log.exception("Exception in parsing of {}".format(msg))
+    async def on_typing(self, evt: fbchat.Typing) -> None:
+        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+        if portal.mxid:
+            puppet = pu.Puppet.get_by_fbid(evt.author.id)
+            await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
 
     # endregion
 

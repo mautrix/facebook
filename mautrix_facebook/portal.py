@@ -49,9 +49,6 @@ except ImportError:
 config: Config
 
 ThreadClass = Union[fbchat.UserData, fbchat.GroupData, fbchat.PageData]
-AttachmentClass = Union[fbchat.AudioAttachment, fbchat.VideoAttachment, fbchat.FileAttachment,
-                        fbchat.ImageAttachment, fbchat.LocationAttachment,
-                        fbchat.ShareAttachment]
 
 
 class FakeLock:
@@ -446,6 +443,8 @@ class Portal(BasePortal):
                 return
             if not fbid:
                 return
+            if isinstance(fbid, tuple) and len(fbid) > 0:
+                fbid = fbid[0]
             self._dedup.appendleft(fbid)
             DBMessage(mxid=event_id, mx_room=self.mxid,
                       fbid=fbid, fb_receiver=self.fb_receiver,
@@ -529,9 +528,10 @@ class Portal(BasePortal):
     # endregion
     # region Facebook event handling
 
-    async def _bridge_own_message_pm(self, source: 'u.User', sender: 'p.Puppet', mid: str) -> bool:
+    async def _bridge_own_message_pm(self, source: 'u.User', sender: 'p.Puppet', mid: str,
+                                     invite: bool = True) -> bool:
         if self.is_direct and sender.fbid == source.fbid and not sender.is_real_user:
-            if self.invite_own_puppet_to_pm:
+            if self.invite_own_puppet_to_pm and invite:
                 await self.main_intent.invite_user(self.mxid, sender.mxid)
             elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
                 self.log.warning(f"Ignoring own {mid} in private chat because own puppet is not in"
@@ -598,7 +598,8 @@ class Portal(BasePortal):
             event_type, content = await self.matrix.e2ee.encrypt(self.mxid, event_type, content)
         return await intent.send_message_event(self.mxid, event_type, content, **kwargs)
 
-    async def _handle_facebook_text(self, intent: IntentAPI, message: fbchat.Message) -> EventID:
+    async def _handle_facebook_text(self, intent: IntentAPI, message: fbchat.MessageData
+                                    ) -> EventID:
         content = facebook_to_matrix(message)
         await self._add_facebook_reply(content, message.reply_to_id)
         return await self._send_message(intent, content)
@@ -616,14 +617,14 @@ class Portal(BasePortal):
                                                            height=sticker.height, mimetype=mime),
                                             relates_to=self._get_facebook_reply(reply_to)))
 
-    async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: AttachmentClass,
+    async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: fbchat.Attachment,
                                           reply_to: str) -> Optional[EventID]:
         if isinstance(attachment, fbchat.AudioAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.url, intent, attachment.filename, encrypt=self.encrypted)
             event_id = await self._send_message(intent, MediaMessageEventContent(
                 url=mxc, file=decryption_info, msgtype=MessageType.AUDIO, body=attachment.filename,
-                info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration),
+                info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration.seconds),
                 relates_to=self._get_facebook_reply(reply_to)))
         # elif isinstance(attachment, fbchat.VideoAttachment):
         # TODO
@@ -698,9 +699,15 @@ class Portal(BasePortal):
     async def handle_facebook_seen(self, source: 'u.User', sender: 'p.Puppet') -> None:
         if not self.mxid or not self._last_bridged_mxid:
             return
+        if not await self._bridge_own_message_pm(source, sender, "read receipt",
+                                                 invite=False):
+            return
         await sender.intent_for(self).mark_read(self.mxid, self._last_bridged_mxid)
 
     async def handle_facebook_typing(self, source: 'u.User', sender: 'p.Puppet') -> None:
+        if not await self._bridge_own_message_pm(source, sender, "typing notification",
+                                                 invite=False):
+            return
         await sender.intent.set_typing(self.mxid, is_typing=True)
 
     async def handle_facebook_photo(self, source: 'u.User', sender: 'p.Puppet', new_photo_id: str,
