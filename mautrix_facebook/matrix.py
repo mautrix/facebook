@@ -195,10 +195,9 @@ class MatrixHandler(BaseMatrixHandler):
         if not self.config["bridge.presence"]:
             return
         user = u.User.get_by_mxid(user_id, create=False)
-        if user:
-            # FIXME
-            # user.set_active_status(info.presence == PresenceState.ONLINE)
-            pass
+        if user and user.listener:
+            self.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
+            user.listener.set_foreground(info.presence == PresenceState.ONLINE)
 
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: List[UserID]) -> None:

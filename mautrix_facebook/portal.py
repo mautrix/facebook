@@ -521,7 +521,7 @@ class Portal(BasePortal):
 
     async def handle_matrix_typing(self, users: Set['u.User']) -> None:
         stopped_typing = [self.thread_for(user).stop_typing() for user in self._typing - users]
-        started_typing = [self.thread_for(user).start_typing() for user in self._typing - users]
+        started_typing = [self.thread_for(user).start_typing() for user in users - self._typing]
         self._typing = users
         await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
 

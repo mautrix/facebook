@@ -151,7 +151,7 @@ class User:
             return False
         try:
             session = await fbchat.Session.from_cookies(self._session_data)
-        except fbchat.FacebookError:
+        except Exception:
             self.log.exception("Failed to restore session")
             return False
         if await session.is_logged_in():
@@ -314,7 +314,7 @@ class User:
             self.log.exception("Fatal error in listener")
 
     async def listen(self) -> None:
-        self.listener = fbchat.Listener(session=self.session, chat_on=False, foreground=False)
+        self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
         handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]] = {
             fbchat.MessageEvent: self.on_message,
             fbchat.MessageReplyEvent: self.on_message,
