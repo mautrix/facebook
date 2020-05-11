@@ -14,10 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import asyncio
-import random
 import time
 
-from http.cookies import SimpleCookie
 from yarl import URL
 
 import fbchat
@@ -27,22 +25,6 @@ from mautrix.util.signed_token import sign_token
 from .. import puppet as pu
 from mautrix.bridge import custom_puppet as cpu
 from . import command_handler, CommandEvent, SECTION_AUTH
-
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
-    " Chrome/74.0.3729.169 Safari/537.36",
-
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0",
-
-    # "Mozilla/5.0 (iPhone; CPU iPhone OS 12_3_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like"
-    # " Gecko) Version/12.1.1 Mobile/15E148 Safari/604.1",
-
-    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:68.0) Gecko/20100101 Firefox/68.0",
-
-    # "Mozilla/5.0 (Linux; Android 9; SM-G960F Build/PPR1.180610.011; wv) AppleWebKit/537.36
-    # (KHTML,"
-    # " like Gecko) Version/4.0 Chrome/74.0.3729.157 Mobile Safari/537.36",
-]
 
 
 @command_handler(needs_auth=False, management_only=True,
@@ -59,8 +41,6 @@ async def login(evt: CommandEvent) -> None:
         "action": "Login",
         "room_id": evt.room_id,
     }
-    if not evt.sender.user_agent:
-        evt.sender.user_agent = random.choice(USER_AGENTS)
     await evt.reply("Logging in...")
     try:
         session = await fbchat.Session.login(evt.args[0], " ".join(evt.args[1:]),
@@ -72,18 +52,6 @@ async def login(evt: CommandEvent) -> None:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
         evt.log.exception("Failed to log in")
-
-
-@command_handler(needs_auth=False, management_only=False, help_section=SECTION_AUTH,
-                 help_text="Change the user agent sent to Facebook", help_args="<_user agent_>")
-async def set_ua(evt: CommandEvent) -> None:
-    if len(evt.args) < 0:
-        await evt.reply("Usage: `$cmdprefix+sp login <user agent>`")
-        return
-    evt.sender.user_agent = " ".join(evt.args)
-    evt.sender.save()
-    await evt.reply(f"Set user agent to `{evt.sender.user_agent}`. The change will be applied when"
-                    " you log in again or on the next bridge restart.")
 
 
 async def enter_2fa_code(evt: CommandEvent) -> None:
@@ -150,14 +118,11 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
                         "the `cancel` command to cancel.")
         return
 
-    if not evt.sender.user_agent:
-        evt.sender.user_agent = random.choice(USER_AGENTS)
-
-    cookie = SimpleCookie()
-    cookie["c_user"] = evt.sender.command_status["c_user"]
-    cookie["xs"] = evt.args[0]
     try:
-        session = await fbchat.Session.from_cookies(cookie)
+        session = await fbchat.Session.from_cookies({
+            "c_user": evt.sender.command_status["c_user"],
+            "xs": evt.args[0],
+        })
     except fbchat.FacebookError as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")

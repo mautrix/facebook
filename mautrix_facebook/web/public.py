@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict
-from http.cookies import SimpleCookie
 import logging
 import random
 import string
@@ -114,22 +113,12 @@ class PublicBridgeWebsite:
         user = self.check_token(request)
 
         try:
-            user_agent = request.headers["User-Agent"]
-        except KeyError:
-            raise web.HTTPBadRequest(body='{"error": "Missing User-Agent header"}',
-                                     headers=self._headers)
-        try:
             data = await request.json()
         except json.JSONDecodeError:
             raise web.HTTPBadRequest(body='{"error": "Malformed JSON"}', headers=self._headers)
 
-        cookie = SimpleCookie()
-        cookie["c_user"] = data["c_user"]
-        cookie["xs"] = data["xs"]
-        user.user_agent = user_agent
-        user.save()
         try:
-            session = await fbchat.Session.from_cookies(cookie)
+            session = await fbchat.Session.from_cookies(data)
         except fbchat.FacebookError:
             self.log.debug("Failed to log in", exc_info=True)
             raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',

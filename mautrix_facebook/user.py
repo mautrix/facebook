@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Any, Dict, Iterator, Optional, Iterable, Type, Callable, Awaitable,
                     Union, TYPE_CHECKING)
-from http.cookies import SimpleCookie
 import asyncio
 import logging
 
@@ -47,24 +46,22 @@ class User:
     client: Optional[fbchat.Client]
     listener: Optional[fbchat.Listener]
     listen_task: Optional[asyncio.Task]
-    user_agent: str
 
     command_status: Optional[Dict[str, Any]]
     is_whitelisted: bool
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
-    _session_data: Optional[SimpleCookie]
+    _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
 
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
 
-    def __init__(self, mxid: UserID, session: Optional[SimpleCookie] = None,
-                 user_agent: Optional[str] = None, db_instance: Optional[DBUser] = None) -> None:
+    def __init__(self, mxid: UserID, session: Optional[Dict[str, str]] = None,
+                 db_instance: Optional[DBUser] = None) -> None:
         self.mxid = mxid
         self.by_mxid[mxid] = self
-        self.user_agent = user_agent
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
@@ -90,21 +87,18 @@ class User:
     @property
     def db_instance(self) -> DBUser:
         if not self._db_instance:
-            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data,
-                                       fbid=self.fbid, user_agent=self.user_agent)
+            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.fbid)
         return self._db_instance
 
     def save(self, _update_session_data: bool = True) -> None:
         self.log.debug("Saving session")
         if _update_session_data and self.session:
             self._session_data = self.session.get_cookies()
-        self.db_instance.edit(session=self._session_data, fbid=self.fbid,
-                              user_agent=self.user_agent)
+        self.db_instance.edit(session=self._session_data, fbid=self.fbid)
 
     @classmethod
     def from_db(cls, db_user: DBUser) -> 'User':
-        return User(mxid=db_user.mxid, session=db_user.session, user_agent=db_user.user_agent,
-                    db_instance=db_user)
+        return User(mxid=db_user.mxid, session=db_user.session, db_instance=db_user)
 
     @classmethod
     def get_all(cls) -> Iterator['User']:

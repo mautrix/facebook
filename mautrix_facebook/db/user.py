@@ -13,8 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Iterable
-from http.cookies import SimpleCookie
+from typing import Optional, Iterable, Dict
 
 from sqlalchemy import Column, String, PickleType
 
@@ -26,9 +25,8 @@ class User(Base):
     __tablename__ = "user"
 
     mxid: UserID = Column(String(255), primary_key=True)
-    session: SimpleCookie = Column(PickleType, nullable=True)
+    session: Dict[str, str] = Column(PickleType, nullable=True)
     fbid: str = Column(String(255), nullable=True)
-    user_agent: str = Column(String(255), nullable=True)
 
     @classmethod
     def all(cls) -> Iterable['User']:
