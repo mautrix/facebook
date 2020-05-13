@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict
-from http.cookies import SimpleCookie
 import logging
 import random
 import string
@@ -25,7 +24,7 @@ from aiohttp import web
 import pkg_resources
 import attr
 
-from fbchat import User as FBUser
+import fbchat
 
 from mautrix.types import UserID
 from mautrix.util.signed_token import verify_token
@@ -106,7 +105,7 @@ class PublicBridgeWebsite:
             "facebook": None,
         }
         if await user.is_logged_in():
-            info: FBUser = (await user.fetch_user_info(user.fbid))[user.fbid]
+            info = await user.client.fetch_thread_info([user.fbid]).__anext__()
             data["facebook"] = attr.asdict(info)
         return web.json_response(data, headers=self._acao_headers)
 
@@ -114,25 +113,20 @@ class PublicBridgeWebsite:
         user = self.check_token(request)
 
         try:
-            user_agent = request.headers["User-Agent"]
-        except KeyError:
-            raise web.HTTPBadRequest(body='{"error": "Missing User-Agent header"}',
-                                     headers=self._headers)
-        try:
             data = await request.json()
         except json.JSONDecodeError:
             raise web.HTTPBadRequest(body='{"error": "Malformed JSON"}', headers=self._headers)
 
-        cookie = SimpleCookie()
-        cookie["c_user"] = data["c_user"]
-        cookie["xs"] = data["xs"]
-        user.user_agent = user_agent
-        user.save()
-        ok = await user.set_session(cookie, user_agent) and await user.is_logged_in(True)
-        if not ok:
+        try:
+            session = await fbchat.Session.from_cookies(data)
+        except fbchat.FacebookError:
+            self.log.debug("Failed to log in", exc_info=True)
             raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
                                        headers=self._headers)
-        await user.on_logged_in(data["c_user"])
+        if not await session.is_logged_in():
+            raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
+                                       headers=self._headers)
+        await user.on_logged_in(session)
         if user.command_status and user.command_status.get("action") == "Login":
             user.command_status = None
         return web.Response(body='{}', status=200, headers=self._headers)
@@ -140,7 +134,7 @@ class PublicBridgeWebsite:
     async def logout(self, request: web.Request) -> web.Response:
         user = self.check_token(request)
 
-        puppet = pu.Puppet.get_by_fbid(user.uid)
+        puppet = pu.Puppet.get_by_fbid(user.fbid)
         await user.logout()
         if puppet.is_real_user:
             await puppet.switch_mxid(None, None)

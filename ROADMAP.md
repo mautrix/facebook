@@ -44,16 +44,16 @@
   * [x] Message reactions
   * [ ] Message history
   * [x] Presence
-  * [ ] Typing notifications
+  * [x] Typing notifications
   * [x] Read receipts
   * [ ] Admin status
   * [ ] Membership actions
-    * [ ] Add member
-    * [ ] Remove member
+    * [x] Add member
+    * [x] Remove member
     * [ ] Leave
-  * [x] Chat metadata changes
+  * [ ] Chat metadata changes
     * [x] Title
-    * [x] Avatar
+    * [ ] Avatar
   * [x] Initial chat metadata
   * [ ] User metadata
     * [x] Name

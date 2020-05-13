@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -17,9 +17,29 @@ from typing import Optional, Iterator
 
 from sqlalchemy import Column, String, Enum, Boolean, false, and_
 
-from fbchat import ThreadType
 from mautrix.types import RoomID
 from mautrix.util.db import Base
+
+from enum import Enum as EnumType
+from fbchat import ThreadABC, User, Group, Page
+
+
+class ThreadType(EnumType):
+    USER = 1
+    GROUP = 2
+    PAGE = 3
+    UNKNOWN = 4
+
+    @classmethod
+    def from_thread(cls, thread: ThreadABC) -> 'ThreadType':
+        if isinstance(thread, User):
+            return cls.USER
+        elif isinstance(thread, Group):
+            return cls.GROUP
+        elif isinstance(thread, Page):
+            return cls.PAGE
+        else:
+            return cls.UNKNOWN
 
 
 class Portal(Base):

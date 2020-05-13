@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,7 +18,7 @@ import logging
 import asyncio
 import attr
 
-from fbchat import User as FBUser
+import fbchat
 from mautrix.types import UserID, RoomID, SyncToken
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.bridge.custom_puppet import CustomPuppetMixin
@@ -136,10 +136,12 @@ class Puppet(CustomPuppetMixin):
 
     # region User info updating
 
-    async def update_info(self, source: Optional['u.User'] = None, info: Optional[FBUser] = None,
+    async def update_info(self, source: Optional['u.User'] = None,
+                          info: Optional[fbchat.UserData] = None,
                           update_avatar: bool = True) -> 'Puppet':
         if not info:
-            info = (await source.fetch_user_info(self.fbid))[self.fbid]
+            info = await source.client.fetch_thread_info([self.fbid]).__anext__()
+            # TODO validate that we got some sane info?
         try:
             changed = await self._update_name(info)
             if update_avatar:
@@ -151,7 +153,7 @@ class Puppet(CustomPuppetMixin):
         return self
 
     @classmethod
-    def _get_displayname(cls, info: FBUser) -> str:
+    def _get_displayname(cls, info: fbchat.UserData) -> str:
         displayname = None
         for preference in config["bridge.displayname_preference"]:
             if getattr(info, preference, None):
@@ -159,7 +161,7 @@ class Puppet(CustomPuppetMixin):
         return config["bridge.displayname_template"].format(displayname=displayname,
                                                             **attr.asdict(info))
 
-    async def _update_name(self, info: FBUser) -> bool:
+    async def _update_name(self, info: fbchat.UserData) -> bool:
         name = self._get_displayname(info)
         if name != self.name:
             self.name = name
@@ -167,12 +169,12 @@ class Puppet(CustomPuppetMixin):
             return True
         return False
 
-    async def _update_photo(self, photo_url: str) -> bool:
-        photo_id = p.Portal._get_photo_id(photo_url)
+    async def _update_photo(self, photo: fbchat.Image) -> bool:
+        photo_id = p.Portal._get_photo_id(photo)
         if photo_id != self.photo_id:
             self.photo_id = photo_id
-            if photo_url:
-                avatar_uri, *_ = await p.Portal._reupload_fb_file(photo_url,
+            if photo:
+                avatar_uri, *_ = await p.Portal._reupload_fb_file(photo.url,
                                                                   self.default_mxid_intent)
             else:
                 avatar_uri = ""

@@ -2,7 +2,7 @@ from mautrix.bridge.db import RoomState, UserProfile
 
 from .message import Message
 from .reaction import Reaction
-from .portal import Portal
+from .portal import Portal, ThreadType
 from .puppet import Puppet
 from .user import User
 from .user_portal import UserPortal
