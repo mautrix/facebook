@@ -96,7 +96,7 @@ async def login_cookie(evt: CommandEvent) -> None:
         "next": enter_login_cookies,
         "c_user": None,
     }
-    await evt.reply("1. Log in to Messenger normally (https://www.messenger.com/).\n"
+    await evt.reply("1. Log in to [Messenger](https://www.messenger.com/) in a private/incognito window.\n"
                     "2. Press `F12` to open developer tools.\n"
                     "3. Select the \"Application\" (Chrome) or \"Storage\" (Firefox) tab.\n"
                     "4. In the sidebar, expand \"Cookies\" and select `https://www.messenger.com`.\n"
@@ -111,7 +111,8 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
                             "the `cancel` command to cancel.")
             return
         evt.sender.command_status["c_user"] = evt.args[0]
-        await evt.reply("Now do the last step again, but find the value of the `xs` row instead.")
+        await evt.reply("Now do the last step again, but find the value of the `xs` row instead. "
+                        "Before you send the value, close the private window.")
         return
     if len(evt.args) == 0:
         await evt.reply("Please enter the value of the `xs` cookie, or use "
