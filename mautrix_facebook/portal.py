@@ -13,9 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, TYPE_CHECKING
+from typing import (Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, Callable, Awaitable,
+                    TYPE_CHECKING)
+from tempfile import NamedTemporaryFile
 from collections import deque
 import asyncio
+import shutil
 
 from yarl import URL
 import aiohttp
@@ -40,6 +43,12 @@ from . import puppet as p, user as u
 if TYPE_CHECKING:
     from .context import Context
     from .matrix import MatrixHandler
+
+try:
+    from PIL import Image
+    convert_cmd = shutil.which("convert")
+except ImportError:
+    Image = convert_cmd = None
 
 try:
     from nio.crypto import decrypt_attachment, encrypt_attachment
@@ -202,6 +211,7 @@ class Portal(BasePortal):
 
     @staticmethod
     async def _reupload_fb_file(url: str, intent: IntentAPI, filename: Optional[str] = None,
+                                convert: Optional[Callable[[bytes], Awaitable[bytes]]] = None,
                                 encrypt: bool = False
                                 ) -> Tuple[ContentURI, str, int, Optional[EncryptedFile]]:
         if not url:
@@ -209,6 +219,8 @@ class Portal(BasePortal):
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
             data = await resp.read()
+        if convert:
+            data = await convert(data)
         mime = magic.from_buffer(data, mime=True)
         upload_mime_type = mime
         decryption_info = None
@@ -220,6 +232,26 @@ class Portal(BasePortal):
         if decryption_info:
             decryption_info.url = url
         return url, mime, len(data), decryption_info
+
+    @staticmethod
+    async def _convert_fb_sticker(data: bytes, frames_per_row: int, frames_per_col: int
+                                  ) -> Tuple[bytes, int, int]:
+        ntf = NamedTemporaryFile
+        with ntf(suffix=".png") as input_file, ntf(suffix=".gif") as output_file:
+            input_file.write(data)
+            with Image.open(input_file) as img:
+                width, height = img.size
+            width /= frames_per_row
+            height /= frames_per_col
+            proc = await asyncio.create_subprocess_exec(convert_cmd,
+                                                        "-dispose", "Background",
+                                                        input_file.name,
+                                                        "-crop", f"{width}x{height}",
+                                                        "+adjoin", "+repage", "-adjoin",
+                                                        "-loop", "0",
+                                                        output_file.name)
+            await proc.wait()
+            return output_file.read(), width, height
 
     async def _update_name(self, name: str) -> bool:
         if self.name != name:
@@ -610,16 +642,25 @@ class Portal(BasePortal):
 
     async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: fbchat.Sticker,
                                        reply_to: str) -> EventID:
-        # TODO handle animated stickers
-        image = sticker.image
-        mxc, mime, size, decryption_info = await self._reupload_fb_file(
-            image.url, intent, encrypt=self.encrypted)
+        width, height = sticker.image.width, sticker.image.height
+        if sticker.is_animated and Image and convert_cmd:
+            async def convert(data: bytes) -> bytes:
+                nonlocal width, height
+                data, width, height = await self._convert_fb_sticker(data, sticker.frames_per_row,
+                                                                     sticker.frames_per_col)
+                return data
+
+            mxc, mime, size, decryption_info = await self._reupload_fb_file(
+                sticker.large_sprite_image, intent, encrypt=self.encrypted, convert=convert)
+        else:
+            mxc, mime, size, decryption_info = await self._reupload_fb_file(
+                sticker.image.url, intent, encrypt=self.encrypted)
         return await self._send_message(intent, event_type=EventType.STICKER,
                                         content=MediaMessageEventContent(
                                             url=mxc, file=decryption_info,
                                             msgtype=MessageType.STICKER, body=sticker.label or "",
-                                            info=ImageInfo(width=image.width, size=size,
-                                                           height=image.height, mimetype=mime),
+                                            info=ImageInfo(width=width, size=size,
+                                                           height=height, mimetype=mime),
                                             relates_to=self._get_facebook_reply(reply_to)))
 
     async def _handle_facebook_attachment(self, source: fbchat.Client, intent: IntentAPI,

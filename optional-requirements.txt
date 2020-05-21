@@ -4,5 +4,8 @@
 #/postgres
 psycopg2-binary>=2,<3
 
+#/animated_stickers
+pillow>=4,<8
+
 #/e2be
 matrix-nio[e2e]>=0.9,<0.11
