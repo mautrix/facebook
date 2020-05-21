@@ -11,6 +11,7 @@ RUN apk add --no-cache \
       py3-sqlalchemy \
       py3-psycopg2 \
       py3-ruamel.yaml \
+      imagemagick \
       # Indirect dependencies
       py3-commonmark@edge_testing \
       py3-alembic@edge_testing \
