@@ -560,7 +560,8 @@ class Portal(BasePortal):
                                                              message.reply_to_id)]
         elif len(message.attachments) > 0:
             attach_ids = await asyncio.gather(
-                *[self._handle_facebook_attachment(intent, attachment, message.reply_to_id)
+                *[self._handle_facebook_attachment(source.client, intent, attachment,
+                                                   message.reply_to_id)
                   for attachment in message.attachments])
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
         if not event_ids:
@@ -609,19 +610,21 @@ class Portal(BasePortal):
 
     async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: fbchat.Sticker,
                                        reply_to: str) -> EventID:
-        # TODO handle animated stickers?
+        # TODO handle animated stickers
+        image = sticker.image
         mxc, mime, size, decryption_info = await self._reupload_fb_file(
-            sticker.url, intent, encrypt=self.encrypted)
+            image.url, intent, encrypt=self.encrypted)
         return await self._send_message(intent, event_type=EventType.STICKER,
                                         content=MediaMessageEventContent(
                                             url=mxc, file=decryption_info,
-                                            msgtype=MessageType.STICKER, body=sticker.label,
-                                            info=ImageInfo(width=sticker.width, size=size,
-                                                           height=sticker.height, mimetype=mime),
+                                            msgtype=MessageType.STICKER, body=sticker.label or "",
+                                            info=ImageInfo(width=image.width, size=size,
+                                                           height=image.height, mimetype=mime),
                                             relates_to=self._get_facebook_reply(reply_to)))
 
-    async def _handle_facebook_attachment(self, intent: IntentAPI, attachment: fbchat.Attachment,
-                                          reply_to: str) -> Optional[EventID]:
+    async def _handle_facebook_attachment(self, source: fbchat.Client, intent: IntentAPI,
+                                          attachment: fbchat.Attachment, reply_to: str
+                                          ) -> Optional[EventID]:
         if isinstance(attachment, fbchat.AudioAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.url, intent, attachment.filename, encrypt=self.encrypted)
@@ -640,13 +643,12 @@ class Portal(BasePortal):
                 relates_to=self._get_facebook_reply(reply_to)))
         elif isinstance(attachment, fbchat.ImageAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
-                attachment.large_preview_url or attachment.preview_url, intent,
-                encrypt=self.encrypted)
+                await source.fetch_image_url(attachment.id), intent, encrypt=self.encrypted)
             event_id = await self._send_message(intent, MediaMessageEventContent(
                 url=mxc, file=decryption_info, msgtype=MessageType.IMAGE,
                 body=f"image.{attachment.original_extension}",
-                info=ImageInfo(size=size, mimetype=mime, width=attachment.large_preview_width,
-                               height=attachment.large_preview_height),
+                info=ImageInfo(size=size, mimetype=mime, width=attachment.width,
+                               height=attachment.height),
                 relates_to=self._get_facebook_reply(reply_to)))
         elif isinstance(attachment, fbchat.LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)

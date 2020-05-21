@@ -159,12 +159,9 @@ def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
             if i != len(lines) - 1:
                 output.append("<br/>")
             _handle_codeblock_post(output, *post_args)
-    links = [attachment for attachment in message.attachments
-             if isinstance(attachment, fbchat.ShareAttachment)]
-    message.attachments = [attachment for attachment in message.attachments
-                           if not isinstance(attachment, fbchat.ShareAttachment)]
-    for attachment in links:
-        if attachment.original_url.rstrip("/") not in text:
+    for attachment in message.attachments:
+        if ((isinstance(attachment, fbchat.ShareAttachment)
+             and attachment.original_url.rstrip("/") not in text)):
             output.append(f"<br/><a href='{attachment.original_url}'>{attachment.title}</a>")
             content.body += f"\n{attachment.title}: {attachment.original_url}"
     html = "".join(output)
