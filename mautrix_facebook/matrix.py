@@ -162,7 +162,8 @@ class MatrixHandler(BaseMatrixHandler):
         await portal.handle_matrix_leave(user)
 
     @staticmethod
-    async def handle_redaction(room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
+    async def handle_redaction(room_id: RoomID, user_id: UserID, event_id: EventID,
+                               redaction_event_id: EventID) -> None:
         user = u.User.get_by_mxid(user_id)
         if not user:
             return
@@ -171,7 +172,7 @@ class MatrixHandler(BaseMatrixHandler):
         if not portal:
             return
 
-        await portal.handle_matrix_redaction(user, event_id)
+        await portal.handle_matrix_redaction(user, event_id, redaction_event_id)
 
     @classmethod
     async def handle_reaction(cls, room_id: RoomID, user_id: UserID, event_id: EventID,
@@ -246,7 +247,7 @@ class MatrixHandler(BaseMatrixHandler):
     async def handle_event(self, evt: Event) -> None:
         if evt.type == EventType.ROOM_REDACTION:
             evt: RedactionEvent
-            await self.handle_redaction(evt.room_id, evt.sender, evt.redacts)
+            await self.handle_redaction(evt.room_id, evt.sender, evt.redacts, evt.event_id)
         elif evt.type == EventType.REACTION:
             evt: ReactionEvent
             await self.handle_reaction(evt.room_id, evt.sender, evt.event_id, evt.content)

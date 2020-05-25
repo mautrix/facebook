@@ -455,6 +455,13 @@ class Portal(BasePortal):
             pass
         return self._noop_lock
 
+    async def _send_delivery_receipt(self, event_id: EventID) -> None:
+        if event_id and config["bridge.delivery_receipts"]:
+            try:
+                await self.az.intent.mark_read(self.mxid, event_id)
+            except Exception:
+                self.log.exception("Failed to send delivery receipt for %s", event_id)
+
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
         puppet = p.Puppet.get_by_custom_mxid(sender.mxid)
@@ -482,6 +489,7 @@ class Portal(BasePortal):
                       fbid=fbid, fb_receiver=self.fb_receiver,
                       index=0).insert()
             self._last_bridged_mxid = event_id
+        await self._send_delivery_receipt(event_id)
 
     async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> str:
         return await self.thread_for(sender).send_text(**matrix_to_facebook(message, self.mxid))
@@ -504,7 +512,8 @@ class Portal(BasePortal):
                                       message: LocationMessageEventContent) -> str:
         pass
 
-    async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID) -> None:
+    async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
+                                      redaction_event_id: EventID) -> None:
         if not self.mxid:
             return
 
@@ -513,6 +522,7 @@ class Portal(BasePortal):
             try:
                 message.delete()
                 await fbchat.Message(thread=self.thread_for(sender), id=message.fbid).unsend()
+                await self._send_delivery_receipt(redaction_event_id)
             except Exception:
                 self.log.exception("Unsend failed")
             return
@@ -523,6 +533,7 @@ class Portal(BasePortal):
                 reaction.delete()
                 await fbchat.Message(thread=self.thread_for(sender),
                                      id=reaction.fb_msgid).react(None)
+                await self._send_delivery_receipt(redaction_event_id)
             except Exception:
                 self.log.exception("Removing reaction failed")
 
@@ -542,6 +553,7 @@ class Portal(BasePortal):
             await fbchat.Message(thread=self.thread_for(sender), id=message.fbid).react(reaction)
             await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
                                         reaction)
+        await self._send_delivery_receipt(event_id)
 
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
