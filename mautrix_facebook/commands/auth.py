@@ -175,3 +175,11 @@ async def logout_matrix(evt: CommandEvent) -> None:
         return
     await puppet.switch_mxid(None, None)
     await evt.reply("Restored the original puppet for your Facebook Messenger account")
+
+
+@command_handler(needs_auth=False, management_only=True, help_section=SECTION_AUTH,
+                 help_text="Mark this room as your bridge notice room")
+async def set_notice_room(evt: CommandEvent) -> None:
+    evt.sender.notice_room = evt.room_id
+    evt.sender.save()
+    await evt.reply("This room has been marked as your bridge notice room")

@@ -19,9 +19,10 @@ import asyncio
 import logging
 
 import fbchat
-from mautrix.types import UserID, PresenceState
+from mautrix.types import UserID, PresenceState, RoomID
 from mautrix.appservice import AppService
 from mautrix.client import Client as MxClient
+from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
 
 from .config import Config
@@ -35,10 +36,7 @@ if TYPE_CHECKING:
 config: Config
 
 
-class User:
-    az: AppService
-    loop: asyncio.AbstractEventLoop
-    log: logging.Logger = logging.getLogger("mau.user")
+class User(BaseUser):
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[str, 'User'] = {}
 
@@ -47,8 +45,8 @@ class User:
     listener: Optional[fbchat.Listener]
     listen_task: Optional[asyncio.Task]
 
-    command_status: Optional[Dict[str, Any]]
-    is_whitelisted: bool
+    notice_room: RoomID
+    _notice_room_lock: asyncio.Lock
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
@@ -59,8 +57,11 @@ class User:
     _community_id: Optional[CommunityID]
 
     def __init__(self, mxid: UserID, session: Optional[Dict[str, str]] = None,
+                 notice_room: Optional[RoomID] = None,
                  db_instance: Optional[DBUser] = None) -> None:
         self.mxid = mxid
+        self.notice_room = notice_room
+        self._notice_room_lock = asyncio.Lock()
         self.by_mxid[mxid] = self
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
@@ -87,18 +88,21 @@ class User:
     @property
     def db_instance(self) -> DBUser:
         if not self._db_instance:
-            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.fbid)
+            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.fbid,
+                                       notice_room=self.notice_room)
         return self._db_instance
 
     def save(self, _update_session_data: bool = True) -> None:
         self.log.debug("Saving session")
         if _update_session_data and self.session:
             self._session_data = self.session.get_cookies()
-        self.db_instance.edit(session=self._session_data, fbid=self.fbid)
+        self.db_instance.edit(session=self._session_data, fbid=self.fbid,
+                              notice_room=self.notice_room)
 
     @classmethod
     def from_db(cls, db_user: DBUser) -> 'User':
-        return User(mxid=db_user.mxid, session=db_user.session, db_instance=db_user)
+        return User(mxid=db_user.mxid, session=db_user.session,
+                    notice_room=db_user.notice_room, db_instance=db_user)
 
     @classmethod
     def get_all(cls) -> Iterator['User']:
@@ -296,8 +300,26 @@ class User:
                                              "You have two-factor authentication enabled. "
                                              "Please send the code here.")
             return await future
-        self.log.warning("Unexpected on2FACode call")
-        # raise RuntimeError("No ongoing login command")
+        raise RuntimeError("No ongoing login command")
+
+    async def get_notice_room(self) -> RoomID:
+        if not self.notice_room:
+            async with self._notice_room_lock:
+                # If someone already created the room while this call was waiting,
+                # don't make a new room
+                if self.notice_room:
+                    return self.notice_room
+                self.notice_room = await self.az.intent.create_room(
+                    is_direct=True, invitees=[self.mxid],
+                    topic="Facebook Messenger bridge notices")
+                self.save()
+        return self.notice_room
+
+    async def send_bridge_notice(self, text: str) -> None:
+        try:
+            await self.az.intent.send_notice(await self.get_notice_room(), text)
+        except Exception:
+            self.log.warning("Failed to send bridge notice '%s'", text, exc_info=True)
 
     # region Facebook event handling
 
@@ -305,7 +327,12 @@ class User:
         try:
             await self.listen()
         except Exception:
+            await self.send_bridge_notice("Fatal error in listener (see logs for more info)")
             self.log.exception("Fatal error in listener")
+            try:
+                self.listener.disconnect()
+            except Exception:
+                self.log.debug("Error disconnecting listener after error", exc_info=True)
 
     async def listen(self) -> None:
         self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
@@ -320,6 +347,8 @@ class User:
             fbchat.Typing: self.on_typing,
             fbchat.PeopleAdded: self.on_members_added,
             fbchat.PersonRemoved: self.on_member_removed,
+            fbchat.Connect: self.on_connect,
+            fbchat.Disconnect: self.on_disconnect,
         }
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
@@ -333,6 +362,12 @@ class User:
                     await handler(event)
                 except Exception:
                     self.log.exception("Failed to handle facebook event")
+
+    async def on_connect(self, evt: fbchat.Connect) -> None:
+        await self.send_bridge_notice("Connected to Facebook Messenger")
+
+    async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
+        await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
     def stop_listening(self) -> None:
         if self.listener:

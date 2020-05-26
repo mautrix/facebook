@@ -33,6 +33,10 @@ SECTION_ADMIN = HelpSection("Administration", 50, "")
 class CommandEvent(BaseCommandEvent):
     sender: 'u.User'
 
+    @property
+    def print_error_traceback(self) -> bool:
+        return self.sender.is_admin
+
     async def get_help_key(self) -> HelpCacheKey:
         return HelpCacheKey(is_management=self.is_management,
                             is_admin=self.sender.is_admin,
