@@ -175,6 +175,12 @@ class User(BaseUser):
 
     # endregion
 
+    async def refresh(self) -> bool:
+        if self.listener:
+            self.listener.disconnect()
+            await self.listen_task
+        return await self.load_session(_override=True)
+
     async def logout(self) -> bool:
         ok = True
         self.stop_listening()

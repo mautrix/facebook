@@ -462,7 +462,29 @@ class Portal(BasePortal):
             except Exception:
                 self.log.exception("Failed to send delivery receipt for %s", event_id)
 
+    async def _send_bridge_error(self, msg: str) -> None:
+        await self.main_intent.send_notice(self.mxid, f"\u26a0 Your message may not have been "
+                                                      f"bridged: {msg}")
+
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
+                                    event_id: EventID) -> None:
+        try:
+            await self._handle_matrix_message(sender, message, event_id)
+            return
+        except fbchat.PleaseRefresh:
+            self.log.debug(f"Got PleaseRefresh error while trying to bridge {event_id}")
+            await sender.refresh()
+            try:
+                await self.handle_matrix_message(sender, message, event_id, _retry=False)
+                return
+            except fbchat.FacebookError as e:
+                self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
+                await self._send_bridge_error(e.message)
+        except fbchat.FacebookError as e:
+            self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
+            await self._send_bridge_error(e.message)
+
+    async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
         puppet = p.Puppet.get_by_custom_mxid(sender.mxid)
         if puppet and message.get("net.maunium.facebook.puppet", False):
