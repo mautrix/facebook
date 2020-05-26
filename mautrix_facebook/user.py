@@ -16,11 +16,10 @@
 from typing import (Any, Dict, Iterator, Optional, Iterable, Type, Callable, Awaitable,
                     Union, TYPE_CHECKING)
 import asyncio
-import logging
 
 import fbchat
-from mautrix.types import UserID, PresenceState, RoomID
-from mautrix.appservice import AppService
+from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEventContent,
+                           MessageType)
 from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
@@ -144,17 +143,20 @@ class User(BaseUser):
 
         return None
 
-    async def load_session(self, _override: bool = False) -> bool:
+    async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
         elif not self._session_data:
             return False
         try:
             session = await fbchat.Session.from_cookies(self._session_data)
+            logged_in = await session.is_logged_in()
         except Exception:
             self.log.exception("Failed to restore session")
+            if _raise_errors:
+                raise
             return False
-        if await session.is_logged_in():
+        if logged_in:
             self.log.info("Loaded session successfully")
             self.session = session
             self.client = fbchat.Client(session=self.session)
@@ -175,11 +177,29 @@ class User(BaseUser):
 
     # endregion
 
-    async def refresh(self) -> bool:
+    async def refresh(self) -> None:
+        event_id = None
         if self.listener:
+            event_id = await self.send_bridge_notice("Disconnecting Messenger MQTT connection "
+                                                     "for session refresh...")
             self.listener.disconnect()
             await self.listen_task
-        return await self.load_session(_override=True)
+        event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
+        try:
+            ok = await self.load_session(_override=True, _raise_errors=True)
+        except fbchat.FacebookError as e:
+            await self.send_bridge_notice("Failed to refresh Messenger session: "
+                                          f"{e.message}", edit=event_id)
+        except Exception:
+            await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
+                                          "(see logs for more details)", edit=event_id)
+        else:
+            if ok:
+                await self.send_bridge_notice("Successfully refreshed Messenger session",
+                                              edit=event_id)
+            else:
+                await self.send_bridge_notice("Failed to refresh Messenger session: "
+                                              "not logged in", edit=event_id)
 
     async def logout(self) -> bool:
         ok = True
@@ -326,11 +346,17 @@ class User(BaseUser):
                 self.save()
         return self.notice_room
 
-    async def send_bridge_notice(self, text: str) -> None:
+    async def send_bridge_notice(self, text: str, edit: Optional[EventID] = None
+                                 ) -> Optional[EventID]:
+        event_id = None
         try:
-            await self.az.intent.send_notice(await self.get_notice_room(), text)
+            content = TextMessageEventContent(msgtype=MessageType.NOTICE, body=text)
+            if edit:
+                content.set_edit(edit)
+            event_id = await self.az.intent.send_message(await self.get_notice_room(), content)
         except Exception:
             self.log.warning("Failed to send bridge notice '%s'", text, exc_info=True)
+        return edit or event_id
 
     # region Facebook event handling
 

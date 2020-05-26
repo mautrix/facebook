@@ -67,13 +67,4 @@ async def ping(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
                  help_text="\"Refresh\" the Facebook Messenger page")
 async def refresh(evt: CommandEvent) -> None:
-    if evt.sender.listener:
-        await evt.reply("Disconnecting Messenger MQTT connection")
-        evt.sender.listener.disconnect()
-        await evt.sender.listen_task
-    await evt.reply("Refreshing session")
-    ok = await evt.sender.load_session(_override=True)
-    if ok:
-        await evt.reply("Successfully refreshed session")
-    else:
-        await evt.reply("Failed to refresh session")
+    await evt.sender.refresh()
