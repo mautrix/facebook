@@ -474,9 +474,10 @@ class Portal(BasePortal):
             self.log.debug(f"Got PleaseRefresh error while trying to bridge {event_id}")
             await sender.refresh()
             try:
-                await self.handle_matrix_message(sender, message, event_id, _retry=False)
+                await self._handle_matrix_message(sender, message, event_id)
             except fbchat.FacebookError as e:
-                self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
+                self.log.exception(f"Got FacebookError while trying to bridge {event_id} "
+                                   "after auto-refreshing")
                 await self._send_bridge_error(e.message)
         except fbchat.FacebookError as e:
             self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
