@@ -470,13 +470,11 @@ class Portal(BasePortal):
                                     event_id: EventID) -> None:
         try:
             await self._handle_matrix_message(sender, message, event_id)
-            return
         except fbchat.PleaseRefresh:
             self.log.debug(f"Got PleaseRefresh error while trying to bridge {event_id}")
             await sender.refresh()
             try:
                 await self.handle_matrix_message(sender, message, event_id, _retry=False)
-                return
             except fbchat.FacebookError as e:
                 self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
                 await self._send_bridge_error(e.message)
