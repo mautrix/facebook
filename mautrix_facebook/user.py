@@ -50,6 +50,7 @@ class User(BaseUser):
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
+    _is_connected: Optional[bool]
     _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
 
@@ -66,6 +67,7 @@ class User(BaseUser):
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
+        self._is_connected = None
         self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
@@ -142,8 +144,8 @@ class User(BaseUser):
 
         return None
 
-    async def load_session(self) -> bool:
-        if self._is_logged_in:
+    async def load_session(self, _override: bool = False) -> bool:
+        if self._is_logged_in and not _override:
             return True
         elif not self._session_data:
             return False
@@ -156,6 +158,7 @@ class User(BaseUser):
             self.log.info("Loaded session successfully")
             self.session = session
             self.client = fbchat.Client(session=self.session)
+            self._is_logged_in = True
             if self.listen_task:
                 self.listen_task.cancel()
             self.listen_task = self.loop.create_task(self.try_listen())
@@ -183,8 +186,10 @@ class User(BaseUser):
                 ok = False
         self._session_data = None
         self._is_logged_in = False
+        self._is_connected = None
         self.client = None
         self.session = None
+        self.listener = None
         self.save(_update_session_data=False)
         return ok
 
@@ -327,6 +332,7 @@ class User(BaseUser):
         try:
             await self.listen()
         except Exception:
+            self._is_connected = False
             await self.send_bridge_notice("Fatal error in listener (see logs for more info)")
             self.log.exception("Fatal error in listener")
             try:
@@ -335,7 +341,8 @@ class User(BaseUser):
                 self.log.debug("Error disconnecting listener after error", exc_info=True)
 
     async def listen(self) -> None:
-        self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
+        if not self.listener:
+            self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
         handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]] = {
             fbchat.MessageEvent: self.on_message,
             fbchat.MessageReplyEvent: self.on_message,
@@ -362,11 +369,15 @@ class User(BaseUser):
                     await handler(event)
                 except Exception:
                     self.log.exception("Failed to handle facebook event")
+        self._is_connected = False
+        await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def on_connect(self, evt: fbchat.Connect) -> None:
+        self._is_connected = True
         await self.send_bridge_notice("Connected to Facebook Messenger")
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
+        self._is_connected = False
         await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
     def stop_listening(self) -> None:

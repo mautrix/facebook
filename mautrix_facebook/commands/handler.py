@@ -24,6 +24,7 @@ from .. import user as u, context as c
 HelpCacheKey = NamedTuple('FBHelpCacheKey', is_management=bool, is_admin=bool, is_logged_in=bool)
 
 SECTION_AUTH = HelpSection("Authentication", 10, "")
+SECTION_CONNECTION = HelpSection("Connection management", 15, "")
 SECTION_CREATING_PORTALS = HelpSection("Creating portals", 20, "")
 SECTION_PORTAL_MANAGEMENT = HelpSection("Portal management", 30, "")
 SECTION_MISC = HelpSection("Miscellaneous", 40, "")
