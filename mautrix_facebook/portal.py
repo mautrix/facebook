@@ -484,7 +484,7 @@ class Portal(BasePortal):
             await self._send_bridge_error(e.message)
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
-                                    event_id: EventID) -> None:
+                                     event_id: EventID) -> None:
         puppet = p.Puppet.get_by_custom_mxid(sender.mxid)
         if puppet and message.get("net.maunium.facebook.puppet", False):
             self.log.debug(f"Ignoring puppet-sent message by confirmed puppet user {sender.mxid}")
@@ -499,7 +499,7 @@ class Portal(BasePortal):
             elif message.msgtype == MessageType.LOCATION:
                 fbid = await self._handle_matrix_location(sender, message)
             else:
-                self.log.warning(f"Unsupported msgtype in {message}")
+                self.log.warning(f"Unsupported msgtype {message.msgtype} in {event_id}")
                 return
             if not fbid:
                 return
@@ -634,7 +634,8 @@ class Portal(BasePortal):
                                    if isinstance(x, fbchat.ShareAttachment)):
                 event_ids = [await self._handle_facebook_text(intent, message)]
             else:
-                self.log.warning(f"Unhandled Messenger message: {message}")
+                self.log.warning(f"Unhandled Messenger message {message.id}")
+                self.log.trace("Message %s content: %s", message.id, message)
                 return
         if event_ids:
             self._last_bridged_mxid = event_ids[-1]
@@ -732,7 +733,7 @@ class Portal(BasePortal):
             # These are handled in the text formatter
             return None
         else:
-            self.log.warning(f"Unsupported attachment type: {attachment}")
+            self.log.warning(f"Unsupported attachment type {type(attachment)}")
             return None
         return event_id
 
@@ -847,7 +848,7 @@ class Portal(BasePortal):
 
         message = DBMessage.get_by_fbid(message_id, self.fb_receiver)
         if not message:
-            self.log.debug(f"Ignoring reaction to unknown message {message}")
+            self.log.debug(f"Ignoring reaction to unknown message {message_id}")
             return
 
         mxid = await intent.react(message.mx_room, message.mxid, reaction)
