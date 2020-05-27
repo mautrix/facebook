@@ -49,7 +49,7 @@ async def connect(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
                  help_text="Check if you're logged into Facebook Messenger")
 async def ping(evt: CommandEvent) -> None:
-    if not evt.sender.is_logged_in():
+    if not await evt.sender.is_logged_in():
         await evt.reply("You're not logged into Facebook Messenger")
         return
     own_info = cast(fbchat.User,
