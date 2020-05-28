@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict
+from typing import Optional, Dict, cast
 import logging
 import random
 import string
@@ -105,8 +105,9 @@ class PublicBridgeWebsite:
             "facebook": None,
         }
         if await user.is_logged_in():
-            info = await user.client.fetch_thread_info([user.fbid]).__anext__()
+            info = cast(fbchat.UserData, await user.client.fetch_thread_info([user.fbid]).__anext__())
             data["facebook"] = attr.asdict(info)
+            del data["facebook"]["session"]
         return web.json_response(data, headers=self._acao_headers)
 
     async def login(self, request: web.Request) -> web.Response:
