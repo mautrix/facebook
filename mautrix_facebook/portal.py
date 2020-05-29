@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 try:
     from PIL import Image
+
     convert_cmd = shutil.which("convert")
 except ImportError:
     Image = convert_cmd = None
@@ -463,8 +464,9 @@ class Portal(BasePortal):
                 self.log.exception("Failed to send delivery receipt for %s", event_id)
 
     async def _send_bridge_error(self, msg: str) -> None:
-        await self.main_intent.send_notice(self.mxid, f"\u26a0 Your message may not have been "
-                                                      f"bridged: {msg}")
+        await self._send_message(self.main_intent, TextMessageEventContent(
+            msgtype=MessageType.NOTICE,
+            body=f"\u26a0 Your message may not have been bridged: {msg}"))
 
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
