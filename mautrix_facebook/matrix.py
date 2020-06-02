@@ -155,7 +155,7 @@ class MatrixHandler(BaseMatrixHandler):
                                                                    "Facebook Messenger bridge.")
             return
 
-        self.log.debug(f"{user} joined {room_id}")
+        self.log.debug(f"{user.mxid} joined {room_id}")
         # await portal.join_matrix(user, event_id)
 
     async def handle_leave(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:

@@ -23,6 +23,7 @@ from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEv
 from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
+from mautrix.util.simple_lock import SimpleLock
 
 from .config import Config
 from .commands import enter_2fa_code
@@ -52,6 +53,7 @@ class User(BaseUser):
     _is_connected: Optional[bool]
     _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
+    _sync_lock: SimpleLock
 
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
@@ -70,6 +72,8 @@ class User(BaseUser):
         self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
+        self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
+                                     log=self.log, loop=self.loop)
 
         self.log = self.log.getChild(self.mxid)
 
@@ -305,22 +309,34 @@ class User(BaseUser):
                 if not isinstance(thread, (fbchat.UserData, fbchat.PageData, fbchat.GroupData)):
                     # TODO log?
                     continue
-                self.log.debug(f"Syncing thread {thread.id} {thread.name}")
-                fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
-                portal = po.Portal.get_by_thread(thread, fb_receiver)
-                puppet = None
-
-                if isinstance(thread, fbchat.UserData):
-                    puppet = pu.Puppet.get_by_fbid(thread.id, create=True)
-                    await puppet.update_info(self, thread)
-
-                await self._add_community(ups.get(portal.fbid, None),
-                                          contacts.get(puppet.fbid, None) if puppet else None,
-                                          portal, puppet)
-
-                await portal.create_matrix_room(self, thread)
+                try:
+                    await self._sync_thread(thread, ups, contacts)
+                except Exception:
+                    self.log.exception("Failed to sync thread %s", thread.id)
         except Exception:
             self.log.exception("Failed to sync threads")
+
+    async def _sync_thread(self, thread: Union[fbchat.UserData, fbchat.PageData, fbchat.GroupData],
+                           ups: Dict[str, 'DBUserPortal'], contacts: Dict[str, 'DBContact']
+                           ) -> None:
+        self.log.debug(f"Syncing thread {thread.id} {thread.name}")
+        fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
+        portal = po.Portal.get_by_thread(thread, fb_receiver)
+        puppet = None
+
+        if isinstance(thread, fbchat.UserData):
+            puppet = pu.Puppet.get_by_fbid(thread.id, create=True)
+            await puppet.update_info(self, thread)
+
+        await self._add_community(ups.get(portal.fbid, None),
+                                  contacts.get(puppet.fbid, None) if puppet else None,
+                                  portal, puppet)
+
+        if not portal.mxid:
+            await portal.create_matrix_room(self, thread)
+        else:
+            await portal.update_matrix_room(self, thread)
+            await portal.backfill(self, is_initial=False, last_active=thread.last_active)
 
     async def on_2fa_callback(self) -> str:
         if self.command_status and self.command_status.get("action", "") == "Login":
@@ -389,6 +405,14 @@ class User(BaseUser):
             fbchat.Connect: self.on_connect,
             fbchat.Disconnect: self.on_disconnect,
         }
+
+        async def handle_event(handler: Callable[[Any], Awaitable[None]], event: Any) -> None:
+            await self._sync_lock.wait("event")
+            try:
+                await handler(event)
+            except Exception:
+                self.log.exception("Failed to handle facebook event")
+
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
             self.log.debug("Handling facebook event %s", event)
@@ -397,10 +421,7 @@ class User(BaseUser):
             except KeyError:
                 self.log.debug(f"Received unknown event type {type(event)}")
             else:
-                try:
-                    await handler(event)
-                except Exception:
-                    self.log.exception("Failed to handle facebook event")
+                self.loop.create_task(handle_event(handler, event))
         self._is_connected = False
         await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
@@ -433,6 +454,7 @@ class User(BaseUser):
         puppet = pu.Puppet.get_by_fbid(evt.author.id)
         if not puppet.name:
             await puppet.update_info(self)
+        await portal.backfill_lock.wait(evt.message.id)
         await portal.handle_facebook_message(self, puppet, evt.message)
 
     async def on_title_change(self, evt: fbchat.TitleSet) -> None:
@@ -443,6 +465,7 @@ class User(BaseUser):
         sender = pu.Puppet.get_by_fbid(evt.author.id)
         if not sender:
             return
+        await portal.backfill_lock.wait("title change")
         # TODO find actual messageId for the event
         await portal.handle_facebook_name(self, sender, evt.title, str(evt.at.timestamp()))
 
@@ -459,6 +482,7 @@ class User(BaseUser):
         sender = pu.Puppet.get_by_fbid(author_id)
         if not sender:
             return
+        await portal.backfill_lock.wait(mid)
         await portal.handle_facebook_photo(self, sender, new_image, mid)
 
     async def on_message_seen(self, evt: fbchat.ThreadsRead) -> None:
@@ -467,12 +491,14 @@ class User(BaseUser):
             fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
             portal = po.Portal.get_by_thread(thread, fb_receiver)
             if portal.mxid:
+                await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
                 await portal.handle_facebook_seen(self, puppet)
 
     async def on_message_unsent(self, evt: fbchat.UnsendEvent) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
         if portal.mxid:
+            await portal.backfill_lock.wait(f"redaction of {evt.message.id}")
             puppet = pu.Puppet.get_by_fbid(evt.author.id)
             await portal.handle_facebook_unsend(self, puppet, evt.message.id)
 
@@ -482,6 +508,7 @@ class User(BaseUser):
         if not portal.mxid:
             return
         puppet = pu.Puppet.get_by_fbid(evt.author.id)
+        await portal.backfill_lock.wait(f"reaction to {evt.message.id}")
         if evt.reaction is None:
             await portal.handle_facebook_reaction_remove(self, puppet, evt.message.id)
         else:
@@ -498,7 +525,7 @@ class User(BaseUser):
     async def on_typing(self, evt: fbchat.Typing) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-        if portal.mxid:
+        if portal.mxid and not portal.backfill_lock.locked:
             puppet = pu.Puppet.get_by_fbid(evt.author.id)
             await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
 
@@ -508,6 +535,7 @@ class User(BaseUser):
         if portal.mxid:
             sender = pu.Puppet.get_by_fbid(evt.author.id)
             users = [pu.Puppet.get_by_fbid(user.id) for user in evt.added]
+            await portal.backfill_lock.wait("member add")
             await portal.handle_facebook_join(self, sender, users)
 
     async def on_member_removed(self, evt: fbchat.PersonRemoved) -> None:
@@ -516,6 +544,7 @@ class User(BaseUser):
         if portal.mxid:
             sender = pu.Puppet.get_by_fbid(evt.author.id)
             user = pu.Puppet.get_by_fbid(evt.removed.id)
+            await portal.backfill_lock.wait("member remove")
             await portal.handle_facebook_leave(self, sender, user)
 
     # endregion

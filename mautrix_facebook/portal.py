@@ -16,6 +16,7 @@
 from typing import (Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, Callable, Awaitable,
                     TYPE_CHECKING)
 from tempfile import NamedTemporaryFile
+from datetime import datetime, timezone
 from collections import deque
 import asyncio
 import shutil
@@ -33,6 +34,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
 from mautrix.bridge import BasePortal
+from mautrix.util.simple_lock import SimpleLock
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
@@ -94,6 +96,7 @@ class Portal(BasePortal):
     _send_locks: Dict[str, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
     _typing: Set['u.User']
+    backfill_lock: SimpleLock
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, encrypted: bool = False, name: str = "",
@@ -107,6 +110,8 @@ class Portal(BasePortal):
         self.name = name
         self.photo_id = photo_id
 
+        self.log = self.log.getChild(self.fbid_log)
+
         self._db_instance = db_instance
 
         self._main_intent = None
@@ -117,7 +122,8 @@ class Portal(BasePortal):
         self._send_locks = {}
         self._typing = set()
 
-        self.log = self.log.getChild(self.fbid_log)
+        self.backfill_lock = SimpleLock("Waiting for backfilling to finish before handling %s",
+                                        log=self.log, loop=self.loop)
 
         self.by_fbid[self.fbid_full] = self
         if self.mxid:
@@ -295,6 +301,13 @@ class Portal(BasePortal):
     # endregion
     # region Matrix room creation
 
+    async def update_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
+                                 ) -> None:
+        try:
+            await self._update_matrix_room(source, info)
+        except Exception:
+            self.log.exception("Failed to update portal")
+
     async def _update_matrix_room(self, source: 'u.User',
                                   info: Optional[ThreadClass] = None) -> None:
         await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=True)
@@ -371,37 +384,47 @@ class Portal(BasePortal):
                 "type": "m.room.related_groups",
                 "content": {"groups": [config["appservice.community_id"]]},
             })
-        self.mxid = await self.main_intent.create_room(name=name, is_direct=self.is_direct,
-                                                       initial_state=initial_state,
-                                                       invitees=invites)
-        if not self.mxid:
-            raise Exception("Failed to create room: no mxid returned")
 
-        if self.encrypted and self.matrix.e2ee:
-            members = [self.main_intent.mxid]
-            if self.is_direct:
-                # This isn't very accurate, but let's do it anyway
-                members += [source.mxid]
-                try:
-                    await self.az.intent.join_room_by_id(self.mxid)
-                    members += [self.az.intent.mxid]
-                except Exception:
-                    self.log.warning(f"Failed to add bridge bot to new private chat {self.mxid}")
-            await self.matrix.e2ee.add_room(self.mxid, members=members, encrypted=True)
+        # We lock backfill lock here so any messages that come between the room being created
+        # and the initial backfill finishing wouldn't be bridged before the backfill messages.
+        with self.backfill_lock:
+            self.mxid = await self.main_intent.create_room(name=name, is_direct=self.is_direct,
+                                                           initial_state=initial_state,
+                                                           invitees=invites)
+            if not self.mxid:
+                raise Exception("Failed to create room: no mxid returned")
 
-        self.save()
-        self.log.debug(f"Matrix room created: {self.mxid}")
-        self.by_mxid[self.mxid] = self
-        if not self.is_direct:
-            await self._update_participants(source, info)
-        else:
-            puppet = p.Puppet.get_by_custom_mxid(source.mxid)
-            if puppet:
-                await puppet.intent.ensure_joined(self.mxid)
+            if self.encrypted and self.matrix.e2ee:
+                members = [self.main_intent.mxid]
+                if self.is_direct:
+                    # This isn't very accurate, but let's do it anyway
+                    members += [source.mxid]
+                    try:
+                        await self.az.intent.join_room_by_id(self.mxid)
+                        members += [self.az.intent.mxid]
+                    except Exception:
+                        self.log.warning("Failed to add bridge bot "
+                                         f"to new private chat {self.mxid}")
+                await self.matrix.e2ee.add_room(self.mxid, members=members, encrypted=True)
 
-        in_community = await source._community_helper.add_room(source._community_id, self.mxid)
-        DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
-                     in_community=in_community).upsert()
+            self.save()
+            self.log.debug(f"Matrix room created: {self.mxid}")
+            self.by_mxid[self.mxid] = self
+            if not self.is_direct:
+                await self._update_participants(source, info)
+            else:
+                puppet = p.Puppet.get_by_custom_mxid(source.mxid)
+                if puppet:
+                    await puppet.intent.ensure_joined(self.mxid)
+
+            in_community = await source._community_helper.add_room(source._community_id, self.mxid)
+            DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
+                         in_community=in_community).upsert()
+
+            try:
+                await self.backfill(source, is_initial=True)
+            except Exception:
+                self.log.exception("Failed to backfill new portal")
 
         return self.mxid
 
@@ -436,6 +459,7 @@ class Portal(BasePortal):
 
     async def cleanup_and_delete(self) -> None:
         await self.cleanup_room(self.main_intent, self.mxid)
+        DBMessage.delete_all_by_mxid(self.mxid)
         self.delete()
 
     # endregion
@@ -487,13 +511,14 @@ class Portal(BasePortal):
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
-        puppet = p.Puppet.get_by_custom_mxid(sender.mxid)
-        if puppet and message.get("net.maunium.facebook.puppet", False):
+        if ((message.get("net.maunium.facebook.puppet", False)
+             and p.Puppet.get_by_custom_mxid(sender.mxid))):
             self.log.debug(f"Ignoring puppet-sent message by confirmed puppet user {sender.mxid}")
             return
         # TODO this probably isn't nice for bridging images, it really only needs to lock the
         #      actual message send call and dedup queue append.
         async with self.require_send_lock(sender.fbid):
+            date = datetime.now(tz=timezone.utc)
             if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
                 fbid = await self._handle_matrix_text(sender, message)
             elif message.msgtype == MessageType.IMAGE:
@@ -509,8 +534,8 @@ class Portal(BasePortal):
                 fbid = fbid[0]
             self._dedup.appendleft(fbid)
             DBMessage(mxid=event_id, mx_room=self.mxid,
-                      fbid=fbid, fb_receiver=self.fb_receiver,
-                      index=0).insert()
+                      fbid=fbid, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
+                      index=0, date=date).insert()
             self._last_bridged_mxid = event_id
         await self._send_delivery_receipt(event_id)
 
@@ -609,6 +634,9 @@ class Portal(BasePortal):
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: fbchat.MessageData) -> None:
+        if self.backfill_lock.locked and DBMessage.get_by_fbid(message.id, self.fb_receiver):
+            self.log.trace("Not handling message %s, found duplicate in database", message.id)
+            return
         async with self.optional_send_lock(sender.fbid):
             if message.id in self._dedup:
                 await source.client.mark_as_delivered(message)
@@ -642,7 +670,8 @@ class Portal(BasePortal):
                 return
         if event_ids:
             self._last_bridged_mxid = event_ids[-1]
-        DBMessage.bulk_create(fbid=message.id, fb_receiver=self.fb_receiver, mx_room=self.mxid,
+        DBMessage.bulk_create(fbid=message.id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
+                              mx_room=self.mxid, date=message.created_at.astimezone(timezone.utc),
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.client.mark_as_delivered(message)
 
@@ -812,9 +841,8 @@ class Portal(BasePortal):
             event_id = await sender.intent.set_room_avatar(self.mxid, self._avatar_uri)
         except IntentError:
             event_id = await self.main_intent.set_room_avatar(self.mxid, self._avatar_uri)
-        DBMessage(mxid=event_id, mx_room=self.mxid,
-                  fbid=message_id, fb_receiver=self.fb_receiver,
-                  index=0).insert()
+        DBMessage(mxid=event_id, mx_room=self.mxid, index=0, date=None,
+                  fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
 
     async def handle_facebook_name(self, source: 'u.User', sender: 'p.Puppet', new_name: str,
                                    message_id: str) -> None:
@@ -828,9 +856,8 @@ class Portal(BasePortal):
             event_id = await sender.intent.set_room_name(self.mxid, self.name)
         except IntentError:
             event_id = await self.main_intent.set_room_name(self.mxid, self.name)
-        DBMessage(mxid=event_id, mx_room=self.mxid,
-                  fbid=message_id, fb_receiver=self.fb_receiver,
-                  index=0).insert()
+        DBMessage(mxid=event_id, mx_room=self.mxid, index=0, date=None,
+                  fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
 
     async def handle_facebook_reaction_add(self, source: 'u.User', sender: 'p.Puppet',
                                            message_id: str, reaction: str) -> None:
@@ -904,6 +931,54 @@ class Portal(BasePortal):
                                                  reason=f"Kicked by {sender.name}")
 
     # endregion
+
+    async def backfill(self, source: 'u.User', is_initial: bool,
+                       last_active: Optional[datetime] = None) -> None:
+        limit = (config["bridge.backfill.initial_limit"] if is_initial
+                 else config["bridge.backfill.missed_limit"])
+        if limit == 0:
+            return
+        elif limit < 0:
+            limit = None
+        most_recent = DBMessage.get_most_recent(self.fbid, self.fb_receiver)
+        if most_recent and is_initial:
+            self.log.debug("Not backfilling %s: already bridged messages found", self.fbid_log)
+        elif not most_recent and not is_initial:
+            self.log.debug("Not backfilling %s: no most recent message found", self.fbid_log)
+        elif last_active and most_recent.date >= last_active:
+            self.log.debug("Not backfilling %s: last activity is equal to most recent bridged "
+                           "message (%s >= %s)", self.fbid_log, most_recent.date, last_active)
+        else:
+            with self.backfill_lock:
+                await self._backfill(source, limit, most_recent.date if most_recent else None)
+
+    async def _backfill(self, source: 'u.User', limit: int, limit_date: datetime) -> None:
+        self.log.debug("Backfilling history through %s", source.mxid)
+        thread = self.thread_for(source)
+        messages = []
+        self.log.debug("Fetching up to %d messages through %s", limit, source.fbid)
+        async for message in thread.fetch_messages(limit):
+            if limit_date and message.created_at < limit_date:
+                self.log.debug("Stopping backfilling at %s as message is older than newest bridged"
+                               " message (%s < %s)", message.id, message.created_at, limit_date)
+                break
+            messages.append(message)
+        self.log.debug("Got %d messages from server", len(messages))
+        backfill_leave = set()
+        if config["bridge.backfill.invite_own_puppet"]:
+            self.log.debug("Adding %s's default puppet to room for backfilling", source.mxid)
+            sender = p.Puppet.get_by_fbid(source.fbid)
+            await self.main_intent.invite_user(self.mxid, sender.default_mxid)
+            await sender.default_mxid_intent.join_room_by_id(self.mxid)
+            backfill_leave.add(sender.default_mxid_intent)
+        for message in reversed(messages):
+            puppet = p.Puppet.get_by_fbid(message.author)
+            await self.handle_facebook_message(source, puppet, message)
+        for intent in backfill_leave:
+            self.log.trace("Leaving room with %s post-backfill", intent.mxid)
+            await intent.leave_room(self.mxid)
+        self.log.info("Backfilled %d messages through %s", len(messages), source.mxid)
+
     # region Getters
 
     @classmethod
