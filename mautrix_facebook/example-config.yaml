@@ -121,6 +121,8 @@ bridge:
     # Whether or not the bridge should send a read receipt from the bridge bot when a message has
     # been sent to Facebook.
     delivery_receipts: false
+    # Whether to allow inviting arbitrary mxids to portal rooms
+    allow_invites: false
 
     # Permissions for using the bridge.
     # Permitted values:

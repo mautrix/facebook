@@ -60,6 +60,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.encryption.allow")
         copy("bridge.encryption.default")
         copy("bridge.delivery_receipts")
+        copy("bridge.allow_invites")
 
         copy_dict("bridge.permissions")
 
