@@ -402,6 +402,13 @@ class User(BaseUser):
             except Exception:
                 self.log.debug("Error disconnecting listener after error", exc_info=True)
 
+    async def _handle_event(self, handler: Callable[[Any], Awaitable[None]], event: Any) -> None:
+        await self._sync_lock.wait("event")
+        try:
+            await handler(event)
+        except Exception:
+            self.log.exception(f"Failed to handle {type(event)} event from Facebook")
+
     async def listen(self) -> None:
         if not self.listener:
             self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
@@ -420,13 +427,6 @@ class User(BaseUser):
             fbchat.Disconnect: self.on_disconnect,
         }
 
-        async def handle_event(handler: Callable[[Any], Awaitable[None]], event: Any) -> None:
-            await self._sync_lock.wait("event")
-            try:
-                await handler(event)
-            except Exception:
-                self.log.exception(f"Failed to handle {type(event)} event from Facebook")
-
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
             self.log.debug("Handling facebook event %s", event)
@@ -435,7 +435,7 @@ class User(BaseUser):
             except KeyError:
                 self.log.debug(f"Received unknown event type {type(event)}")
             else:
-                self.loop.create_task(handle_event(handler, event))
+                self.loop.create_task(self._handle_event(handler, event))
         self.is_connected = False
         await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
