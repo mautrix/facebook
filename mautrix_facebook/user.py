@@ -53,6 +53,7 @@ class User(BaseUser):
     _is_logged_in: Optional[bool]
     _is_connected: Optional[bool]
     _connection_time: float
+    _prev_thread_sync: float
     _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
     _sync_lock: SimpleLock
@@ -72,6 +73,7 @@ class User(BaseUser):
         self._is_logged_in = None
         self._is_connected = None
         self._connection_time = time.monotonic()
+        self._prev_thread_sync = -10
         self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
@@ -312,6 +314,10 @@ class User(BaseUser):
             self.log.exception("Failed to sync contacts")
 
     async def sync_threads(self) -> None:
+        if self._prev_thread_sync + 10 > time.monotonic():
+            self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
+            return
+        self._prev_thread_sync = time.monotonic()
         try:
             sync_count = config["bridge.initial_chat_sync"]
             if sync_count <= 0:
