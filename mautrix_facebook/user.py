@@ -299,7 +299,7 @@ class User(BaseUser):
 
     async def sync_threads(self) -> None:
         try:
-            sync_count = min(20, config["bridge.initial_chat_sync"])
+            sync_count = config["bridge.initial_chat_sync"]
             if sync_count <= 0:
                 return
             self.log.debug("Fetching threads...")

@@ -88,7 +88,7 @@ bridge:
     command_prefix: "!fb"
 
     # Number of chats to sync (and create portals for) on startup/login.
-    # Maximum 20, set 0 to disable automatic syncing.
+    # Set 0 to disable automatic syncing.
     initial_chat_sync: 10
     # Whether or not the Facebook users of logged in Matrix users should be
     # invited to private chats when the user sends a message from another client.
