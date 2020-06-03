@@ -425,6 +425,7 @@ class User(BaseUser):
             fbchat.PersonRemoved: self.on_member_removed,
             fbchat.Connect: self.on_connect,
             fbchat.Disconnect: self.on_disconnect,
+            fbchat.Resync: self.on_resync,
         }
 
         self.log.debug("Starting fbchat listener")
@@ -457,6 +458,10 @@ class User(BaseUser):
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
         self.is_connected = False
         await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
+
+    async def on_resync(self) -> None:
+        self.log.info("sequence_id changed, resyncing threads...")
+        await self.sync_threads()
 
     def stop_listening(self) -> None:
         if self.listener:
