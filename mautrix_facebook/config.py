@@ -64,7 +64,8 @@ class Config(BaseBridgeConfig):
         copy("bridge.backfill.invite_own_puppet")
         copy("bridge.backfill.initial_limit")
         copy("bridge.backfill.missed_limit")
-        copy("bridge.auto_reconnect_interval")
+        copy("bridge.periodic_reconnect_interval")
+        copy("bridge.periodic_reconnect_mode")
         copy("bridge.resync_max_disconnected_time")
 
         copy_dict("bridge.permissions")
