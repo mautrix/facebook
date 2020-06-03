@@ -16,6 +16,7 @@
 from typing import (Any, Dict, Iterator, Optional, Iterable, Type, Callable, Awaitable,
                     Union, TYPE_CHECKING)
 import asyncio
+import time
 
 import fbchat
 from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEventContent,
@@ -51,6 +52,7 @@ class User(BaseUser):
     permission_level: str
     _is_logged_in: Optional[bool]
     _is_connected: Optional[bool]
+    _connection_time: float
     _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
     _sync_lock: SimpleLock
@@ -69,6 +71,7 @@ class User(BaseUser):
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
         self._is_connected = None
+        self._connection_time = time.monotonic()
         self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
@@ -81,6 +84,16 @@ class User(BaseUser):
         self.session = None
         self.listener = None
         self.listen_task = None
+
+    @property
+    def is_connected(self) -> Optional[bool]:
+        return self._is_connected
+
+    @is_connected.setter
+    def is_connected(self, val: Optional[bool]) -> None:
+        if self._is_connected != val:
+            self._is_connected = val
+            self._connection_time = time.monotonic()
 
     # region Sessions
 
@@ -165,6 +178,7 @@ class User(BaseUser):
             self.session = session
             self.client = fbchat.Client(session=self.session)
             self._is_logged_in = True
+            self.is_connected = None
             if self.listen_task:
                 self.listen_task.cancel()
             self.listen_task = self.loop.create_task(self.try_listen())
@@ -216,7 +230,7 @@ class User(BaseUser):
                 ok = False
         self._session_data = None
         self._is_logged_in = False
-        self._is_connected = None
+        self.is_connected = None
         self.client = None
         self.session = None
         self.listener = None
@@ -380,7 +394,7 @@ class User(BaseUser):
         try:
             await self.listen()
         except Exception:
-            self._is_connected = False
+            self.is_connected = False
             await self.send_bridge_notice("Fatal error in listener (see logs for more info)")
             self.log.exception("Fatal error in listener")
             try:
@@ -411,7 +425,7 @@ class User(BaseUser):
             try:
                 await handler(event)
             except Exception:
-                self.log.exception("Failed to handle facebook event")
+                self.log.exception(f"Failed to handle {type(event)} event from Facebook")
 
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
@@ -422,15 +436,26 @@ class User(BaseUser):
                 self.log.debug(f"Received unknown event type {type(event)}")
             else:
                 self.loop.create_task(handle_event(handler, event))
-        self._is_connected = False
+        self.is_connected = False
         await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def on_connect(self, evt: fbchat.Connect) -> None:
-        self._is_connected = True
-        await self.send_bridge_notice("Connected to Facebook Messenger")
+        now = time.monotonic()
+        disconnected_at = self._connection_time
+        max_delay = config["bridge.resync_max_disconnected_time"]
+        first_connect = self.is_connected is None
+        self.is_connected = True
+        if not first_connect and disconnected_at + max_delay < now:
+            duration = int(now - disconnected_at)
+            self.log.debug("Disconnection lasted %d seconds, re-syncing threads...", duration)
+            await self.send_bridge_notice("Connected to Facebook Messenger after being "
+                                          f"disconnected for {duration} seconds, syncing chats...")
+            await self.sync_threads()
+        else:
+            await self.send_bridge_notice("Connected to Facebook Messenger")
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
-        self._is_connected = False
+        self.is_connected = False
         await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
     def stop_listening(self) -> None:

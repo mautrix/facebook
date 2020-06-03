@@ -58,7 +58,7 @@ async def ping(evt: CommandEvent) -> None:
 
     if not evt.sender.listen_task or evt.sender.listen_task.done():
         await evt.reply("You don't have a Messenger MQTT connection. Use `connect` to connect.")
-    elif not evt.sender._is_connected:
+    elif not evt.sender.is_connected:
         await evt.reply("The Messenger MQTT listener is **disconnected**.")
     else:
         await evt.reply("The Messenger MQTT listener is connected.")

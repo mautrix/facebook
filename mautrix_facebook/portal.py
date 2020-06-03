@@ -966,6 +966,9 @@ class Portal(BasePortal):
                                " message (%s < %s)", message.id, message.created_at, limit_date)
                 break
             messages.append(message)
+        if not messages:
+            self.log.debug("Didn't get any messages from server")
+            return
         self.log.debug("Got %d messages from server", len(messages))
         backfill_leave = set()
         if config["bridge.backfill.invite_own_puppet"]:
