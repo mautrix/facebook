@@ -197,7 +197,9 @@ class Portal(BasePortal):
     async def update_info(self, source: Optional['u.User'] = None,
                           info: Optional[ThreadClass] = None) -> ThreadClass:
         if not info:
+            self.log.debug("Called update_info with no info, fetching thread info...")
             info = await source.client.fetch_thread_info(self.fbid).__anext__()
+            self.log.trace("Thread info for %s: %s", self.fbid, info)
             # TODO validate that we got some sane info?
         changed = any(await asyncio.gather(self._update_name(info.name),
                                            self._update_photo(info.photo),
@@ -262,6 +264,7 @@ class Portal(BasePortal):
 
     async def _update_name(self, name: str) -> bool:
         if self.name != name:
+            self.log.trace("Updating name %s -> %s", self.name, name)
             self.name = name
             if self.mxid and (self.encrypted or not self.is_direct):
                 await self.main_intent.set_room_name(self.mxid, self.name)
