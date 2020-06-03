@@ -55,7 +55,7 @@ async def _handle_search_result(sender: 'u.User', res: Iterable[fbchat.UserData]
 async def sync(evt: CommandEvent) -> None:
     contacts = False
     create_portals = False
-    limit = 0
+    limit = evt.config["bridge.initial_chat_sync"]
     for arg in evt.args:
         arg = arg.lower()
         if arg == "--contacts":
@@ -67,11 +67,15 @@ async def sync(evt: CommandEvent) -> None:
 
     ups = DBUserPortal.all(evt.sender.fbid)
     async for thread in evt.sender.client.fetch_threads(limit, fbchat.ThreadLocation.INBOX):
-        # TODO check thread type?
+        if not isinstance(thread, (fbchat.UserData, fbchat.PageData, fbchat.GroupData)):
+            # TODO log?
+            continue
         portal = po.Portal.get_by_thread(thread, evt.sender.fbid)
-        if create_portals:
+        if create_portals and not portal.mxid:
             await portal.create_matrix_room(evt.sender, thread)
-        else:
+        elif portal.mxid:
+            await portal.update_matrix_room(evt.sender, thread)
+            await portal.backfill(evt.sender, is_initial=False, last_active=thread.last_active)
             await evt.sender._add_community(ups.get(portal.fbid, None), None, portal, None)
 
     if contacts:
