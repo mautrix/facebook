@@ -45,7 +45,7 @@ class PublicBridgeWebsite:
         self.app.router.add_get("/api/whoami", self.status)
         self.app.router.add_options("/api/login", self.login_options)
         self.app.router.add_post("/api/login", self.login)
-        self.app.router.add_post("/api/logout", self.login)
+        self.app.router.add_post("/api/logout", self.logout)
         self.app.router.add_static("/", pkg_resources.resource_filename("mautrix_facebook",
                                                                         "web/static/"))
 
