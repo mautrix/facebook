@@ -61,6 +61,8 @@ class User(BaseUser):
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
 
+    _handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]]
+
     def __init__(self, mxid: UserID, session: Optional[Dict[str, str]] = None,
                  notice_room: Optional[RoomID] = None,
                  db_instance: Optional[DBUser] = None) -> None:
@@ -86,6 +88,22 @@ class User(BaseUser):
         self.session = None
         self.listener = None
         self.listen_task = None
+
+        self._handlers = {
+            fbchat.MessageEvent: self.on_message,
+            fbchat.MessageReplyEvent: self.on_message,
+            fbchat.TitleSet: self.on_title_change,
+            fbchat.UnsendEvent: self.on_message_unsent,
+            fbchat.ThreadsRead: self.on_message_seen,
+            fbchat.ReactionEvent: self.on_reaction,
+            fbchat.Presence: self.on_presence,
+            fbchat.Typing: self.on_typing,
+            fbchat.PeopleAdded: self.on_members_added,
+            fbchat.PersonRemoved: self.on_member_removed,
+            fbchat.Connect: self.on_connect,
+            fbchat.Disconnect: self.on_disconnect,
+            fbchat.Resync: self.on_resync,
+        }
 
     @property
     def is_connected(self) -> Optional[bool]:
@@ -382,16 +400,18 @@ class User(BaseUser):
                 self.save()
         return self.notice_room
 
-    async def send_bridge_notice(self, text: str, edit: Optional[EventID] = None
-                                 ) -> Optional[EventID]:
+    async def send_bridge_notice(self, text: str, edit: Optional[EventID] = None,
+                                 important: bool = False) -> Optional[EventID]:
         event_id = None
         try:
-            content = TextMessageEventContent(msgtype=MessageType.NOTICE, body=text)
+            self.log.debug("Sending bridge notice: %s", text)
+            content = TextMessageEventContent(body=text, msgtype=(MessageType.TEXT if important
+                                                                  else MessageType.NOTICE))
             if edit:
                 content.set_edit(edit)
             event_id = await self.az.intent.send_message(await self.get_notice_room(), content)
         except Exception:
-            self.log.warning("Failed to send bridge notice '%s'", text, exc_info=True)
+            self.log.warning("Failed to send bridge notice", exc_info=True)
         return edit or event_id
 
     # region Facebook event handling
@@ -399,52 +419,48 @@ class User(BaseUser):
     async def try_listen(self) -> None:
         try:
             await self.listen()
-        except Exception:
+        except Exception as e:
             self.is_connected = False
-            await self.send_bridge_notice("Fatal error in listener (see logs for more info)")
-            self.log.exception("Fatal error in listener")
+            if isinstance(e, fbchat.NotLoggedIn):
+                message = f"Disconnected from Facebook Messenger: {e}"
+                self.log.warning(message)
+            elif isinstance(e, fbchat.NotConnected):
+                message = f"Failed to connect to Facebook Messenger: {e}"
+                self.log.warning(message)
+            else:
+                message = "Fatal error in listener (see logs for more info)"
+                self.log.exception("Fatal error in listener")
+            await self.send_bridge_notice(message, important=True)
             try:
                 self.listener.disconnect()
             except Exception:
                 self.log.debug("Error disconnecting listener after error", exc_info=True)
 
-    async def _handle_event(self, handler: Callable[[Any], Awaitable[None]], event: Any) -> None:
+    async def listen(self) -> None:
+        if not self.listener:
+            self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
+
+        self.log.debug("Starting fbchat listener")
+        async for event in self.listener.listen():
+            await self._handle_event(event)
+        self.is_connected = False
+        await self.send_bridge_notice("Facebook Messenger connection closed without error")
+
+    async def _handle_event(self, event: Any) -> None:
+        self.log.debug("Handling facebook event %s", event)
+        try:
+            handler = self._handlers[type(event)]
+        except KeyError:
+            self.log.debug(f"Received unknown event type {type(event)}")
+        else:
+            self.loop.create_task(self._call_handler(handler, event))
+
+    async def _call_handler(self, handler: Callable[[Any], Awaitable[None]], event: Any) -> None:
         await self._sync_lock.wait("event")
         try:
             await handler(event)
         except Exception:
             self.log.exception(f"Failed to handle {type(event)} event from Facebook")
-
-    async def listen(self) -> None:
-        if not self.listener:
-            self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
-        handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]] = {
-            fbchat.MessageEvent: self.on_message,
-            fbchat.MessageReplyEvent: self.on_message,
-            fbchat.TitleSet: self.on_title_change,
-            fbchat.UnsendEvent: self.on_message_unsent,
-            fbchat.ThreadsRead: self.on_message_seen,
-            fbchat.ReactionEvent: self.on_reaction,
-            fbchat.Presence: self.on_presence,
-            fbchat.Typing: self.on_typing,
-            fbchat.PeopleAdded: self.on_members_added,
-            fbchat.PersonRemoved: self.on_member_removed,
-            fbchat.Connect: self.on_connect,
-            fbchat.Disconnect: self.on_disconnect,
-            fbchat.Resync: self.on_resync,
-        }
-
-        self.log.debug("Starting fbchat listener")
-        async for event in self.listener.listen():
-            self.log.debug("Handling facebook event %s", event)
-            try:
-                handler = handlers[type(event)]
-            except KeyError:
-                self.log.debug(f"Received unknown event type {type(event)}")
-            else:
-                self.loop.create_task(self._handle_event(handler, event))
-        self.is_connected = False
-        await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def on_connect(self, evt: fbchat.Connect) -> None:
         now = time.monotonic()
