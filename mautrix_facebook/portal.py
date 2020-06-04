@@ -195,12 +195,15 @@ class Portal(BasePortal):
     # region Chat info updating
 
     async def update_info(self, source: Optional['u.User'] = None,
-                          info: Optional[ThreadClass] = None) -> ThreadClass:
+                          info: Optional[ThreadClass] = None) -> Optional[ThreadClass]:
         if not info:
             self.log.debug("Called update_info with no info, fetching thread info...")
             info = await source.client.fetch_thread_info(self.fbid).__anext__()
-            self.log.trace("Thread info for %s: %s", self.fbid, info)
-            # TODO validate that we got some sane info?
+        self.log.trace("Thread info for %s: %s", self.fbid, info)
+        if not isinstance(info, (fbchat.UserData, fbchat.GroupData, fbchat.PageData)):
+            self.log.warning("Got weird info for %s of type %s, cancelling update",
+                             self.fbid, type(info))
+            return None
         changed = any(await asyncio.gather(self._update_name(info.name),
                                            self._update_photo(info.photo),
                                            self._update_participants(source, info),
@@ -263,6 +266,9 @@ class Portal(BasePortal):
             return output_file.read(), width, height
 
     async def _update_name(self, name: str) -> bool:
+        if not name:
+            self.log.warning("Got empty name in _update_name call")
+            return
         if self.name != name:
             self.log.trace("Updating name %s -> %s", self.name, name)
             self.name = name
@@ -351,6 +357,8 @@ class Portal(BasePortal):
             return self.mxid
 
         info = await self.update_info(source=source, info=info)
+        if not info:
+            return
         self.log.debug(f"Creating Matrix room")
         name: Optional[str] = None
         initial_state = [{
