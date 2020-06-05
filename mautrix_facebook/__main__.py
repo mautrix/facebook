@@ -83,6 +83,7 @@ class MessengerBridge(Bridge):
 
     async def _periodic_reconnect_loop(self) -> None:
         log = logging.getLogger("mau.periodic_reconnect")
+        always_reconnect = self.config["bridge.periodic_reconnect.always"]
         interval = self.config["bridge.periodic_reconnect_interval"]
         if interval <= 0:
             log.debug("Periodic reconnection is not enabled")
@@ -102,7 +103,7 @@ class MessengerBridge(Bridge):
                 return
             log.info("Executing periodic reconnections")
             for user in User.by_fbid.values():
-                if not user.is_connected:
+                if not user.is_connected and not always_reconnect:
                     log.debug("Not reconnecting %s: not connected", user.mxid)
                     continue
                 log.debug("Executing periodic reconnect for %s", user.mxid)
