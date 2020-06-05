@@ -48,6 +48,7 @@ class User(BaseUser):
 
     notice_room: RoomID
     _notice_room_lock: asyncio.Lock
+    _notice_send_lock: asyncio.Lock
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
@@ -69,6 +70,7 @@ class User(BaseUser):
         self.mxid = mxid
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
+        self._notice_send_lock = asyncio.Lock()
         self.by_mxid[mxid] = self
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
@@ -409,7 +411,9 @@ class User(BaseUser):
                                                                   else MessageType.NOTICE))
             if edit:
                 content.set_edit(edit)
-            event_id = await self.az.intent.send_message(await self.get_notice_room(), content)
+            # This is locked to prevent notices going out in the wrong order
+            async with self._notice_send_lock:
+                event_id = await self.az.intent.send_message(await self.get_notice_room(), content)
         except Exception:
             self.log.warning("Failed to send bridge notice", exc_info=True)
         return edit or event_id
