@@ -185,7 +185,7 @@ logging:
         mau:
             level: DEBUG
         fbchat:
-            level: DEBUG
+            level: INFO
         hbmqtt:
             level: INFO
         aiohttp:
