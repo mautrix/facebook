@@ -84,11 +84,11 @@ class MessengerBridge(Bridge):
     async def _periodic_reconnect_loop(self) -> None:
         log = logging.getLogger("mau.periodic_reconnect")
         always_reconnect = self.config["bridge.periodic_reconnect.always"]
-        interval = self.config["bridge.periodic_reconnect_interval"]
+        interval = self.config["bridge.periodic_reconnect.interval"]
         if interval <= 0:
             log.debug("Periodic reconnection is not enabled")
             return
-        mode = self.config["bridge.periodic_reconnect_mode"].lower()
+        mode = self.config["bridge.periodic_reconnect.mode"].lower()
         if mode != "refresh" and mode != "reconnect":
             log.error("Invalid periodic reconnect mode '%s'", mode)
             return
