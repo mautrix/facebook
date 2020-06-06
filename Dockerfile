@@ -1,10 +1,10 @@
-FROM docker.io/alpine:3.11
+FROM docker.io/alpine:3.12
 
-RUN echo "@edge_main http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
 RUN echo "@edge_testing http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 RUN echo "@edge_community http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
 
 RUN apk add --no-cache \
+      python3 py3-pip py3-setuptools py3-wheel \
       py3-pillow \
       py3-aiohttp \
       py3-magic \
@@ -15,24 +15,24 @@ RUN apk add --no-cache \
       # Indirect dependencies
       py3-commonmark@edge_testing \
       py3-alembic@edge_testing \
+        py3-python-editor@edge_community \
       #fbchat
         py3-beautifulsoup4 \
-        #hbmqtt
-          py3-yaml \
-          py3-docopt \
+        py3-paho-mqtt \
       py3-idna \
       py3-cffi \
       # matrix-nio
-      olm-dev@edge_community \
+      olm-dev \
       py3-future \
       py3-atomicwrites \
-      py3-pycryptodome@edge_main \
-      py3-peewee@edge_community \
-      py3-pyrsistent@edge_community \
+      py3-pycryptodome \
+      py3-peewee \
+      py3-pyrsistent \
       py3-jsonschema \
-      py3-aiofiles \
-      py3-cachetools@edge_community \
+      #py3-aiofiles \ # (too new)
+      py3-cachetools \
       py3-unpaddedbase64 \
+      py3-h2@edge_testing \
       py3-pyaes@edge_testing \
       py3-logbook@edge_testing \
       # Other dependencies
