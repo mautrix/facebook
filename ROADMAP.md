@@ -42,7 +42,7 @@
     * [ ] Polls
   * [x] Message unsend
   * [x] Message reactions
-  * [ ] Message history
+  * [x] Message history
   * [x] Presence
   * [x] Typing notifications
   * [x] Read receipts
