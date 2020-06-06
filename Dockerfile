@@ -37,7 +37,9 @@ RUN apk add --no-cache \
       py3-logbook@edge_testing \
       # Other dependencies
       ca-certificates \
-      su-exec
+      su-exec \
+      # Explicit dependency with different repository
+      py3-python-editor@edge_community
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
