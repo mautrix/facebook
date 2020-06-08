@@ -33,7 +33,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            EncryptedFile)
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
-from mautrix.bridge import BasePortal
+from mautrix.bridge import BasePortal, NotificationDisabler
 from mautrix.util.simple_lock import SimpleLock
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
@@ -988,9 +988,10 @@ class Portal(BasePortal):
             await self.main_intent.invite_user(self.mxid, sender.default_mxid)
             await sender.default_mxid_intent.join_room_by_id(self.mxid)
             backfill_leave.add(sender.default_mxid_intent)
-        for message in reversed(messages):
-            puppet = p.Puppet.get_by_fbid(message.author)
-            await self.handle_facebook_message(source, puppet, message)
+        async with NotificationDisabler(self.mxid, source):
+            for message in reversed(messages):
+                puppet = p.Puppet.get_by_fbid(message.author)
+                await self.handle_facebook_message(source, puppet, message)
         for intent in backfill_leave:
             self.log.trace("Leaving room with %s post-backfill", intent.mxid)
             await intent.leave_room(self.mxid)
@@ -1056,3 +1057,5 @@ def init(context: 'Context') -> None:
     Portal.az, config, Portal.loop = context.core
     Portal.matrix = context.mx
     Portal.invite_own_puppet_to_pm = config["bridge.invite_own_puppet_to_pm"]
+    NotificationDisabler.puppet_cls = p.Puppet
+    NotificationDisabler.config_enabled = config["bridge.backfill.disable_notifications"]

@@ -64,6 +64,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.backfill.invite_own_puppet")
         copy("bridge.backfill.initial_limit")
         copy("bridge.backfill.missed_limit")
+        copy("bridge.backfill.disable_notifications")
         if "bridge.periodic_reconnect_interval" in self:
             base["bridge.periodic_reconnect.interval"] = self["bridge.periodic_reconnect_interval"]
             base["bridge.periodic_reconnect.mode"] = self["bridge.periodic_reconnect_mode"]

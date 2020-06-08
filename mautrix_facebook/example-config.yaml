@@ -136,6 +136,9 @@ bridge:
         # the bridge was disconnected.
         # Set to 0 to disable backfilling missed messages.
         missed_limit: 1000
+        # If using double puppeting, should notifications be disabled
+        # while the initial backfill is in progress?
+        disable_notifications: false
     periodic_reconnect:
         # Interval in seconds in which to automatically reconnect all users.
         # This can be used to automatically mitigate the bug where Facebook stops sending messages.
