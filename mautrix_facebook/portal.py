@@ -618,7 +618,8 @@ class Portal(BasePortal):
         if self.is_direct:
             self.log.info(f"{user.mxid} left private chat portal with {self.fbid}")
             if user.fbid == self.fb_receiver:
-                self.log.info(f"{user.mxid} was the recipient of this portal. Cleaning up and deleting...")
+                self.log.info(f"{user.mxid} was the recipient of this portal. "
+                              "Cleaning up and deleting...")
                 await self.cleanup_and_delete()
         else:
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
@@ -663,12 +664,12 @@ class Portal(BasePortal):
         intent = sender.intent_for(self)
         event_ids = []
         if message.sticker:
-            event_ids = [await self._handle_facebook_sticker(intent, message.sticker,
-                                                             message.reply_to_id)]
+            event_ids = [await self._handle_facebook_sticker(
+                intent, message.sticker, message.reply_to_id, message.created_at)]
         elif len(message.attachments) > 0:
             attach_ids = await asyncio.gather(
                 *[self._handle_facebook_attachment(source.client, intent, attachment,
-                                                   message.reply_to_id)
+                                                   message.reply_to_id, message.created_at)
                   for attachment in message.attachments])
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
         if not event_ids:
@@ -715,10 +716,10 @@ class Portal(BasePortal):
                                     ) -> EventID:
         content = facebook_to_matrix(message)
         await self._add_facebook_reply(content, message.reply_to_id)
-        return await self._send_message(intent, content)
+        return await self._send_message(intent, content, timestamp=message.created_at)
 
     async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: fbchat.Sticker,
-                                       reply_to: str) -> EventID:
+                                       reply_to: str, timestamp: datetime) -> EventID:
         width, height = sticker.image.width, sticker.image.height
         if sticker.is_animated and Image and convert_cmd:
             async def convert(data: bytes) -> bytes:
@@ -738,18 +739,19 @@ class Portal(BasePortal):
                                             msgtype=MessageType.STICKER, body=sticker.label or "",
                                             info=ImageInfo(width=width, size=size,
                                                            height=height, mimetype=mime),
-                                            relates_to=self._get_facebook_reply(reply_to)))
+                                            relates_to=self._get_facebook_reply(reply_to)),
+                                        timestamp=timestamp)
 
     async def _handle_facebook_attachment(self, source: fbchat.Client, intent: IntentAPI,
-                                          attachment: fbchat.Attachment, reply_to: str
-                                          ) -> Optional[EventID]:
+                                          attachment: fbchat.Attachment, reply_to: str,
+                                          timestamp: datetime) -> Optional[EventID]:
         if isinstance(attachment, fbchat.AudioAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.url, intent, attachment.filename, encrypt=self.encrypted)
             event_id = await self._send_message(intent, MediaMessageEventContent(
                 url=mxc, file=decryption_info, msgtype=MessageType.AUDIO, body=attachment.filename,
                 info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration.seconds),
-                relates_to=self._get_facebook_reply(reply_to)))
+                relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
         # elif isinstance(attachment, fbchat.VideoAttachment):
         # TODO
         elif isinstance(attachment, fbchat.FileAttachment):
@@ -758,7 +760,7 @@ class Portal(BasePortal):
             event_id = await self._send_message(intent, MediaMessageEventContent(
                 url=mxc, file=decryption_info, msgtype=MessageType.FILE, body=attachment.name,
                 info=FileInfo(size=size, mimetype=mime),
-                relates_to=self._get_facebook_reply(reply_to)))
+                relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
         elif isinstance(attachment, fbchat.ImageAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 await source.fetch_image_url(attachment.id), intent, encrypt=self.encrypted)
@@ -767,11 +769,11 @@ class Portal(BasePortal):
                 body=f"image.{attachment.original_extension}",
                 info=ImageInfo(size=size, mimetype=mime, width=attachment.width,
                                height=attachment.height),
-                relates_to=self._get_facebook_reply(reply_to)))
+                relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
         elif isinstance(attachment, fbchat.LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)
             content.relates_to = self._get_facebook_reply(reply_to)
-            event_id = await self._send_message(intent, content)
+            event_id = await self._send_message(intent, content, timestamp=timestamp)
         elif isinstance(attachment, fbchat.ShareAttachment):
             # These are handled in the text formatter
             return None
