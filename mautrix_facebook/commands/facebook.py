@@ -33,7 +33,7 @@ async def search(evt: CommandEvent) -> None:
 
 @command_handler(needs_auth=True, management_only=False)
 async def search_by_id(evt: CommandEvent) -> None:
-    res = [item async for item in evt.sender.client.fetch_thread_info(*evt.args)]
+    res = [item async for item in evt.sender.client.fetch_thread_info(evt.args)]
     await evt.reply(await _handle_search_result(evt.sender, res))
 
 

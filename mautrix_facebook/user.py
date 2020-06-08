@@ -451,7 +451,8 @@ class User(BaseUser):
         await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def _handle_event(self, event: Any) -> None:
-        self.log.debug("Handling facebook event %s", event)
+        self.log.debug("Handling facebook event of type %s", type(event))
+        self.log.trace("Facebook event content: %s", event)
         try:
             handler = self._handlers[type(event)]
         except KeyError:

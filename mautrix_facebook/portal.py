@@ -198,7 +198,7 @@ class Portal(BasePortal):
                           info: Optional[ThreadClass] = None) -> Optional[ThreadClass]:
         if not info:
             self.log.debug("Called update_info with no info, fetching thread info...")
-            info = await source.client.fetch_thread_info(self.fbid).__anext__()
+            info = await source.client.fetch_thread_info([self.fbid]).__anext__()
         self.log.trace("Thread info for %s: %s", self.fbid, info)
         if not isinstance(info, (fbchat.UserData, fbchat.GroupData, fbchat.PageData)):
             self.log.warning("Got weird info for %s of type %s, cancelling update",
