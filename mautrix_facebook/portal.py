@@ -680,12 +680,13 @@ class Portal(BasePortal):
                 self.log.warning(f"Unhandled Messenger message {message.id}")
                 self.log.trace("Message %s content: %s", message.id, message)
                 return
-        if event_ids:
-            self._last_bridged_mxid = event_ids[-1]
         DBMessage.bulk_create(fbid=message.id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
                               mx_room=self.mxid, date=message.created_at.astimezone(timezone.utc),
                               event_ids=[event_id for event_id in event_ids if event_id])
         await source.client.mark_as_delivered(message)
+        if event_ids:
+            self._last_bridged_mxid = event_ids[-1]
+            await self._send_delivery_receipt(self._last_bridged_mxid)
 
     async def _add_facebook_reply(self, content: TextMessageEventContent, reply: str) -> None:
         if reply:
