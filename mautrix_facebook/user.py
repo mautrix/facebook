@@ -59,6 +59,7 @@ class User(BaseUser):
     _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
     _sync_lock: SimpleLock
+    _is_refreshing: bool
 
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
@@ -85,6 +86,7 @@ class User(BaseUser):
         self._community_id = None
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log, loop=self.loop)
+        self._is_refreshing = False
 
         self.log = self.log.getChild(self.mxid)
 
@@ -229,6 +231,7 @@ class User(BaseUser):
 
     async def refresh(self) -> None:
         event_id = None
+        self._is_refreshing = True
         if self.listener:
             event_id = await self.send_bridge_notice("Disconnecting Messenger MQTT connection "
                                                      "for session refresh...")
@@ -251,6 +254,8 @@ class User(BaseUser):
             else:
                 await self.send_bridge_notice("Failed to refresh Messenger session: "
                                               "not logged in", edit=event_id)
+        finally:
+            self._is_refreshing = False
 
     async def logout(self) -> bool:
         ok = True
@@ -473,7 +478,8 @@ class User(BaseUser):
         async for event in self.listener.listen():
             await self._handle_event(event)
         self.is_connected = False
-        await self.send_bridge_notice("Facebook Messenger connection closed without error")
+        if not self._is_refreshing:
+            await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def _handle_event(self, event: Any) -> None:
         self.log.debug("Handling facebook event of type %s", type(event))
