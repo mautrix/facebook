@@ -73,6 +73,7 @@ class Config(BaseBridgeConfig):
             copy("bridge.periodic_reconnect.mode")
             copy("bridge.periodic_reconnect.always")
         copy("bridge.resync_max_disconnected_time")
+        copy("bridge.temporary_disconnect_notices")
 
         copy_dict("bridge.permissions")
 

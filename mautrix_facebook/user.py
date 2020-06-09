@@ -479,12 +479,13 @@ class User(BaseUser):
             await self.send_bridge_notice("Connected to Facebook Messenger after being "
                                           f"disconnected for {duration} seconds, syncing chats...")
             await self.sync_threads()
-        else:
+        elif config["bridge.temporary_disconnect_notices"]:
             await self.send_bridge_notice("Connected to Facebook Messenger")
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
         self.is_connected = False
-        await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
+        if config["bridge.temporary_disconnect_notices"]:
+            await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
     async def on_resync(self) -> None:
         self.log.info("sequence_id changed, resyncing threads...")
