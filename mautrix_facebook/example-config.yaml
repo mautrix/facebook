@@ -156,6 +156,9 @@ bridge:
     # If this is false, disconnections will never send messages and connections will only send
     # messages if it was disconnected for more than resync_max_disconnected_time seconds.
     temporary_disconnect_notices: true
+    # Whether or not the bridge should try to "refresh" the connection if a normal reconnection
+    # attempt fails.
+    refresh_on_reconnection_fail: false
 
     # Permissions for using the bridge.
     # Permitted values:

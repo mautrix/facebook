@@ -43,7 +43,7 @@ async def connect(evt: CommandEvent) -> None:
     if evt.sender.listen_task and not evt.sender.listen_task.done():
         await evt.reply("You already have a Messenger MQTT connection")
         return
-    evt.sender.listen_task = evt.loop.create_task(evt.sender.try_listen())
+    evt.sender.start_listen()
 
 
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,

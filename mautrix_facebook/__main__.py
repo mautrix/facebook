@@ -113,7 +113,7 @@ class MessengerBridge(Bridge):
                     elif mode == "reconnect":
                         user.listener.disconnect()
                         await user.listen_task
-                        user.listen_task = user.loop.create_task(user.try_listen())
+                        user.start_listen()
                 except asyncio.CancelledError:
                     log.debug("Periodic reconnect loop stopped")
                     return
