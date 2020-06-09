@@ -27,7 +27,7 @@ _END = r"$|\s"
 _TEXT_NO_SURROUNDING_SPACE = r"(?:[^\s].*?[^\s])|[^\s]"
 COMMON_REGEX = re.compile(rf"({_START})([_~*])({_TEXT_NO_SURROUNDING_SPACE})\2({_END})")
 INLINE_CODE_REGEX = re.compile(rf"({_START})(`)(.+?)`({_END})")
-MENTION_REGEX = re.compile(r"@([0-9]{15})\u2063(.+)\u2063")
+MENTION_REGEX = re.compile(r"@([0-9]{1,15})\u2063(.+)\u2063")
 
 tags = {
     "_": "em",
