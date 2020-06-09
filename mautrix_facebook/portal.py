@@ -351,31 +351,37 @@ class Portal(BasePortal):
                 return None
 
     async def _create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
-                                  ) -> RoomID:
+                                  ) -> Optional[RoomID]:
         if self.mxid:
             await self._update_matrix_room(source, info)
             return self.mxid
 
         info = await self.update_info(source=source, info=info)
         if not info:
-            return
+            return None
         self.log.debug(f"Creating Matrix room")
         name: Optional[str] = None
+        bridge_info = {
+            "bridgebot": self.az.bot_mxid,
+            "creator": self.main_intent.mxid,
+            "protocol": {
+                "id": "facebook",
+                "displayname": "Facebook Messenger",
+                "avatar_url": config["appservice.bot_avatar"],
+            },
+            "channel": {
+                "id": self.fbid
+            }
+        }
         initial_state = [{
             "type": "m.bridge",
             "state_key": f"net.maunium.facebook://facebook/{self.fbid}",
-            "content": {
-                "bridgebot": self.az.bot_mxid,
-                "creator": self.main_intent.mxid,
-                "protocol": {
-                    "id": "facebook",
-                    "displayname": "Facebook Messenger",
-                    "avatar_url": config["appservice.bot_avatar"],
-                },
-                "channel": {
-                    "id": self.fbid
-                }
-            }
+            "content": bridge_info
+        }, {
+            # TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
+            "type": "uk.half-shot.bridge",
+            "state_key": f"net.maunium.facebook://facebook/{self.fbid}",
+            "content": bridge_info
         }]
         invites = [source.mxid]
         if config["bridge.encryption.default"] and self.matrix.e2ee:
