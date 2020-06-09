@@ -16,10 +16,12 @@
 from typing import Optional, Iterable, List
 from datetime import datetime
 
-from sqlalchemy import Column, String, DateTime, SmallInteger, UniqueConstraint, and_
+from sqlalchemy import Column, String, SmallInteger, UniqueConstraint, and_
 
 from mautrix.types import RoomID, EventID
 from mautrix.util.db import Base
+
+from .types import UTCDateTime
 
 
 class Message(Base):
@@ -31,7 +33,7 @@ class Message(Base):
     fb_chat: str = Column(String(127), nullable=True)
     fb_receiver: str = Column(String(127), primary_key=True)
     index: int = Column(SmallInteger, primary_key=True, default=0)
-    date: Optional[datetime] = Column(DateTime(timezone=True), nullable=True)
+    date: Optional[datetime] = Column(UTCDateTime(timezone=True), nullable=True)
 
     __table_args__ = (UniqueConstraint("mxid", "mx_room", name="_mx_id_room"),)
 
