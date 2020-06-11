@@ -38,6 +38,8 @@ config: Config
 
 
 class User(BaseUser):
+    temp_disconnect_notices: bool = True
+
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[str, 'User'] = {}
 
@@ -229,16 +231,18 @@ class User(BaseUser):
             await self.send_bridge_notice("Fatal error while trying to refresh after connection "
                                           "error (see logs for more info)", important=True)
 
-    async def refresh(self) -> None:
+    async def refresh(self, force_notice: bool = False) -> None:
         event_id = None
         self._is_refreshing = True
         if self.listener:
-            event_id = await self.send_bridge_notice("Disconnecting Messenger MQTT connection "
-                                                     "for session refresh...")
+            if self.temp_disconnect_notices or force_notice:
+                event_id = await self.send_bridge_notice("Disconnecting Messenger MQTT connection "
+                                                         "for session refresh...")
             self.listener.disconnect()
             if self.listen_task:
                 await self.listen_task
-        event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
+        if self.temp_disconnect_notices or force_notice:
+            event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
             ok = await self.load_session(_override=True, _raise_errors=True)
         except fbchat.FacebookError as e:
@@ -248,12 +252,12 @@ class User(BaseUser):
             await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
                                           "(see logs for more details)", edit=event_id)
         else:
-            if ok:
-                await self.send_bridge_notice("Successfully refreshed Messenger session",
-                                              edit=event_id)
-            else:
+            if not ok:
                 await self.send_bridge_notice("Failed to refresh Messenger session: "
                                               "not logged in", edit=event_id)
+            elif self.temp_disconnect_notices or force_notice:
+                await self.send_bridge_notice("Successfully refreshed Messenger session",
+                                              edit=event_id)
         finally:
             self._is_refreshing = False
 
@@ -510,12 +514,12 @@ class User(BaseUser):
             await self.send_bridge_notice("Connected to Facebook Messenger after being "
                                           f"disconnected for {duration} seconds, syncing chats...")
             await self.sync_threads()
-        elif config["bridge.temporary_disconnect_notices"]:
+        elif self.temp_disconnect_notices:
             await self.send_bridge_notice("Connected to Facebook Messenger")
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
         self.is_connected = False
-        if config["bridge.temporary_disconnect_notices"]:
+        if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
     async def on_resync(self) -> None:
@@ -643,4 +647,5 @@ def init(context: 'Context') -> Iterable[Awaitable[bool]]:
     global config
     User.az, config, User.loop = context.core
     User._community_helper = CommunityHelper(User.az)
+    User.temp_disconnect_notices = config["bridge.temporary_disconnect_notices"]
     return (user.load_session() for user in User.get_all())
