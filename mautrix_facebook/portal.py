@@ -439,7 +439,11 @@ class Portal(BasePortal):
             else:
                 puppet = p.Puppet.get_by_custom_mxid(source.mxid)
                 if puppet:
-                    await puppet.intent.ensure_joined(self.mxid)
+                    try:
+                        await puppet.intent.join_room_by_id(self.mxid)
+                    except MatrixError:
+                        self.log.debug("Failed to join custom puppet into newly created portal",
+                                       exc_info=True)
 
             in_community = await source._community_helper.add_room(source._community_id, self.mxid)
             DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
