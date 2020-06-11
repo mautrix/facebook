@@ -230,6 +230,12 @@ class Portal(BasePortal):
             raise ValueError('URL not provided')
         async with aiohttp.ClientSession() as session:
             resp = await session.get(url)
+            try:
+                url = resp.headers["Refresh"].split(";", 1)[1].split("=", 1)[1]
+            except (KeyError, IndexError):
+                pass
+            else:
+                resp = await session.get(url)
             data = await resp.read()
         if convert:
             data = await convert(data)
