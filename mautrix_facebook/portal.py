@@ -969,7 +969,7 @@ class Portal(BasePortal):
         most_recent = DBMessage.get_most_recent(self.fbid, self.fb_receiver)
         if most_recent and is_initial:
             self.log.debug("Not backfilling %s: already bridged messages found", self.fbid_log)
-        elif not most_recent and not is_initial:
+        elif (not most_recent or not most_recent.date) and not is_initial:
             self.log.debug("Not backfilling %s: no most recent message found", self.fbid_log)
         elif last_active and most_recent.date >= last_active:
             self.log.debug("Not backfilling %s: last activity is equal to most recent bridged "
