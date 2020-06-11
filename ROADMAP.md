@@ -29,11 +29,11 @@
 * Facebook Messenger → Matrix
   * [ ] Message content
     * [x] Text
-    * [ ] Media
+    * [x] Media
       * [x] Stickers
       * [x] Files
       * [x] Voice messages
-      * [ ] Videos
+      * [x] Videos
       * [x] Images
       * [x] Locations
     * [x] Formatting

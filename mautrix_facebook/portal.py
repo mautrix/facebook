@@ -17,6 +17,7 @@ from typing import (Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, Ca
                     TYPE_CHECKING)
 from tempfile import NamedTemporaryFile
 from datetime import datetime, timezone
+from mimetypes import guess_extension
 from collections import deque
 import asyncio
 import shutil
@@ -30,7 +31,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, Format, RelatesTo, RelationType,
                            TextMessageEventContent, MediaMessageEventContent, Membership,
-                           EncryptedFile)
+                           EncryptedFile, VideoInfo)
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
 from mautrix.bridge import BasePortal, NotificationDisabler
@@ -765,8 +766,6 @@ class Portal(BasePortal):
                 url=mxc, file=decryption_info, msgtype=MessageType.AUDIO, body=attachment.filename,
                 info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration.seconds),
                 relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
-        # elif isinstance(attachment, fbchat.VideoAttachment):
-        # TODO
         elif isinstance(attachment, fbchat.FileAttachment):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 attachment.url, intent, attachment.name, encrypt=self.encrypted)
@@ -774,14 +773,21 @@ class Portal(BasePortal):
                 url=mxc, file=decryption_info, msgtype=MessageType.FILE, body=attachment.name,
                 info=FileInfo(size=size, mimetype=mime),
                 relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
-        elif isinstance(attachment, fbchat.ImageAttachment):
+        elif isinstance(attachment, (fbchat.ImageAttachment, fbchat.VideoAttachment)):
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
                 await source.fetch_image_url(attachment.id), intent, encrypt=self.encrypted)
+            if isinstance(attachment, fbchat.ImageAttachment):
+                filename = f"image.{attachment.original_extension}"
+                msgtype = MessageType.IMAGE
+                info = ImageInfo(size=size, mimetype=mime, width=attachment.width,
+                                 height=attachment.height)
+            else:
+                filename = f"video{guess_extension(mime)}"
+                msgtype = MessageType.VIDEO
+                info = VideoInfo(size=size, mimetype=mime, width=attachment.width,
+                                 height=attachment.height, duration=attachment.duration.seconds)
             event_id = await self._send_message(intent, MediaMessageEventContent(
-                url=mxc, file=decryption_info, msgtype=MessageType.IMAGE,
-                body=f"image.{attachment.original_extension}",
-                info=ImageInfo(size=size, mimetype=mime, width=attachment.width,
-                               height=attachment.height),
+                url=mxc, file=decryption_info, msgtype=msgtype, body=filename, info=info,
                 relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
         elif isinstance(attachment, fbchat.LocationAttachment):
             content = await self._convert_facebook_location(intent, attachment)
