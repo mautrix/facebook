@@ -391,6 +391,9 @@ class Portal(BasePortal):
         }
 
     async def update_bridge_info(self) -> None:
+        if not self.mxid:
+            self.log.debug("Not updating bridge info: no Matrix room created")
+            return
         try:
             self.log.debug("Updating bridge info...")
             await self.main_intent.send_state_event(self.mxid, StateBridge,
