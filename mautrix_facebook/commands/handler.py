@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Awaitable, Callable, Dict, Optional, NamedTuple
+from typing import Awaitable, Callable, Dict, Optional, NamedTuple, List
 
 from mautrix.bridge.commands import (HelpSection, CommandEvent as BaseCommandEvent,
                                      command_handler as base_command_handler,
@@ -67,12 +67,13 @@ class CommandHandler(BaseCommandHandler):
 def command_handler(_func: Optional[Callable[[CommandEvent], Awaitable[Dict]]] = None, *,
                     needs_auth: bool = True, needs_admin: bool = False,
                     management_only: bool = False, name: Optional[str] = None,
-                    help_text: str = "", help_args: str = "", help_section: HelpSection = None
+                    help_text: str = "", help_args: str = "", help_section: HelpSection = None,
+                    aliases: Optional[List[str]] = None
                     ) -> Callable[[Callable[[CommandEvent], Awaitable[Optional[Dict]]]],
                                   CommandHandler]:
-    return base_command_handler(_func, management_only=management_only, name=name,
-                                help_text=help_text, help_args=help_args, help_section=help_section,
-                                needs_auth=needs_auth, needs_admin=needs_admin,
+    return base_command_handler(_func, management_only=management_only, name=name, aliases=aliases,
+                                help_text=help_text, help_args=help_args, needs_admin=needs_admin,
+                                help_section=help_section, needs_auth=needs_auth,
                                 _handler_class=CommandHandler)
 
 

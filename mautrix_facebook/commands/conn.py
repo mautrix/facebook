@@ -38,7 +38,7 @@ async def disconnect(evt: CommandEvent) -> None:
 
 
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
-                 help_text="Connect to Facebook Messenger")
+                 help_text="Connect to Facebook Messenger", aliases=["reconnect"])
 async def connect(evt: CommandEvent) -> None:
     if evt.sender.listen_task and not evt.sender.listen_task.done():
         await evt.reply("You already have a Messenger MQTT connection")
