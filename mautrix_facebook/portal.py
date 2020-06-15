@@ -219,7 +219,7 @@ class Portal(BasePortal):
                                            self._update_photo(info.photo),
                                            loop=self.loop))
         if changed:
-            await self._update_bridge_info()
+            await self.update_bridge_info()
         changed = await self._update_participants(source, info) or changed
         if changed:
             self.save()
@@ -390,7 +390,7 @@ class Portal(BasePortal):
             }
         }
 
-    async def _update_bridge_info(self) -> None:
+    async def update_bridge_info(self) -> None:
         try:
             self.log.debug("Updating bridge info...")
             await self.main_intent.send_state_event(self.mxid, StateBridge,
@@ -909,7 +909,7 @@ class Portal(BasePortal):
             event_id = await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
         DBMessage(mxid=event_id, mx_room=self.mxid, index=0, date=None,
                   fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
-        await self._update_bridge_info()
+        await self.update_bridge_info()
 
     async def handle_facebook_name(self, source: 'u.User', sender: 'p.Puppet', new_name: str,
                                    message_id: str) -> None:
@@ -925,7 +925,7 @@ class Portal(BasePortal):
             event_id = await self.main_intent.set_room_name(self.mxid, self.name)
         DBMessage(mxid=event_id, mx_room=self.mxid, index=0, date=None,
                   fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
-        await self._update_bridge_info()
+        await self.update_bridge_info()
 
     async def handle_facebook_reaction_add(self, source: 'u.User', sender: 'p.Puppet',
                                            message_id: str, reaction: str) -> None:
@@ -1093,6 +1093,14 @@ class Portal(BasePortal):
     @classmethod
     def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
         for db_portal in DBPortal.get_all_by_receiver(fb_receiver):
+            try:
+                yield cls.by_fbid[(db_portal.fbid, db_portal.fb_receiver)]
+            except KeyError:
+                yield cls.from_db(db_portal)
+
+    @classmethod
+    def all(cls) -> Iterator['Portal']:
+        for db_portal in DBPortal.all():
             try:
                 yield cls.by_fbid[(db_portal.fbid, db_portal.fb_receiver)]
             except KeyError:

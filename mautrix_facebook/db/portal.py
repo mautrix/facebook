@@ -71,3 +71,7 @@ class Portal(Base):
     def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
         return cls._select_all(and_(cls.c.fb_receiver == fb_receiver,
                                     cls.c.fb_type == ThreadType.USER))
+
+    @classmethod
+    def all(cls) -> Iterator['Portal']:
+        return cls._select_all()

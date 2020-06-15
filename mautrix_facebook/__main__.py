@@ -22,7 +22,7 @@ from .config import Config
 from .db import init as init_db
 from .sqlstatestore import SQLStateStore
 from .user import User, init as init_user
-from .portal import init as init_portal
+from .portal import Portal, init as init_portal
 from .puppet import Puppet, init as init_puppet
 from .matrix import MatrixHandler
 from .context import Context
@@ -56,6 +56,8 @@ class MessengerBridge(Bridge):
         init_portal(context)
         self.add_startup_actions(init_puppet(context))
         self._prepare_website()
+        if self.config["bridge.resend_bridge_info"]:
+            self.add_startup_actions(self.resend_bridge_info())
 
     def _prepare_website(self) -> None:
         self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
@@ -74,6 +76,14 @@ class MessengerBridge(Bridge):
     async def start(self) -> None:
         await super().start()
         self.periodic_reconnect_task = self.loop.create_task(self._try_periodic_reconnect_loop())
+
+    async def resend_bridge_info(self) -> None:
+        self.config["bridge.resend_bridge_info"] = False
+        self.config.save()
+        self.log.info("Re-sending bridge info state event to all portals")
+        for portal in Portal.all():
+            await portal.update_bridge_info()
+        self.log.info("Finished re-sending bridge info state events")
 
     async def _try_periodic_reconnect_loop(self) -> None:
         try:
