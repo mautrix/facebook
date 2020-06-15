@@ -17,7 +17,7 @@ from typing import Optional, Iterator
 
 from sqlalchemy import Column, String, Enum, Boolean, false, and_
 
-from mautrix.types import RoomID
+from mautrix.types import RoomID, ContentURI
 from mautrix.util.db import Base
 
 from enum import Enum as EnumType
@@ -51,7 +51,8 @@ class Portal(Base):
     fb_type: ThreadType = Column(Enum(ThreadType), nullable=False)
 
     # Matrix portal information
-    mxid: RoomID = Column(String(255), unique=True, nullable=True)
+    mxid: Optional[RoomID] = Column(String(255), unique=True, nullable=True)
+    avatar_url: Optional[ContentURI] = Column(String(255), nullable=True)
     encrypted: bool = Column(Boolean, nullable=False, server_default=false())
 
     # Facebook chat metadata

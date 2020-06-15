@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, Callable, Awaitable,
-                    TYPE_CHECKING)
+                    Any, TYPE_CHECKING)
 from tempfile import NamedTemporaryFile
 from datetime import datetime, timezone
 from mimetypes import guess_extension
@@ -72,6 +72,10 @@ class FakeLock:
         pass
 
 
+StateBridge = EventType.find("m.bridge", EventType.Class.STATE)
+StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STATE)
+
+
 class Portal(BasePortal):
     invite_own_puppet_to_pm: bool = False
     by_mxid: Dict[RoomID, 'Portal'] = {}
@@ -82,6 +86,7 @@ class Portal(BasePortal):
     fb_receiver: str
     fb_type: ThreadType
     mxid: Optional[RoomID]
+    avatar_url: Optional[ContentURI]
     encrypted: bool
 
     name: str
@@ -93,19 +98,20 @@ class Portal(BasePortal):
     _create_room_lock: asyncio.Lock
     _last_bridged_mxid: Optional[EventID]
     _dedup: Deque[str]
-    _avatar_uri: Optional[ContentURI]
     _send_locks: Dict[str, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
     _typing: Set['u.User']
     backfill_lock: SimpleLock
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
-                 mxid: Optional[RoomID] = None, encrypted: bool = False, name: str = "",
-                 photo_id: str = "", db_instance: Optional[DBPortal] = None) -> None:
+                 mxid: Optional[RoomID] = None, avatar_url: Optional[ContentURI] = None,
+                 encrypted: bool = False, name: str = "", photo_id: str = "",
+                 db_instance: Optional[DBPortal] = None) -> None:
         self.fbid = fbid
         self.fb_receiver = fb_receiver
         self.fb_type = fb_type
         self.mxid = mxid
+        self.avatar_url = avatar_url
         self.encrypted = encrypted
 
         self.name = name
@@ -119,7 +125,7 @@ class Portal(BasePortal):
         self._create_room_lock = asyncio.Lock()
         self._last_bridged_mxid = None
         self._dedup = deque(maxlen=100)
-        self._avatar_uri = None
+        self.avatar_url = None
         self._send_locks = {}
         self._typing = set()
 
@@ -136,16 +142,17 @@ class Portal(BasePortal):
     def db_instance(self) -> DBPortal:
         if not self._db_instance:
             self._db_instance = DBPortal(fbid=self.fbid, fb_receiver=self.fb_receiver,
-                                         fb_type=self.fb_type, mxid=self.mxid, name=self.name,
-                                         encrypted=self.encrypted, photo_id=self.photo_id)
+                                         fb_type=self.fb_type, mxid=self.mxid,
+                                         avatar_url=self.avatar_url, encrypted=self.encrypted,
+                                         name=self.name, photo_id=self.photo_id)
         return self._db_instance
 
     @classmethod
     def from_db(cls, db_portal: DBPortal) -> 'Portal':
         return Portal(fbid=db_portal.fbid, fb_receiver=db_portal.fb_receiver,
-                      fb_type=db_portal.fb_type, mxid=db_portal.mxid, name=db_portal.name,
-                      encrypted=db_portal.encrypted, photo_id=db_portal.photo_id,
-                      db_instance=db_portal)
+                      fb_type=db_portal.fb_type, mxid=db_portal.mxid,
+                      avatar_url=db_portal.avatar_url, encrypted=db_portal.encrypted,
+                      name=db_portal.name, photo_id=db_portal.photo_id, db_instance=db_portal)
 
     def save(self) -> None:
         self.db_instance.edit(mxid=self.mxid, name=self.name, photo_id=self.photo_id,
@@ -205,10 +212,15 @@ class Portal(BasePortal):
             self.log.warning("Got weird info for %s of type %s, cancelling update",
                              self.fbid, type(info))
             return None
+        elif info.id != self.fbid:
+            self.log.warning("Got different ID (%s) than what asked for (%s) when fetching info",
+                             info.id, self.fbid)
         changed = any(await asyncio.gather(self._update_name(info.name),
                                            self._update_photo(info.photo),
-                                           self._update_participants(source, info),
                                            loop=self.loop))
+        if changed:
+            await self._update_bridge_info()
+        changed = await self._update_participants(source, info) or changed
         if changed:
             self.save()
         return info
@@ -275,7 +287,7 @@ class Portal(BasePortal):
     async def _update_name(self, name: str) -> bool:
         if not name:
             self.log.warning("Got empty name in _update_name call")
-            return
+            return False
         if self.name != name:
             self.log.trace("Updating name %s -> %s", self.name, name)
             self.name = name
@@ -291,11 +303,11 @@ class Portal(BasePortal):
         if self.photo_id != photo_id:
             self.photo_id = photo_id
             if photo:
-                self._avatar_uri, *_ = await self._reupload_fb_file(photo.url, self.main_intent)
+                self.avatar_url, *_ = await self._reupload_fb_file(photo.url, self.main_intent)
             else:
-                self._avatar_uri = ContentURI("")
+                self.avatar_url = ContentURI("")
             if self.mxid:
-                await self.main_intent.set_room_avatar(self.mxid, self._avatar_uri)
+                await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
             return True
         return False
 
@@ -357,6 +369,38 @@ class Portal(BasePortal):
                 self.log.exception("Failed to create portal")
                 return None
 
+    @property
+    def bridge_info_state_key(self) -> str:
+        return f"net.maunium.facebook://facebook/{self.fbid}"
+
+    @property
+    def bridge_info(self) -> Dict[str, Any]:
+        return {
+            "bridgebot": self.az.bot_mxid,
+            "creator": self.main_intent.mxid,
+            "protocol": {
+                "id": "facebook",
+                "displayname": "Facebook Messenger",
+                "avatar_url": config["appservice.bot_avatar"],
+            },
+            "channel": {
+                "id": self.fbid,
+                "displayname": self.name,
+                "avatar_url": self.avatar_url,
+            }
+        }
+
+    async def _update_bridge_info(self) -> None:
+        try:
+            self.log.debug("Updating bridge info...")
+            await self.main_intent.send_state_event(self.mxid, StateBridge,
+                                                    self.bridge_info, self.bridge_info_state_key)
+            # TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
+            await self.main_intent.send_state_event(self.mxid, StateHalfShotBridge,
+                                                    self.bridge_info, self.bridge_info_state_key)
+        except Exception:
+            self.log.warning("Failed to update bridge info", exc_info=True)
+
     async def _create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
                                   ) -> Optional[RoomID]:
         if self.mxid:
@@ -368,27 +412,15 @@ class Portal(BasePortal):
             return None
         self.log.debug(f"Creating Matrix room")
         name: Optional[str] = None
-        bridge_info = {
-            "bridgebot": self.az.bot_mxid,
-            "creator": self.main_intent.mxid,
-            "protocol": {
-                "id": "facebook",
-                "displayname": "Facebook Messenger",
-                "avatar_url": config["appservice.bot_avatar"],
-            },
-            "channel": {
-                "id": self.fbid
-            }
-        }
         initial_state = [{
-            "type": "m.bridge",
-            "state_key": f"net.maunium.facebook://facebook/{self.fbid}",
-            "content": bridge_info
+            "type": str(StateBridge),
+            "state_key": self.bridge_info_state_key,
+            "content": self.bridge_info,
         }, {
             # TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
-            "type": "uk.half-shot.bridge",
-            "state_key": f"net.maunium.facebook://facebook/{self.fbid}",
-            "content": bridge_info
+            "type": str(StateHalfShotBridge),
+            "state_key": self.bridge_info_state_key,
+            "content": self.bridge_info,
         }]
         invites = [source.mxid]
         if config["bridge.encryption.default"] and self.matrix.e2ee:
@@ -402,7 +434,7 @@ class Portal(BasePortal):
         if self.encrypted or not self.is_direct:
             name = self.name
             initial_state.append({"type": str(EventType.ROOM_AVATAR),
-                                  "content": {"avatar_url": self._avatar_uri}})
+                                  "content": {"avatar_url": self.avatar_url}})
         if config["appservice.community_id"]:
             initial_state.append({
                 "type": "m.room.related_groups",
@@ -859,9 +891,7 @@ class Portal(BasePortal):
 
     async def handle_facebook_photo(self, source: 'u.User', sender: 'p.Puppet', new_photo_id: str,
                                     message_id: str) -> None:
-        if not self.mxid or self.is_direct:
-            return
-        if message_id in self._dedup:
+        if not self.mxid or self.is_direct or message_id in self._dedup:
             return
         self._dedup.appendleft(message_id)
         # When we fetch thread info manually, we only get the URL instead of the ID,
@@ -872,13 +902,14 @@ class Portal(BasePortal):
         if self.photo_id == photo_id:
             return
         self.photo_id = photo_id
-        self._avatar_uri, *_ = await self._reupload_fb_file(photo_url, sender.intent)
+        self.avatar_url, *_ = await self._reupload_fb_file(photo_url, sender.intent)
         try:
-            event_id = await sender.intent.set_room_avatar(self.mxid, self._avatar_uri)
+            event_id = await sender.intent.set_room_avatar(self.mxid, self.avatar_url)
         except IntentError:
-            event_id = await self.main_intent.set_room_avatar(self.mxid, self._avatar_uri)
+            event_id = await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
         DBMessage(mxid=event_id, mx_room=self.mxid, index=0, date=None,
                   fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
+        await self._update_bridge_info()
 
     async def handle_facebook_name(self, source: 'u.User', sender: 'p.Puppet', new_name: str,
                                    message_id: str) -> None:
@@ -894,6 +925,7 @@ class Portal(BasePortal):
             event_id = await self.main_intent.set_room_name(self.mxid, self.name)
         DBMessage(mxid=event_id, mx_room=self.mxid, index=0, date=None,
                   fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
+        await self._update_bridge_info()
 
     async def handle_facebook_reaction_add(self, source: 'u.User', sender: 'p.Puppet',
                                            message_id: str, reaction: str) -> None:
