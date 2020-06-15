@@ -207,8 +207,7 @@ class User(BaseUser):
             self.client = fbchat.Client(session=self.session)
             self._is_logged_in = True
             self.is_connected = None
-            if self.listen_task:
-                self.listen_task.cancel()
+            self.stop_listening()
             self.start_listen()
             asyncio.ensure_future(self.post_login(), loop=self.loop)
             return True
@@ -241,6 +240,7 @@ class User(BaseUser):
             self.listener.disconnect()
             if self.listen_task:
                 await self.listen_task
+            self.listener = None
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
@@ -453,7 +453,7 @@ class User(BaseUser):
         try:
             await self._listen()
             return
-        except (fbchat.NotLoggedIn, fbchat.NotConnected) as e:
+        except (fbchat.NotLoggedIn, fbchat.NotConnected, fbchat.PleaseRefresh) as e:
             refresh = (config["bridge.refresh_on_reconnection_fail"]
                        and self._prev_reconnect_fail_refresh + 120 < time.monotonic())
             next_action = ("Refreshing session..." if refresh else "Not retrying!")
@@ -531,13 +531,14 @@ class User(BaseUser):
             self.listener.disconnect()
         if self.listen_task:
             self.listen_task.cancel()
+        self.listener = None
+        self.listen_task = None
 
     async def on_logged_in(self, session: fbchat.Session) -> None:
         self.session = session
         self.client = fbchat.Client(session=session)
         self.save()
-        if self.listen_task:
-            self.listen_task.cancel()
+        self.stop_listening()
         self.start_listen()
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
