@@ -14,13 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, Callable, Awaitable,
-                    Any, TYPE_CHECKING)
+                    Pattern, Any, TYPE_CHECKING)
 from tempfile import NamedTemporaryFile
 from datetime import datetime, timezone
 from mimetypes import guess_extension
 from collections import deque
 import asyncio
 import shutil
+import re
 
 from yarl import URL
 import aiohttp
@@ -60,6 +61,7 @@ except ImportError:
     decrypt_attachment = encrypt_attachment = None
 
 config: Config
+geo_uri_regex: Pattern = re.compile(r"^geo:(-?\d+.\d+),(-?\d+.\d+)$")
 
 ThreadClass = Union[fbchat.UserData, fbchat.GroupData, fbchat.PageData]
 
@@ -621,7 +623,9 @@ class Portal(BasePortal):
 
     async def _handle_matrix_location(self, sender: 'u.User',
                                       message: LocationMessageEventContent) -> str:
-        pass
+        match = geo_uri_regex.fullmatch(message.geo_uri)
+        return await self.thread_for(sender).send_pinned_location(float(match.group(1)),
+                                                                  float(match.group(2)))
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
                                       redaction_event_id: EventID) -> None:
@@ -846,21 +850,23 @@ class Portal(BasePortal):
         long, lat = location.longitude, location.latitude
         long_char = "E" if long > 0 else "W"
         lat_char = "N" if lat > 0 else "S"
-        rounded_long = round(long, 5)
-        rounded_lat = round(lat, 5)
+        geo = f"{round(lat, 6)},{round(long, 6)}"
 
-        text = f"{rounded_lat}° {lat_char}, {rounded_long}° {long_char}"
-        url = f"https://maps.google.com/?q={lat},{long}"
+        text = f"{round(abs(lat), 4)}° {lat_char}, {round(abs(long), 4)}° {long_char}"
+        url = f"https://maps.google.com/?q={geo}"
 
-        thumbnail_url, mime, size, decryption_info = await self._reupload_fb_file(
-            location.image_url, intent, encrypt=True)
-        thumbnail_info = ThumbnailInfo(mimetype=mime, width=location.image_width,
-                                       height=location.image_height, size=size)
+        if location.image and location.image.url:
+            thumbnail_url, mime, size, decryption_info = await self._reupload_fb_file(
+                location.image.url, intent, encrypt=True)
+            thumbnail_info = ThumbnailInfo(mimetype=mime, width=location.image.width,
+                                           height=location.image.height, size=size)
+            info = LocationInfo(thumbnail_url=thumbnail_url, thumbnail_file=decryption_info,
+                                thumbnail_info=thumbnail_info)
+        else:
+            info = None
         content = LocationMessageEventContent(
             body=f"{location.address}\nLocation: {text}\n{url}", geo_uri=f"geo:{lat},{long}",
-            msgtype=MessageType.LOCATION, info=LocationInfo(thumbnail_url=thumbnail_url,
-                                                            thumbnail_file=decryption_info,
-                                                            thumbnail_info=thumbnail_info))
+            msgtype=MessageType.LOCATION, info=info)
         # Some clients support formatted body in m.location, so add that as well.
         content["format"] = Format.HTML
         content["formatted_body"] = (f"<p>{location.address}</p>"
