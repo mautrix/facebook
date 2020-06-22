@@ -569,10 +569,10 @@ class Portal(BasePortal):
             except fbchat.FacebookError as e:
                 self.log.exception(f"Got FacebookError while trying to bridge {event_id} "
                                    "after auto-refreshing")
-                await self._send_bridge_error(e.message)
+                await self._send_bridge_error(getattr(e, "description", e.message))
         except fbchat.FacebookError as e:
             self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
-            await self._send_bridge_error(e.message)
+            await self._send_bridge_error(getattr(e, "description", e.message))
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
