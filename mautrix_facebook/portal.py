@@ -1034,12 +1034,16 @@ class Portal(BasePortal):
         thread = self.thread_for(source)
         messages = []
         self.log.debug("Fetching up to %d messages through %s", limit, source.fbid)
-        async for message in thread.fetch_messages(limit):
-            if limit_date and message.created_at < limit_date:
-                self.log.debug("Stopping backfilling at %s as message is older than newest bridged"
-                               " message (%s < %s)", message.id, message.created_at, limit_date)
-                break
-            messages.append(message)
+        try:
+            async for message in thread.fetch_messages(limit):
+                if limit_date and message.created_at < limit_date:
+                    self.log.debug("Stopping backfilling at %s as message is older than newest "
+                                   "bridged message (%s < %s)", message.id, message.created_at,
+                                   limit_date)
+                    break
+                messages.append(message)
+        except fbchat.GraphQLError:
+            self.log.warning("GraphQL error while fetching messages", exc_info=True)
         if not messages:
             self.log.debug("Didn't get any messages from server")
             return
