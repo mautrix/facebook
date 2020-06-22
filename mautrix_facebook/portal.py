@@ -261,6 +261,7 @@ class Portal(BasePortal):
             data, decryption_info_dict = encrypt_attachment(data)
             decryption_info = EncryptedFile.deserialize(decryption_info_dict)
             upload_mime_type = "application/octet-stream"
+            filename = None
         url = await intent.upload_media(data, mime_type=upload_mime_type, filename=filename)
         if decryption_info:
             decryption_info.url = url
@@ -702,6 +703,13 @@ class Portal(BasePortal):
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: fbchat.MessageData) -> None:
+        try:
+            await self._handle_facebook_message(source, sender, message)
+        except Exception:
+            self.log.exception("Error handling Facebook message %s", message.id)
+
+    async def _handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
+                                       message: fbchat.MessageData) -> None:
         if self.backfill_lock.locked and DBMessage.get_by_fbid(message.id, self.fb_receiver):
             self.log.trace("Not handling message %s, found duplicate in database", message.id)
             return
@@ -802,52 +810,65 @@ class Portal(BasePortal):
     async def _handle_facebook_attachment(self, source: fbchat.Client, intent: IntentAPI,
                                           attachment: fbchat.Attachment, reply_to: str,
                                           timestamp: datetime) -> Optional[EventID]:
-        if isinstance(attachment, fbchat.AudioAttachment):
-            mxc, mime, size, decryption_info = await self._reupload_fb_file(
-                attachment.url, intent, attachment.filename, encrypt=self.encrypted)
-            event_id = await self._send_message(intent, MediaMessageEventContent(
-                url=mxc, file=decryption_info, msgtype=MessageType.AUDIO, body=attachment.filename,
-                info=AudioInfo(size=size, mimetype=mime, duration=attachment.duration.seconds),
-                relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
-        elif isinstance(attachment, fbchat.FileAttachment):
-            mxc, mime, size, decryption_info = await self._reupload_fb_file(
-                attachment.url, intent, attachment.name, encrypt=self.encrypted)
-            event_id = await self._send_message(intent, MediaMessageEventContent(
-                url=mxc, file=decryption_info, msgtype=MessageType.FILE, body=attachment.name,
-                info=FileInfo(size=size, mimetype=mime),
-                relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
-        elif isinstance(attachment, (fbchat.ImageAttachment, fbchat.VideoAttachment)):
-            mxc, mime, size, decryption_info = await self._reupload_fb_file(
-                await source.fetch_image_url(attachment.id), intent, encrypt=self.encrypted)
-            if isinstance(attachment, fbchat.ImageAttachment):
-                filename = f"image.{attachment.original_extension}"
-                msgtype = MessageType.IMAGE
-                info = ImageInfo(size=size, mimetype=mime, width=attachment.width,
-                                 height=attachment.height)
-            else:
-                filename = f"video{guess_extension(mime)}"
-                msgtype = MessageType.VIDEO
-                info = VideoInfo(size=size, mimetype=mime, width=attachment.width,
-                                 height=attachment.height, duration=attachment.duration.seconds)
-            event_id = await self._send_message(intent, MediaMessageEventContent(
-                url=mxc, file=decryption_info, msgtype=msgtype, body=filename, info=info,
-                relates_to=self._get_facebook_reply(reply_to)), timestamp=timestamp)
-        elif isinstance(attachment, fbchat.LocationAttachment):
-            content = await self._convert_facebook_location(intent, attachment)
-            content.relates_to = self._get_facebook_reply(reply_to)
-            event_id = await self._send_message(intent, content, timestamp=timestamp)
-        elif isinstance(attachment, fbchat.ShareAttachment):
+        if isinstance(attachment, fbchat.ShareAttachment):
             # These are handled in the text formatter
             return None
-        else:
-            self.log.warning(f"Unsupported attachment type {type(attachment)}")
-            return None
-        return event_id
+        content = await self._convert_facebook_attachment(source, intent, attachment)
+        content.relates_to = self._get_facebook_reply(reply_to)
+        return await self._send_message(intent, content, timestamp=timestamp)
 
-    async def _convert_facebook_location(self, intent: IntentAPI,
-                                         location: fbchat.LocationAttachment
-                                         ) -> LocationMessageEventContent:
+    async def _convert_facebook_attachment(self, source: fbchat.Client, intent: IntentAPI,
+                                           attachment: fbchat.Attachment) -> MessageEventContent:
+        if isinstance(attachment, fbchat.AudioAttachment):
+            msgtype = MessageType.AUDIO
+            filename = attachment.filename
+            info = AudioInfo(duration=attachment.duration.seconds)
+        elif isinstance(attachment, fbchat.FileAttachment):
+            msgtype = MessageType.FILE
+            filename = attachment.name
+            info = FileInfo()
+        elif isinstance(attachment, fbchat.ImageAttachment):
+            msgtype = MessageType.IMAGE
+            filename = f"image.{attachment.original_extension}"
+            info = ImageInfo(width=attachment.width, height=attachment.height)
+        elif isinstance(attachment, fbchat.VideoAttachment):
+            msgtype = MessageType.VIDEO
+            filename = None
+            info = VideoInfo(width=attachment.width, height=attachment.height,
+                             duration=attachment.duration.seconds)
+        elif isinstance(attachment, fbchat.LocationAttachment):
+            return await self._convert_facebook_location(intent, attachment)
+        else:
+            msg = f"Unsupported attachment type {type(attachment)}"
+            self.log.warning(msg)
+            return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
+        if isinstance(attachment, (fbchat.ImageAttachment, fbchat.VideoAttachment)):
+            try:
+                url = await source.fetch_image_url(attachment.id)
+            except fbchat.ExternalError as e:
+                return TextMessageEventContent(body=str(e), msgtype=MessageType.NOTICE)
+        else:
+            url = attachment.url
+        mxc, info.mimetype, info.size, decryption_info = await self._reupload_fb_file(
+            url, intent, filename, encrypt=self.encrypted)
+        if isinstance(attachment, fbchat.VideoAttachment):
+            filename = f"video{guess_extension(info.mimetype)}"
+        return MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
+                                        body=filename, info=info)
+
+    async def _convert_facebook_location(
+        self, intent: IntentAPI, location: fbchat.LocationAttachment
+    ) -> Union[LocationMessageEventContent, TextMessageEventContent]:
         long, lat = location.longitude, location.latitude
+        if not long or not lat:
+            if location.address or location.url:
+                self.log.trace("Location message with no coordinates: %s", location)
+                return TextMessageEventContent(msgtype=MessageType.TEXT,
+                                               body=f"{location.address}\n{location.url}")
+            else:
+                self.log.warning("Unsupported Facebook location message content: %s", location)
+                return TextMessageEventContent(msgtype=MessageType.NOTICE,
+                                               body="Location message with unsupported content")
         long_char = "E" if long > 0 else "W"
         lat_char = "N" if lat > 0 else "S"
         geo = f"{round(lat, 6)},{round(long, 6)}"
