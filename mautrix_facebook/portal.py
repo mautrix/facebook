@@ -586,8 +586,8 @@ class Portal(BasePortal):
             date = datetime.now(tz=timezone.utc)
             if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
                 fbid = await self._handle_matrix_text(sender, message)
-            elif message.msgtype == MessageType.IMAGE:
-                fbid = await self._handle_matrix_image(sender, message)
+            elif message.msgtype.is_media:
+                fbid = await self._handle_matrix_media(sender, message)
             elif message.msgtype == MessageType.LOCATION:
                 fbid = await self._handle_matrix_location(sender, message)
             else:
@@ -607,7 +607,7 @@ class Portal(BasePortal):
     async def _handle_matrix_text(self, sender: 'u.User', message: TextMessageEventContent) -> str:
         return await self.thread_for(sender).send_text(**matrix_to_facebook(message, self.mxid))
 
-    async def _handle_matrix_image(self, sender: 'u.User',
+    async def _handle_matrix_media(self, sender: 'u.User',
                                    message: MediaMessageEventContent) -> Optional[str]:
         if message.file and decrypt_attachment:
             data = await self.main_intent.download_media(message.file.url)

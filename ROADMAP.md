@@ -5,11 +5,11 @@
     * [x] Text
     * [ ] Media
       * [ ] Stickers
-      * [ ] Files
-      * [ ] Voice messages
-      * [ ] Videos
+      * [x] Files
+      * [x] Voice messages
+      * [x] Videos
       * [x] Images
-      * [ ] Locations
+      * [x] Locations
     * [x] Formatting
     * [x] Replies
     * [x] Mentions
