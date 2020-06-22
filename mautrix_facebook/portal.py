@@ -865,12 +865,14 @@ class Portal(BasePortal):
         else:
             info = None
         content = LocationMessageEventContent(
-            body=f"{location.address}\nLocation: {text}\n{url}", geo_uri=f"geo:{lat},{long}",
+            body=f"Location: {text}\n{url}", geo_uri=f"geo:{lat},{long}",
             msgtype=MessageType.LOCATION, info=info)
         # Some clients support formatted body in m.location, so add that as well.
-        content["format"] = Format.HTML
-        content["formatted_body"] = (f"<p>{location.address}</p>"
-                                     f"<p>Location: <a href='{url}'>{text}</a></p")
+        content["format"] = str(Format.HTML)
+        content["formatted_body"] = f"<p>Location: <a href='{url}'>{text}</a></p"
+        if location.address:
+            content.body = f"{location.address}\n{content.body}"
+            content["formatted_body"] = f"<p>{location.address}</p>{content['formatted_body']}"
         return content
 
     async def handle_facebook_unsend(self, source: 'u.User', sender: 'p.Puppet', message_id: str
