@@ -44,7 +44,8 @@ async def login(evt: CommandEvent) -> None:
     await evt.reply("Logging in...")
     try:
         session = await fbchat.Session.login(evt.args[0], " ".join(evt.args[1:]),
-                                             on_2fa_callback=evt.sender.on_2fa_callback)
+                                             on_2fa_callback=evt.sender.on_2fa_callback,
+                                             user_agent=evt.sender.user_agent)
         await evt.sender.on_logged_in(session)
         evt.sender.command_status = None
         await evt.reply("Successfully logged in")
@@ -123,7 +124,7 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
         session = await fbchat.Session.from_cookies({
             "c_user": evt.sender.command_status["c_user"],
             "xs": evt.args[0],
-        })
+        }, user_agent=evt.sender.user_agent)
     except fbchat.FacebookError as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
@@ -136,6 +137,18 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
         await evt.sender.on_logged_in(session)
         await evt.reply("Successfully logged in")
     evt.sender.command_status = None
+
+
+@command_handler(needs_auth=False, management_only=False, help_section=SECTION_AUTH,
+                 help_text="Change the user agent sent to Facebook", help_args="<_user agent_>")
+async def set_ua(evt: CommandEvent) -> None:
+    if len(evt.args) < 0:
+        await evt.reply("Usage: `$cmdprefix+sp login <user agent>`")
+        return
+    evt.sender.user_agent = " ".join(evt.args)
+    evt.sender.save()
+    await evt.reply(f"Set user agent to `{evt.sender.user_agent}`. The change will be applied when"
+                    " you log in, run `refresh`, or on the next bridge restart.")
 
 
 @command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")

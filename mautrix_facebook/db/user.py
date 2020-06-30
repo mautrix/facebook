@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# Copyright (C) 2020 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@ class User(Base):
     session: Dict[str, str] = Column(PickleType, nullable=True)
     fbid: str = Column(String(255), nullable=True)
     notice_room: RoomID = Column(String(255), nullable=True)
+    user_agent: str = Column(String(255), nullable=True)
 
     @classmethod
     def all(cls) -> Iterable['User']:

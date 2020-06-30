@@ -102,6 +102,7 @@ class PublicBridgeWebsite:
         data = {
             "permissions": user.permission_level,
             "mxid": user.mxid,
+            "user_agent": user.user_agent,
             "facebook": None,
         }
         if await user.is_logged_in():
@@ -112,6 +113,8 @@ class PublicBridgeWebsite:
 
     async def login(self, request: web.Request) -> web.Response:
         user = self.check_token(request)
+        if not user.user_agent:
+            user.user_agent = request.headers.get("User-Agent", None)
 
         try:
             data = await request.json()
@@ -119,7 +122,7 @@ class PublicBridgeWebsite:
             raise web.HTTPBadRequest(body='{"error": "Malformed JSON"}', headers=self._headers)
 
         try:
-            session = await fbchat.Session.from_cookies(data)
+            session = await fbchat.Session.from_cookies(data, user_agent=user.user_agent)
         except fbchat.FacebookError:
             self.log.debug("Failed to log in", exc_info=True)
             raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',

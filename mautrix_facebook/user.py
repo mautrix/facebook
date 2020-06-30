@@ -51,6 +51,7 @@ class User(BaseUser):
     notice_room: RoomID
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
+    user_agent: Optional[str]
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
@@ -69,13 +70,14 @@ class User(BaseUser):
     _handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]]
 
     def __init__(self, mxid: UserID, session: Optional[Dict[str, str]] = None,
-                 notice_room: Optional[RoomID] = None,
+                 notice_room: Optional[RoomID] = None, user_agent: Optional[str] = None,
                  db_instance: Optional[DBUser] = None) -> None:
         self.mxid = mxid
+        self.by_mxid[mxid] = self
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
-        self.by_mxid[mxid] = self
+        self.user_agent = user_agent
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
@@ -135,7 +137,7 @@ class User(BaseUser):
     def db_instance(self) -> DBUser:
         if not self._db_instance:
             self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.fbid,
-                                       notice_room=self.notice_room)
+                                       notice_room=self.notice_room, user_agent=self.user_agent)
         return self._db_instance
 
     def save(self, _update_session_data: bool = True) -> None:
@@ -143,11 +145,11 @@ class User(BaseUser):
         if _update_session_data and self.session:
             self._session_data = self.session.get_cookies()
         self.db_instance.edit(session=self._session_data, fbid=self.fbid,
-                              notice_room=self.notice_room)
+                              notice_room=self.notice_room, user_agent=self.user_agent)
 
     @classmethod
     def from_db(cls, db_user: DBUser) -> 'User':
-        return User(mxid=db_user.mxid, session=db_user.session,
+        return User(mxid=db_user.mxid, session=db_user.session, user_agent=db_user.user_agent,
                     notice_room=db_user.notice_room, db_instance=db_user)
 
     @classmethod
@@ -194,7 +196,8 @@ class User(BaseUser):
         elif not self._session_data:
             return False
         try:
-            session = await fbchat.Session.from_cookies(self._session_data)
+            session = await fbchat.Session.from_cookies(self._session_data,
+                                                        user_agent=self.user_agent)
             logged_in = await session.is_logged_in()
         except Exception:
             self.log.exception("Failed to restore session")
