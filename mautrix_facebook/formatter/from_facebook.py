@@ -162,8 +162,11 @@ def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
     for attachment in message.attachments:
         if ((isinstance(attachment, fbchat.ShareAttachment)
              and attachment.original_url.rstrip("/") not in text)):
-            output.append(f"<br/><a href='{attachment.original_url}'>{attachment.title}</a>")
-            content.body += f"\n{attachment.title}: {attachment.original_url}"
+            output.append(f"<br/><a href='{attachment.original_url}'>"
+                          f"{attachment.title or attachment.original_url}"
+                          "</a>")
+            content.body += (f"\n{attachment.title}: {attachment.original_url}"
+                             if attachment.title else attachment.original_url)
     html = "".join(output)
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
