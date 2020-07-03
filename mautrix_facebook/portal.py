@@ -655,6 +655,9 @@ class Portal(BasePortal):
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
                                      reacting_to: EventID, reaction: str) -> None:
+        # Facebook doesn't use variation selectors, Matrix does
+        reaction = reaction.rstrip("\ufe0f")
+
         async with self.require_send_lock(sender.fbid):
             message = DBMessage.get_by_mxid(reacting_to, self.mxid)
             if not message:
@@ -981,7 +984,10 @@ class Portal(BasePortal):
             self.log.debug(f"Ignoring reaction to unknown message {message_id}")
             return
 
-        mxid = await intent.react(message.mx_room, message.mxid, reaction)
+        matrix_reaction = reaction
+        if reaction in {"\u2764", "\U0001f44d", "\U0001f44e"}:
+            matrix_reaction += "\ufe0f"
+        mxid = await intent.react(message.mx_room, message.mxid, matrix_reaction)
         self.log.debug(f"Reacted to {message.mxid}, got {mxid}")
 
         await self._upsert_reaction(existing, intent, mxid, message, sender, reaction)
