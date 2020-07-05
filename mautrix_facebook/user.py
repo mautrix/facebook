@@ -464,7 +464,8 @@ class User(BaseUser):
                      else "Failed to connect to")
             message = f"{event} Facebook Messenger: {e}. {next_action}"
             self.log.warning(message)
-            await self.send_bridge_notice(message, important=not refresh)
+            if not refresh or self.temp_disconnect_notices:
+                await self.send_bridge_notice(message, important=not refresh)
             if refresh:
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 self.loop.create_task(self.try_refresh())
