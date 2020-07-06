@@ -39,7 +39,7 @@ RUN apk add --no-cache \
       # Other dependencies
       ca-certificates \
       su-exec \
-      py3-aiohttp-socks \
+      py3-aiohttp-socks@edge \
       py3-pysocks
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
