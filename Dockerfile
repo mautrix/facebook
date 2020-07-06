@@ -38,7 +38,9 @@ RUN apk add --no-cache \
       py3-logbook@edge \
       # Other dependencies
       ca-certificates \
-      su-exec
+      su-exec \
+      py3-aiohttp-socks \
+      py3-pysocks
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
