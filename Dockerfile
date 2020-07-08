@@ -22,25 +22,17 @@ RUN apk add --no-cache \
         py3-paho-mqtt \
       py3-idna \
       py3-cffi \
-      # matrix-nio
+      # encryption
       olm-dev \
-      py3-future \
-      py3-atomicwrites \
       py3-pycryptodome \
-      py3-peewee \
-      py3-pyrsistent \
-      py3-jsonschema \
-      #py3-aiofiles \ # (too new)
-      py3-cachetools \
       py3-unpaddedbase64 \
-      py3-h2@edge \
-      py3-pyaes@edge \
-      py3-logbook@edge \
+      py3-future \
+      # proxy support
+      py3-aiohttp-socks@edge \
+      py3-pysocks \
       # Other dependencies
       ca-certificates \
-      su-exec \
-      py3-aiohttp-socks@edge \
-      py3-pysocks
+      su-exec
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt

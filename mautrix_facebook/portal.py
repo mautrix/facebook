@@ -56,7 +56,7 @@ except ImportError:
     Image = convert_cmd = None
 
 try:
-    from nio.crypto import decrypt_attachment, encrypt_attachment
+    from mautrix.crypto.attachments import decrypt_attachment, encrypt_attachment
 except ImportError:
     decrypt_attachment = encrypt_attachment = None
 
@@ -456,18 +456,12 @@ class Portal(BasePortal):
             if not self.mxid:
                 raise Exception("Failed to create room: no mxid returned")
 
-            if self.encrypted and self.matrix.e2ee:
-                members = [self.main_intent.mxid]
-                if self.is_direct:
-                    # This isn't very accurate, but let's do it anyway
-                    members += [source.mxid]
-                    try:
-                        await self.az.intent.join_room_by_id(self.mxid)
-                        members += [self.az.intent.mxid]
-                    except Exception:
-                        self.log.warning("Failed to add bridge bot "
-                                         f"to new private chat {self.mxid}")
-                await self.matrix.e2ee.add_room(self.mxid, members=members, encrypted=True)
+            if self.encrypted and self.matrix.e2ee and self.is_direct:
+                try:
+                    await self.az.intent.ensure_joined(self.mxid)
+                except Exception:
+                    self.log.warning("Failed to add bridge bot "
+                                     f"to new private chat {self.mxid}")
 
             self.save()
             self.log.debug(f"Matrix room created: {self.mxid}")
