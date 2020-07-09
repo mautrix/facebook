@@ -107,7 +107,7 @@ class MatrixHandler(BaseMatrixHandler):
         portal.mxid = room_id
         e2be_ok = None
         if self.config["bridge.encryption.default"] and self.e2ee:
-            e2be_ok = await self.enable_dm_encryption(portal, members=members)
+            e2be_ok = await portal.enable_dm_encryption()
         portal.save()
         if e2be_ok is True:
             evt_type, content = await self.e2ee.encrypt(
@@ -121,16 +121,6 @@ class MatrixHandler(BaseMatrixHandler):
             if e2be_ok is False:
                 message += "\n\nWarning: Failed to enable end-to-bridge encryption"
             await intent.send_notice(room_id, message)
-
-    async def enable_dm_encryption(self, portal: po.Portal, members: List[UserID]) -> bool:
-        ok = await super().enable_dm_encryption(portal, members)
-        if ok:
-            try:
-                puppet = pu.Puppet.get_by_fbid(portal.fbid)
-                await portal.main_intent.set_room_name(portal.mxid, puppet.name)
-            except Exception:
-                self.log.warning(f"Failed to set room name for {portal.mxid}", exc_info=True)
-        return ok
 
     async def handle_invite(self, room_id: RoomID, user_id: UserID, invited_by: 'u.User',
                             event_id: EventID) -> None:

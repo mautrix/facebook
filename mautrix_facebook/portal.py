@@ -662,7 +662,6 @@ class Portal(BasePortal):
             if existing and existing.reaction == reaction:
                 return
 
-            # TODO normalize reaction emoji bytes and maybe pre-reject invalid emojis
             await fbchat.Message(thread=self.thread_for(sender), id=message.fbid).react(reaction)
             await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
                                         reaction)
@@ -683,6 +682,16 @@ class Portal(BasePortal):
         started_typing = [self.thread_for(user).start_typing() for user in users - self._typing]
         self._typing = users
         await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
+
+    async def enable_dm_encryption(self) -> bool:
+        ok = await super().enable_dm_encryption()
+        if ok:
+            try:
+                puppet = p.Puppet.get_by_fbid(self.fbid)
+                await self.main_intent.set_room_name(self.mxid, puppet.name)
+            except Exception:
+                self.log.warning(f"Failed to set room name", exc_info=True)
+        return ok
 
     # endregion
     # region Facebook event handling
