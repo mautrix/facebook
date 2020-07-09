@@ -82,7 +82,7 @@ class MatrixHandler(BaseMatrixHandler):
         except MatrixError:
             self.log.exception(f"Failed to get member list after joining {room_id}")
             await intent.leave_room(room_id)
-            members = []
+            return
         if len(members) > 2:
             # TODO add facebook group creating
             await intent.send_notice(room_id, "You can not invite Facebook Messenger puppets to "
