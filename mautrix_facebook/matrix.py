@@ -40,15 +40,6 @@ class MatrixHandler(BaseMatrixHandler):
         super().__init__(context.az, context.config, command_processor=c.CommandProcessor(context),
                          bridge=context.bridge)
 
-    async def get_portal(self, room_id: RoomID) -> 'po.Portal':
-        return po.Portal.get_by_mxid(room_id)
-
-    async def get_puppet(self, user_id: UserID) -> 'pu.Puppet':
-        return pu.Puppet.get_by_mxid(user_id, create=False)
-
-    async def get_user(self, user_id: UserID) -> 'u.User':
-        return u.User.get_by_mxid(user_id)
-
     async def send_welcome_message(self, room_id: RoomID, inviter: 'u.User') -> None:
         await super().send_welcome_message(room_id, inviter)
         if not inviter.notice_room:

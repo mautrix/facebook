@@ -7,7 +7,8 @@ Create Date: 2019-05-01 02:37:15.915613
 """
 from alembic import op
 import sqlalchemy as sa
-from mautrix.bridge.db.mx_room_state import PowerLevelType
+from mautrix.client.state_store.sqlalchemy import SerializableType
+from mautrix.types import PowerLevelStateEventContent
 
 # revision identifiers, used by Alembic.
 revision = 'c36b294b1f5f'
@@ -28,7 +29,7 @@ def upgrade():
     )
     op.create_table('mx_room_state',
     sa.Column('room_id', sa.String(length=255), nullable=False),
-    sa.Column('power_levels', PowerLevelType(), nullable=True),
+    sa.Column('power_levels', SerializableType(PowerLevelStateEventContent), nullable=True),
     sa.PrimaryKeyConstraint('room_id')
     )
     op.create_table('mx_user_profile',

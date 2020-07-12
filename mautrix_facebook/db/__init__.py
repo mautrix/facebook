@@ -1,4 +1,4 @@
-from mautrix.bridge.db import RoomState, UserProfile
+from mautrix.client.state_store.sqlalchemy import RoomState, UserProfile
 
 from .message import Message
 from .reaction import Reaction
@@ -12,7 +12,4 @@ from .user_contact import Contact
 def init(db_engine) -> None:
     for table in (Portal, Message, Reaction, User, Puppet, UserPortal, Contact, UserProfile,
                   RoomState):
-        table.db = db_engine
-        table.t = table.__table__
-        table.c = table.t.c
-        table.column_names = table.c.keys()
+        table.bind(db_engine)

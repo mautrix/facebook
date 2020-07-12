@@ -701,7 +701,8 @@ class Portal(BasePortal):
         if self.is_direct and sender.fbid == source.fbid and not sender.is_real_user:
             if self.invite_own_puppet_to_pm and invite:
                 await self.main_intent.invite_user(self.mxid, sender.mxid)
-            elif self.az.state_store.get_membership(self.mxid, sender.mxid) != Membership.JOIN:
+            elif await self.az.state_store.get_membership(self.mxid,
+                                                          sender.mxid) != Membership.JOIN:
                 self.log.warning(f"Ignoring own {mid} in private chat because own puppet is not in"
                                  " room.")
                 return False

@@ -16,11 +16,11 @@
 import asyncio
 import logging
 
+from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
 
 from .config import Config
 from .db import init as init_db
-from .sqlstatestore import SQLStateStore
 from .user import User, init as init_user
 from .portal import Portal, init as init_portal
 from .puppet import Puppet, init as init_puppet
@@ -41,7 +41,6 @@ class MessengerBridge(Bridge):
     markdown_version = linkified_version
     config_class = Config
     matrix_class = MatrixHandler
-    state_store_class = SQLStateStore
 
     config: Config
     public_website: PublicBridgeWebsite
@@ -129,6 +128,18 @@ class MessengerBridge(Bridge):
                     return
                 except Exception:
                     log.exception("Error while reconnecting", user.mxid)
+
+    async def get_portal(self, room_id: RoomID) -> Portal:
+        return Portal.get_by_mxid(room_id)
+
+    async def get_puppet(self, user_id: UserID, create: bool = False) -> Puppet:
+        return Puppet.get_by_mxid(user_id, create=create)
+
+    async def get_double_puppet(self, user_id: UserID) -> Puppet:
+        return Puppet.get_by_custom_mxid(user_id)
+
+    async def get_user(self, user_id: UserID) -> User:
+        return User.get_by_mxid(user_id)
 
 
 MessengerBridge().run()
