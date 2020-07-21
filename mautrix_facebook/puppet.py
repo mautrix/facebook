@@ -175,8 +175,8 @@ class Puppet(CustomPuppetMixin):
         if photo_id != self.photo_id:
             self.photo_id = photo_id
             if photo:
-                avatar_uri, *_ = await p.Portal._reupload_fb_file(photo.url,
-                                                                  self.default_mxid_intent)
+                url = f"https://graph.facebook.com/{self.fbid}/picture?width=1000&height=1000"
+                avatar_uri, *_ = await p.Portal._reupload_fb_file(url, self.default_mxid_intent)
             else:
                 avatar_uri = ""
             await self.default_mxid_intent.set_avatar_url(avatar_uri)

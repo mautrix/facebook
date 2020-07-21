@@ -306,7 +306,9 @@ class Portal(BasePortal):
         if self.photo_id != photo_id:
             self.photo_id = photo_id
             if photo:
-                self.avatar_url, *_ = await self._reupload_fb_file(photo.url, self.main_intent)
+                url = (f"https://graph.facebook.com/{self.fbid}/picture?width=1000&height=1000"
+                       if self.is_direct else photo.url)
+                self.avatar_url, *_ = await self._reupload_fb_file(url, self.main_intent)
             else:
                 self.avatar_url = ContentURI("")
             if self.mxid:
