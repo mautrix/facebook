@@ -218,7 +218,7 @@ class Portal(BasePortal):
             self.log.warning("Got different ID (%s) than what asked for (%s) when fetching info",
                              info.id, self.fbid)
         changed = any(await asyncio.gather(self._update_name(info.name),
-                                           self._update_photo(info.photo),
+                                           self._update_photo(source, info.photo),
                                            loop=self.loop))
         if changed:
             await self.update_bridge_info()
@@ -228,7 +228,7 @@ class Portal(BasePortal):
         return info
 
     @staticmethod
-    def _get_photo_id(photo: Optional[Union[fbchat.Image, str]]) -> Optional[str]:
+    def get_photo_id(photo: Optional[Union[fbchat.Image, str]]) -> Optional[str]:
         if not photo:
             return None
         elif isinstance(photo, fbchat.Image):
@@ -299,16 +299,16 @@ class Portal(BasePortal):
             return True
         return False
 
-    async def _update_photo(self, photo: fbchat.Image) -> bool:
+    async def _update_photo(self, source: 'u.User', photo: fbchat.Image) -> bool:
         if self.is_direct and not self.encrypted:
             return False
-        photo_id = self._get_photo_id(photo)
+        photo_id = self.get_photo_id(photo)
         if self.photo_id != photo_id:
             self.photo_id = photo_id
             if photo:
-                url = (f"https://graph.facebook.com/{self.fbid}/picture?width=1000&height=1000"
-                       if self.is_direct else photo.url)
-                self.avatar_url, *_ = await self._reupload_fb_file(url, self.main_intent)
+                self.avatar_url = await p.Puppet.reupload_avatar(
+                    source, self.main_intent, photo.url,
+                    self.fbid if self.is_direct else None)
             else:
                 self.avatar_url = ContentURI("")
             if self.mxid:
@@ -939,7 +939,7 @@ class Portal(BasePortal):
         # so we can't use the actual ID here either.
         # self.photo_id = new_photo_id
         photo_url = await source.client.fetch_image_url(new_photo_id)
-        photo_id = self._get_photo_id(photo_url)
+        photo_id = self.get_photo_id(photo_url)
         if self.photo_id == photo_id:
             return
         self.photo_id = photo_id

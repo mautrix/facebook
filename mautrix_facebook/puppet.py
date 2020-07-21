@@ -18,8 +18,10 @@ import logging
 import asyncio
 import attr
 
+import magic
 import fbchat
-from mautrix.types import UserID, RoomID, SyncToken
+import aiohttp
+from mautrix.types import UserID, RoomID, SyncToken, ContentURI
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.bridge.custom_puppet import CustomPuppetMixin
 from mautrix.util.simple_template import SimpleTemplate
@@ -146,7 +148,7 @@ class Puppet(CustomPuppetMixin):
         try:
             changed = await self._update_name(info)
             if update_avatar:
-                changed = await self._update_photo(info.photo) or changed
+                changed = await self._update_photo(source, info.photo) or changed
             if changed:
                 self.save()
         except Exception:
@@ -170,13 +172,29 @@ class Puppet(CustomPuppetMixin):
             return True
         return False
 
-    async def _update_photo(self, photo: fbchat.Image) -> bool:
-        photo_id = p.Portal._get_photo_id(photo)
+    @staticmethod
+    async def reupload_avatar(source: Optional['u.User'], intent: IntentAPI, url: str,
+                              fbid: Optional[str]) -> ContentURI:
+        data = None
+        if url and source and source.client and source.client.session:
+            http_client = source.client.session._session
+            graph_url = f"https://graph.facebook.com/{fbid}/picture?width=1000&height=1000"
+            async with http_client.get(graph_url) as resp:
+                if resp.status < 400:
+                    data = await resp.read()
+        if data is None:
+            async with aiohttp.ClientSession() as session, session.get(url) as resp:
+                data = await resp.read()
+        mime = magic.from_buffer(data, mime=True)
+        return await intent.upload_media(data, mime_type=mime)
+
+    async def _update_photo(self, source: 'u.User', photo: fbchat.Image) -> bool:
+        photo_id = p.Portal.get_photo_id(photo)
         if photo_id != self.photo_id:
             self.photo_id = photo_id
             if photo:
-                url = f"https://graph.facebook.com/{self.fbid}/picture?width=1000&height=1000"
-                avatar_uri, *_ = await p.Portal._reupload_fb_file(url, self.default_mxid_intent)
+                avatar_uri = await self.reupload_avatar(source, self.default_mxid_intent,
+                                                        photo.url, self.fbid)
             else:
                 avatar_uri = ""
             await self.default_mxid_intent.set_avatar_url(avatar_uri)
