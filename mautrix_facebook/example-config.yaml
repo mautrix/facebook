@@ -37,7 +37,7 @@ appservice:
         # The base URL where the public-facing endpoints are available. The prefix is not added
         # implicitly.
         external: https://example.com/public
-        # Shared secret for integration managers such as Dimension.
+        # Shared secret for integration managers such as mautrix-manager.
         # If set to "generate", a random string will be generated on the next startup.
         # If null, integration manager access to the API will not be possible.
         shared_secret: generate
