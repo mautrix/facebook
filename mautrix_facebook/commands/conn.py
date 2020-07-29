@@ -52,8 +52,12 @@ async def ping(evt: CommandEvent) -> None:
     if not await evt.sender.is_logged_in():
         await evt.reply("You're not logged into Facebook Messenger")
         return
-    own_info = cast(fbchat.User,
-                    await evt.sender.client.fetch_thread_info([evt.sender.fbid]).__anext__())
+    try:
+        own_info = cast(fbchat.User,
+                        await evt.sender.client.fetch_thread_info([evt.sender.fbid]).__anext__())
+    except fbchat.PleaseRefresh as e:
+        await evt.reply(f"{e}\n\nUse `$cmdprefix+sp refresh` refresh the session.")
+        return
     await evt.reply(f"You're logged in as {own_info.name} (user ID {own_info.id})")
 
     if not evt.sender.listen_task or evt.sender.listen_task.done():
