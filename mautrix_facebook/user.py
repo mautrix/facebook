@@ -34,6 +34,11 @@ from . import portal as po, puppet as pu
 if TYPE_CHECKING:
     from .context import Context
 
+try:
+    from aiohttp_socks import ProxyError
+except ImportError:
+    ProxyError = None
+
 config: Config
 
 
@@ -199,6 +204,11 @@ class User(BaseUser):
             session = await fbchat.Session.from_cookies(self._session_data,
                                                         user_agent=self.user_agent)
             logged_in = await session.is_logged_in()
+        except ProxyError:
+            self.log.exception("ProxyError while trying to restore session, "
+                               "retrying in 10 seconds")
+            await asyncio.sleep(10)
+            return await self.load_session(_override, _raise_errors)
         except Exception:
             self.log.exception("Failed to restore session")
             if _raise_errors:
