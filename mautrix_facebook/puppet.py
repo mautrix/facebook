@@ -104,7 +104,7 @@ class Puppet(CustomPuppetMixin):
                       access_token=db_puppet.access_token, next_batch=db_puppet.next_batch,
                       db_instance=db_puppet)
 
-    def save(self) -> None:
+    async def save(self) -> None:
         self.db_instance.edit(name=self.name, photo_id=self.photo_id,
                               matrix_registered=self.is_registered, custom_mxid=self.custom_mxid,
                               access_token=self.access_token)
@@ -120,7 +120,7 @@ class Puppet(CustomPuppetMixin):
 
     # endregion
 
-    def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
+    async def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
         portal = p.Portal.get_by_mxid(room_id)
         return portal and portal.fbid != self.fbid
 
@@ -150,7 +150,7 @@ class Puppet(CustomPuppetMixin):
             if update_avatar:
                 changed = await self._update_photo(source, info.photo) or changed
             if changed:
-                self.save()
+                await self.save()
         except Exception:
             self.log.exception(f"Failed to update info from source {source.fbid}")
         return self
@@ -223,7 +223,7 @@ class Puppet(CustomPuppetMixin):
         return None
 
     @classmethod
-    def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['Puppet']:
+    def deprecated_sync_get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['Puppet']:
         fbid = cls.get_id_from_mxid(mxid)
         if fbid:
             return cls.get_by_fbid(fbid, create)
@@ -231,7 +231,11 @@ class Puppet(CustomPuppetMixin):
         return None
 
     @classmethod
-    def get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
+    async def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['Puppet']:
+        return cls.deprecated_sync_get_by_mxid(mxid, create)
+
+    @classmethod
+    def deprecated_sync_get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
         try:
             return cls.by_custom_mxid[mxid]
         except KeyError:
@@ -242,6 +246,10 @@ class Puppet(CustomPuppetMixin):
             return cls.from_db(db_puppet)
 
         return None
+
+    @classmethod
+    async def get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
+        return cls.deprecated_sync_get_by_custom_mxid(mxid)
 
     @classmethod
     def get_id_from_mxid(cls, mxid: UserID) -> Optional[str]:

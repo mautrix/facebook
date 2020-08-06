@@ -94,7 +94,7 @@ class User(BaseUser):
         self._db_instance = db_instance
         self._community_id = None
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
-                                     log=self.log, loop=self.loop)
+                                     log=self.log)
         self._is_refreshing = False
 
         self.log = self.log.getChild(self.mxid)
@@ -410,6 +410,9 @@ class User(BaseUser):
         else:
             await portal.update_matrix_room(self, thread)
             await portal.backfill(self, is_initial=False, last_active=thread.last_active)
+
+    async def is_in_portal(self, portal: 'po.Portal') -> bool:
+        return DBUserPortal.get(self.fbid, portal.fbid, portal.fb_receiver) is not None
 
     async def on_2fa_callback(self) -> str:
         if self.command_status and self.command_status.get("action", "") == "Login":

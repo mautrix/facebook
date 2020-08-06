@@ -132,7 +132,7 @@ class Portal(BasePortal):
         self._typing = set()
 
         self.backfill_lock = SimpleLock("Waiting for backfilling to finish before handling %s",
-                                        log=self.log, loop=self.loop)
+                                        log=self.log)
 
         self.by_fbid[self.fbid_full] = self
         if self.mxid:
@@ -156,11 +156,13 @@ class Portal(BasePortal):
                       avatar_url=db_portal.avatar_url, encrypted=db_portal.encrypted,
                       name=db_portal.name, photo_id=db_portal.photo_id, db_instance=db_portal)
 
-    def save(self) -> None:
+    async def save(self) -> None:
         self.db_instance.edit(mxid=self.mxid, name=self.name, photo_id=self.photo_id,
                               encrypted=self.encrypted)
 
     def delete(self) -> None:
+        if self.mxid:
+            DBMessage.delete_all_by_mxid(self.mxid)
         self.by_fbid.pop(self.fbid_full, None)
         self.by_mxid.pop(self.mxid, None)
         if self._db_instance:
@@ -224,7 +226,7 @@ class Portal(BasePortal):
             await self.update_bridge_info()
         changed = await self._update_participants(source, info) or changed
         if changed:
-            self.save()
+            await self.save()
         return info
 
     @staticmethod
@@ -258,8 +260,7 @@ class Portal(BasePortal):
         upload_mime_type = mime
         decryption_info = None
         if encrypt and encrypt_attachment:
-            data, decryption_info_dict = encrypt_attachment(data)
-            decryption_info = EncryptedFile.deserialize(decryption_info_dict)
+            data, decryption_info = encrypt_attachment(data)
             upload_mime_type = "application/octet-stream"
             filename = None
         url = await intent.upload_media(data, mime_type=upload_mime_type, filename=filename)
@@ -344,7 +345,7 @@ class Portal(BasePortal):
     async def _update_matrix_room(self, source: 'u.User',
                                   info: Optional[ThreadClass] = None) -> None:
         await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=True)
-        puppet = p.Puppet.get_by_custom_mxid(source.mxid)
+        puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
         if puppet:
             await puppet.intent.ensure_joined(self.mxid)
 
@@ -465,13 +466,13 @@ class Portal(BasePortal):
                     self.log.warning("Failed to add bridge bot "
                                      f"to new private chat {self.mxid}")
 
-            self.save()
+            await self.save()
             self.log.debug(f"Matrix room created: {self.mxid}")
             self.by_mxid[self.mxid] = self
             if not self.is_direct:
                 await self._update_participants(source, info)
             else:
-                puppet = p.Puppet.get_by_custom_mxid(source.mxid)
+                puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
                 if puppet:
                     try:
                         await puppet.intent.join_room_by_id(self.mxid)
@@ -489,40 +490,6 @@ class Portal(BasePortal):
                 self.log.exception("Failed to backfill new portal")
 
         return self.mxid
-
-    # endregion
-    # region Matrix room cleanup
-
-    @staticmethod
-    async def cleanup_room(intent: IntentAPI, room_id: RoomID, message: str = "Portal deleted",
-                           puppets_only: bool = False) -> None:
-        try:
-            members = await intent.get_room_members(room_id)
-        except MatrixError:
-            members = []
-        for user_id in members:
-            puppet = p.Puppet.get_by_mxid(user_id, create=False)
-            if user_id != intent.mxid and (not puppets_only or puppet):
-                try:
-                    if puppet:
-                        await puppet.intent.leave_room(room_id)
-                    else:
-                        await intent.kick_user(room_id, user_id, message)
-                except MatrixError:
-                    pass
-        try:
-            await intent.leave_room(room_id)
-        except MatrixError:
-            pass
-        DBMessage.delete_all_by_mxid(room_id)
-
-    async def unbridge(self) -> None:
-        await self.cleanup_room(self.main_intent, self.mxid, "Room unbridged", puppets_only=True)
-        self.delete()
-
-    async def cleanup_and_delete(self) -> None:
-        await self.cleanup_room(self.main_intent, self.mxid)
-        self.delete()
 
     # endregion
     # region Matrix event handling
@@ -573,8 +540,8 @@ class Portal(BasePortal):
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
-        if ((message.get("net.maunium.facebook.puppet", False)
-             and p.Puppet.get_by_custom_mxid(sender.mxid))):
+        if ((message.get(self.az.real_user_content_key, False)
+             and await p.Puppet.get_by_custom_mxid(sender.mxid))):
             self.log.debug(f"Ignoring puppet-sent message by confirmed puppet user {sender.mxid}")
             return
         # TODO this probably isn't nice for bridging images, it really only needs to lock the

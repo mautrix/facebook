@@ -37,8 +37,7 @@ class MatrixHandler(BaseMatrixHandler):
         homeserver = context.config["homeserver.domain"]
         self.user_id_prefix = f"@{prefix}"
         self.user_id_suffix = f"{suffix}:{homeserver}"
-        super().__init__(context.az, context.config, command_processor=c.CommandProcessor(context),
-                         bridge=context.bridge)
+        super().__init__(command_processor=c.CommandProcessor(context), bridge=context.bridge)
 
     async def send_welcome_message(self, room_id: RoomID, inviter: 'u.User') -> None:
         await super().send_welcome_message(room_id, inviter)
@@ -99,7 +98,7 @@ class MatrixHandler(BaseMatrixHandler):
         e2be_ok = None
         if self.config["bridge.encryption.default"] and self.e2ee:
             e2be_ok = await portal.enable_dm_encryption()
-        portal.save()
+        await portal.save()
         if e2be_ok is True:
             evt_type, content = await self.e2ee.encrypt(
                 room_id, EventType.ROOM_MESSAGE,
@@ -240,10 +239,3 @@ class MatrixHandler(BaseMatrixHandler):
         elif evt.type == EventType.REACTION:
             evt: ReactionEvent
             await self.handle_reaction(evt.room_id, evt.sender, evt.event_id, evt.content)
-
-    async def handle_state_event(self, evt: StateEvent) -> None:
-        if evt.type == EventType.ROOM_ENCRYPTION:
-            portal = po.Portal.get_by_mxid(evt.room_id)
-            if portal:
-                portal.encrypted = True
-                portal.save()

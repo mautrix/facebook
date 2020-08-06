@@ -60,6 +60,9 @@ class Config(BaseBridgeConfig):
         copy("bridge.encryption.allow")
         copy("bridge.encryption.default")
         copy("bridge.encryption.database")
+        copy("bridge.encryption.key_sharing.allow")
+        copy("bridge.encryption.key_sharing.require_cross_signing")
+        copy("bridge.encryption.key_sharing.require_verification")
         copy("bridge.delivery_receipts")
         copy("bridge.allow_invites")
         copy("bridge.backfill.invite_own_puppet")
@@ -96,19 +99,3 @@ class Config(BaseBridgeConfig):
             return self._get_permissions(homeserver)
 
         return self._get_permissions("*")
-
-    @property
-    def namespaces(self) -> Dict[str, List[Dict[str, Any]]]:
-        homeserver = self["homeserver.domain"]
-
-        username_format = self["bridge.username_template"].lower().format(userid=".+")
-        group_id = ({"group_id": self["appservice.community_id"]}
-                    if self["appservice.community_id"] else {})
-
-        return {
-            "users": [{
-                "exclusive": True,
-                "regex": f"@{username_format}:{homeserver}",
-                **group_id,
-            }],
-        }

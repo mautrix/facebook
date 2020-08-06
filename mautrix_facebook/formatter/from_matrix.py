@@ -40,7 +40,7 @@ class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownStrin
         if user and user.fbid:
             fbid = user.fbid
         else:
-            puppet = pu.Puppet.get_by_mxid(mxid, create=False)
+            puppet = pu.Puppet.deprecated_sync_get_by_mxid(mxid, create=False)
             if puppet:
                 fbid = puppet.fbid
             else:
