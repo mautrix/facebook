@@ -104,6 +104,7 @@ class Portal(BasePortal):
     _noop_lock: FakeLock = FakeLock()
     _typing: Set['u.User']
     backfill_lock: SimpleLock
+    _backfill_leave: Optional[Set[IntentAPI]]
 
     def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, avatar_url: Optional[ContentURI] = None,
@@ -133,6 +134,7 @@ class Portal(BasePortal):
 
         self.backfill_lock = SimpleLock("Waiting for backfilling to finish before handling %s",
                                         log=self.log)
+        self._backfill_leave = None
 
         self.by_fbid[self.fbid_full] = self
         if self.mxid:
@@ -702,6 +704,12 @@ class Portal(BasePortal):
         if not await self._bridge_own_message_pm(source, sender, f"message {message.id}"):
             return
         intent = sender.intent_for(self)
+        if ((self._backfill_leave is not None and self.fbid != sender.fbid
+             and intent != sender.intent and intent not in self._backfill_leave)):
+            self.log.debug("Adding %s's default puppet to room for backfilling", sender.mxid)
+            await self.main_intent.invite_user(self.mxid, intent.mxid)
+            await intent.ensure_joined(self.mxid)
+            self._backfill_leave.add(intent)
         event_ids = []
         if message.sticker:
             event_ids = [await self._handle_facebook_sticker(
@@ -1050,18 +1058,12 @@ class Portal(BasePortal):
             self.log.debug("Didn't get any messages from server")
             return
         self.log.debug("Got %d messages from server", len(messages))
-        backfill_leave = set()
-        if config["bridge.backfill.invite_own_puppet"]:
-            self.log.debug("Adding %s's default puppet to room for backfilling", source.mxid)
-            sender = p.Puppet.get_by_fbid(source.fbid)
-            await self.main_intent.invite_user(self.mxid, sender.default_mxid)
-            await sender.default_mxid_intent.join_room_by_id(self.mxid)
-            backfill_leave.add(sender.default_mxid_intent)
+        self._backfill_leave = set()
         async with NotificationDisabler(self.mxid, source):
             for message in reversed(messages):
                 puppet = p.Puppet.get_by_fbid(message.author)
                 await self.handle_facebook_message(source, puppet, message)
-        for intent in backfill_leave:
+        for intent in self._backfill_leave:
             self.log.trace("Leaving room with %s post-backfill", intent.mxid)
             await intent.leave_room(self.mxid)
         self.log.info("Backfilled %d messages through %s", len(messages), source.mxid)
