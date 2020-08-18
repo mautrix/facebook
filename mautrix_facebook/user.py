@@ -37,7 +37,8 @@ if TYPE_CHECKING:
 try:
     from aiohttp_socks import ProxyError
 except ImportError:
-    ProxyError = None
+    class ProxyError(Exception):
+        pass
 
 config: Config
 
