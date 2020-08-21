@@ -477,7 +477,9 @@ class Portal(BasePortal):
                 puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
                 if puppet:
                     try:
-                        await puppet.intent.join_room_by_id(self.mxid)
+                        did_join = await puppet.intent.join_room_by_id(self.mxid)
+                        if did_join and self.fb_type == ThreadType.USER:
+                            await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
                     except MatrixError:
                         self.log.debug("Failed to join custom puppet into newly created portal",
                                        exc_info=True)

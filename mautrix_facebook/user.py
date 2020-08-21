@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import (Any, Dict, Iterator, Optional, Iterable, Type, Callable, Awaitable,
+from typing import (Any, Dict, List, Iterator, Optional, Iterable, Type, Callable, Awaitable,
                     Union, TYPE_CHECKING)
 import asyncio
 import time
@@ -28,7 +28,8 @@ from mautrix.util.simple_lock import SimpleLock
 
 from .config import Config
 from .commands import enter_2fa_code
-from .db import User as DBUser, UserPortal as DBUserPortal, Contact as DBContact, ThreadType
+from .db import (User as DBUser, UserPortal as DBUserPortal, Contact as DBContact, ThreadType,
+                 Portal as DBPortal)
 from . import portal as po, puppet as pu
 
 if TYPE_CHECKING:
@@ -97,6 +98,7 @@ class User(BaseUser):
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log)
         self._is_refreshing = False
+        self.dm_update_lock = asyncio.Lock()
 
         self.log = self.log.getChild(self.mxid)
 
@@ -367,6 +369,13 @@ class User(BaseUser):
         except Exception:
             self.log.exception("Failed to sync contacts")
 
+    async def get_direct_chats(self) -> Dict[UserID, List[RoomID]]:
+        return {
+            pu.Puppet.get_mxid_from_id(portal.fbid): [portal.mxid]
+            for portal in DBPortal.get_all_by_receiver(self.fbid)
+            if portal.mxid
+        }
+
     async def sync_threads(self) -> None:
         if self._prev_thread_sync + 10 > time.monotonic():
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
@@ -387,6 +396,8 @@ class User(BaseUser):
                     await self._sync_thread(thread, ups, contacts)
                 except Exception:
                     self.log.exception("Failed to sync thread %s", thread.id)
+
+            await self.update_direct_chats()
         except Exception:
             self.log.exception("Failed to sync threads")
 
@@ -665,6 +676,7 @@ class User(BaseUser):
 def init(context: 'Context') -> Iterable[Awaitable[bool]]:
     global config
     User.az, config, User.loop = context.core
+    User.bridge = context.bridge
     User._community_helper = CommunityHelper(User.az)
     User.temp_disconnect_notices = config["bridge.temporary_disconnect_notices"]
     return (user.load_session() for user in User.get_all())

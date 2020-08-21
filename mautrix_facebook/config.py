@@ -35,6 +35,8 @@ class Config(BaseBridgeConfig):
 
         copy, copy_dict, base = helper
 
+        copy("homeserver.asmux")
+
         copy("appservice.community_id")
 
         copy("appservice.public.enabled")
@@ -54,6 +56,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.initial_chat_sync")
         copy("bridge.invite_own_puppet_to_pm")
         copy("bridge.sync_with_custom_puppets")
+        copy("bridge.sync_direct_chat_list")
         copy("bridge.login_shared_secret")
         copy("bridge.presence")
         copy("bridge.update_avatar_initial_sync")
