@@ -91,16 +91,22 @@ async def login_cookie(evt: CommandEvent) -> None:
     if evt.sender.client:
         await evt.reply("You're already logged in")
         return
+    domain = "messenger.com"
+    if len(evt.args) > 0 and evt.args[0].lower() == "facebook.com":
+        domain = "facebook.com"
     evt.sender.command_status = {
         "action": "Login",
         "room_id": evt.room_id,
         "next": enter_login_cookies,
         "c_user": None,
+        "domain": domain,
     }
-    await evt.reply("1. Log in to [Messenger](https://www.messenger.com/) in a private/incognito window.\n"
+    url = f"https://www.{domain}"
+    name = "Messenger" if domain == "messenger.com" else "Facebook"
+    await evt.reply(f"1. Log in to [{name}]({url}/) in a private/incognito window.\n"
                     "2. Press `F12` to open developer tools.\n"
                     "3. Select the \"Application\" (Chrome) or \"Storage\" (Firefox) tab.\n"
-                    "4. In the sidebar, expand \"Cookies\" and select `https://www.messenger.com`.\n"
+                    f"4. In the sidebar, expand \"Cookies\" and select `{url}`.\n"
                     "5. In the cookie list, find the `c_user` row and double click on the value"
                     r", then copy the value and send it here.")
 
@@ -124,7 +130,7 @@ async def enter_login_cookies(evt: CommandEvent) -> None:
         session = await fbchat.Session.from_cookies({
             "c_user": evt.sender.command_status["c_user"],
             "xs": evt.args[0],
-        }, user_agent=evt.sender.user_agent)
+        }, user_agent=evt.sender.user_agent, domain=evt.sender.command_status["domain"])
     except fbchat.FacebookError as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")

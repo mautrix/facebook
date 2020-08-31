@@ -494,6 +494,7 @@ class User(BaseUser):
             await self._listen()
             return
         except (fbchat.NotLoggedIn, fbchat.NotConnected, fbchat.PleaseRefresh) as e:
+            self.log.debug("Listen threw a Facebook error", exc_info=True)
             refresh = (config["bridge.refresh_on_reconnection_fail"]
                        and self._prev_reconnect_fail_refresh + 120 < time.monotonic())
             next_action = ("Refreshing session..." if refresh else "Not retrying!")
