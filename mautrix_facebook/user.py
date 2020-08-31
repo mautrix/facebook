@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Any, Dict, List, Iterator, Optional, Iterable, Type, Callable, Awaitable,
-                    Union, TYPE_CHECKING)
+                    Union, TYPE_CHECKING, cast)
 import asyncio
 import time
 
@@ -123,6 +123,7 @@ class User(BaseUser):
             fbchat.Connect: self.on_connect,
             fbchat.Disconnect: self.on_disconnect,
             fbchat.Resync: self.on_resync,
+            fbchat.UnknownEvent: self.on_unknown_event,
         }
 
     @property
@@ -324,9 +325,8 @@ class User(BaseUser):
             self.log.warning("Error fetching own info, retrying...", exc_info=True)
             own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
         puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
-        await puppet.update_info(source=self, info=own_info)
-        await self.sync_contacts()
-        await self.sync_threads()
+        await puppet.update_info(source=self, info=cast(fbchat.UserData, own_info))
+        await asyncio.gather(self.sync_contacts(), self.sync_threads())
 
     async def _create_community(self) -> None:
         template = config["bridge.community_template"]
@@ -543,6 +543,9 @@ class User(BaseUser):
             await handler(event)
         except Exception:
             self.log.exception(f"Failed to handle {type(event)} event from Facebook")
+
+    async def on_unknown_event(self, evt: fbchat.UnknownEvent) -> None:
+        self.log.debug(f"Unknown event %s: %s", evt.source, evt.data)
 
     async def on_connect(self, evt: fbchat.Connect) -> None:
         now = time.monotonic()
