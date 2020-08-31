@@ -29,6 +29,7 @@ class User(Base):
     fbid: str = Column(String(255), nullable=True)
     notice_room: RoomID = Column(String(255), nullable=True)
     user_agent: str = Column(String(255), nullable=True)
+    fb_domain: str = Column(String(255), nullable=False, server_default="messenger.com")
 
     @classmethod
     def all(cls) -> Iterable['User']:

@@ -58,6 +58,7 @@ class User(BaseUser):
     notice_room: RoomID
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
+    fb_domain: str
     user_agent: Optional[str]
     is_admin: bool
     permission_level: str
@@ -78,13 +79,14 @@ class User(BaseUser):
 
     def __init__(self, mxid: UserID, session: Optional[Dict[str, str]] = None,
                  notice_room: Optional[RoomID] = None, user_agent: Optional[str] = None,
-                 db_instance: Optional[DBUser] = None) -> None:
+                 fb_domain: str = "messenger.com", db_instance: Optional[DBUser] = None) -> None:
         self.mxid = mxid
         self.by_mxid[mxid] = self
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
         self.user_agent = user_agent
+        self.fb_domain = fb_domain
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
@@ -145,20 +147,22 @@ class User(BaseUser):
     def db_instance(self) -> DBUser:
         if not self._db_instance:
             self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.fbid,
-                                       notice_room=self.notice_room, user_agent=self.user_agent)
+                                       notice_room=self.notice_room, user_agent=self.user_agent,
+                                       fb_domain=self.fb_domain)
         return self._db_instance
 
     def save(self, _update_session_data: bool = True) -> None:
         self.log.debug("Saving session")
         if _update_session_data and self.session:
             self._session_data = self.session.get_cookies()
-        self.db_instance.edit(session=self._session_data, fbid=self.fbid,
+        self.db_instance.edit(session=self._session_data, fbid=self.fbid, fb_domain=self.fb_domain,
                               notice_room=self.notice_room, user_agent=self.user_agent)
 
     @classmethod
     def from_db(cls, db_user: DBUser) -> 'User':
         return User(mxid=db_user.mxid, session=db_user.session, user_agent=db_user.user_agent,
-                    notice_room=db_user.notice_room, db_instance=db_user)
+                    notice_room=db_user.notice_room, fb_domain=db_user.fb_domain,
+                    db_instance=db_user)
 
     @classmethod
     def get_all(cls) -> Iterator['User']:
@@ -205,7 +209,8 @@ class User(BaseUser):
             return False
         try:
             session = await fbchat.Session.from_cookies(self._session_data,
-                                                        user_agent=self.user_agent)
+                                                        user_agent=self.user_agent,
+                                                        domain=self.fb_domain)
             logged_in = await session.is_logged_in()
         except ProxyError:
             self.log.exception("ProxyError while trying to restore session, "
@@ -575,6 +580,7 @@ class User(BaseUser):
 
     async def on_logged_in(self, session: fbchat.Session) -> None:
         self.session = session
+        self.fb_domain = session.domain
         self.client = fbchat.Client(session=session)
         self.save()
         self.stop_listening()

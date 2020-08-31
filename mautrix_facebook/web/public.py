@@ -122,7 +122,13 @@ class PublicBridgeWebsite:
             raise web.HTTPBadRequest(body='{"error": "Malformed JSON"}', headers=self._headers)
 
         try:
-            session = await fbchat.Session.from_cookies(data, user_agent=user.user_agent)
+            domain = data.pop("domain")
+        except KeyError:
+            domain = "messenger.com"
+
+        try:
+            session = await fbchat.Session.from_cookies(data, user_agent=user.user_agent,
+                                                        domain=domain)
         except fbchat.FacebookError:
             self.log.debug("Failed to log in", exc_info=True)
             raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
