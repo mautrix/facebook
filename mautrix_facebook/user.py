@@ -311,13 +311,17 @@ class User(BaseUser):
             self.log.exception("Failed to automatically enable custom puppet")
 
         await self._create_community()
-        await self.sync_contacts()
-        await self.sync_threads()
         self.log.debug("Updating own puppet info")
         # TODO this might not be right (if it is, check that we got something sensible?)
-        own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
+        try:
+            own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
+        except Exception:
+            self.log.warning("Error fetching own info, retrying...", exc_info=True)
+            own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
         puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
         await puppet.update_info(source=self, info=own_info)
+        await self.sync_contacts()
+        await self.sync_threads()
 
     async def _create_community(self) -> None:
         template = config["bridge.community_template"]
