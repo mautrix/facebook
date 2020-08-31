@@ -257,6 +257,8 @@ class User(BaseUser):
             if self.listen_task:
                 await self.listen_task
             self.listener = None
+            if self.client:
+                self.client.sequence_id_callback = None
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
@@ -377,7 +379,8 @@ class User(BaseUser):
         }
 
     async def sync_threads(self) -> None:
-        if self._prev_thread_sync + 10 > time.monotonic():
+        if ((self._prev_thread_sync + 10 > time.monotonic()
+             and self.listener._sequence_id_wait is None)):
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
             return
         self._prev_thread_sync = time.monotonic()
@@ -506,6 +509,7 @@ class User(BaseUser):
     async def _listen(self) -> None:
         if not self.listener:
             self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
+            self.client.sequence_id_callback = self.listener.set_sequence_id
 
         self.log.debug("Starting fbchat listener")
         async for event in self.listener.listen():
@@ -561,6 +565,8 @@ class User(BaseUser):
         if self.listen_task:
             self.listen_task.cancel()
         self.listener = None
+        if self.client:
+            self.client.sequence_id_callback = None
         self.listen_task = None
 
     async def on_logged_in(self, session: fbchat.Session) -> None:
