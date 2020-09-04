@@ -109,10 +109,17 @@ class PublicBridgeWebsite:
             "facebook": None,
         }
         if await user.is_logged_in():
-            info = cast(fbchat.UserData,
-                        await user.client.fetch_thread_info([user.fbid]).__anext__())
-            data["facebook"] = attr.asdict(info)
-            del data["facebook"]["session"]
+            try:
+                info = cast(fbchat.UserData,
+                            await user.client.fetch_thread_info([user.fbid]).__anext__())
+                data["facebook"] = attr.asdict(info)
+                del data["facebook"]["session"]
+            except fbchat._exception.ServerRedirect:
+                data["facebook"] = {
+                    "id": "unknown",
+                    "name": "Unknown user",
+                    "server_redirect": True,
+                }
             data["facebook"]["connected"] = user.is_connected
         return web.json_response(data, headers=self._acao_headers)
 
