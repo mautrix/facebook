@@ -364,7 +364,8 @@ class User(BaseUser):
             if contact and ic:
                 contact.edit(in_community=True)
             elif not contact:
-                DBContact(user=self.fbid, contact=puppet.fbid, in_community=ic).insert()
+                # This uses upsert instead of insert as a hacky fix for potential conflicts
+                DBContact(user=self.fbid, contact=puppet.fbid, in_community=ic).upsert()
 
     async def sync_contacts(self):
         try:
