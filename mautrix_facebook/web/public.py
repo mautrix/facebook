@@ -46,6 +46,9 @@ class PublicBridgeWebsite:
         self.app.router.add_options("/api/login", self.login_options)
         self.app.router.add_post("/api/login", self.login)
         self.app.router.add_post("/api/logout", self.logout)
+        self.app.router.add_post("/api/disconnect", self.disconnect)
+        self.app.router.add_post("/api/reconnect", self.reconnect)
+        self.app.router.add_post("/api/refresh", self.refresh)
         self.app.router.add_static("/", pkg_resources.resource_filename("mautrix_facebook",
                                                                         "web/static/"))
 
@@ -106,9 +109,11 @@ class PublicBridgeWebsite:
             "facebook": None,
         }
         if await user.is_logged_in():
-            info = cast(fbchat.UserData, await user.client.fetch_thread_info([user.fbid]).__anext__())
+            info = cast(fbchat.UserData,
+                        await user.client.fetch_thread_info([user.fbid]).__anext__())
             data["facebook"] = attr.asdict(info)
             del data["facebook"]["session"]
+            data["facebook"]["connected"] = user.is_connected
         return web.json_response(data, headers=self._acao_headers)
 
     async def login(self, request: web.Request) -> web.Response:
@@ -148,4 +153,26 @@ class PublicBridgeWebsite:
         await user.logout()
         if puppet.is_real_user:
             await puppet.switch_mxid(None, None)
+        return web.json_response({}, headers=self._acao_headers)
+
+    async def disconnect(self, request: web.Request) -> web.Response:
+        user = self.check_token(request)
+        if not user.is_connected:
+            raise web.HTTPBadRequest(body='{"error": "User is not connected"}',
+                                     headers=self._headers)
+        user.listener.disconnect()
+        await user.listen_task
+        return web.json_response({}, headers=self._acao_headers)
+
+    async def reconnect(self, request: web.Request) -> web.Response:
+        user = self.check_token(request)
+        if user.is_connected:
+            raise web.HTTPConflict(body='{"error": "User is already connected"}',
+                                   headers=self._headers)
+        user.start_listen()
+        return web.json_response({}, headers=self._acao_headers)
+
+    async def refresh(self, request: web.Request) -> web.Response:
+        user = self.check_token(request)
+        await user.try_refresh()
         return web.json_response({}, headers=self._acao_headers)
