@@ -46,6 +46,7 @@ config: Config
 
 class User(BaseUser):
     temp_disconnect_notices: bool = True
+    shutdown: bool = False
 
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[str, 'User'] = {}
@@ -526,7 +527,7 @@ class User(BaseUser):
         async for event in self.listener.listen():
             await self._handle_event(event)
         self.is_connected = False
-        if not self._is_refreshing:
+        if not self._is_refreshing and not self.shutdown:
             await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def _handle_event(self, event: Any) -> None:

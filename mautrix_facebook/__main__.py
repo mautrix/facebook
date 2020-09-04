@@ -62,14 +62,19 @@ class MessengerBridge(Bridge):
         self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
         self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
 
-    def prepare_shutdown(self) -> None:
+    def prepare_stop(self) -> None:
         self.periodic_reconnect_task.cancel()
         self.log.debug("Stopping puppet syncers")
         for puppet in Puppet.by_custom_mxid.values():
             puppet.stop()
-        self.log.debug("Saving user sessions and stopping listeners")
-        for mxid, user in User.by_mxid.items():
+        self.log.debug("Stopping facebook listeners")
+        User.shutdown = True
+        for user in User.by_fbid.values():
             user.stop_listening()
+
+    def prepare_shutdown(self) -> None:
+        self.log.debug("Saving user sessions")
+        for user in User.by_mxid.values():
             user.save()
 
     async def start(self) -> None:
@@ -143,5 +148,6 @@ class MessengerBridge(Bridge):
 
     def is_bridge_ghost(self, user_id: UserID) -> bool:
         return bool(Puppet.get_id_from_mxid(user_id))
+
 
 MessengerBridge().run()
