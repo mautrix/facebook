@@ -241,21 +241,21 @@ class Portal(BasePortal):
         return path[path.rfind("/") + 1:]
 
     @staticmethod
-    async def _reupload_fb_file(url: str, intent: IntentAPI, filename: Optional[str] = None,
-                                convert: Optional[Callable[[bytes], Awaitable[bytes]]] = None,
-                                encrypt: bool = False
+    async def _reupload_fb_file(url: str, source: fbchat.Client, intent: IntentAPI, *,
+                                filename: Optional[str] = None, encrypt: bool = False,
+                                convert: Optional[Callable[[bytes], Awaitable[bytes]]] = None
                                 ) -> Tuple[ContentURI, str, int, Optional[EncryptedFile]]:
         if not url:
             raise ValueError('URL not provided')
-        async with aiohttp.ClientSession() as session:
+        session = source.session._session
+        resp = await session.get(url)
+        try:
+            url = resp.headers["Refresh"].split(";", 1)[1].split("=", 1)[1]
+        except (KeyError, IndexError):
+            pass
+        else:
             resp = await session.get(url)
-            try:
-                url = resp.headers["Refresh"].split(";", 1)[1].split("=", 1)[1]
-            except (KeyError, IndexError):
-                pass
-            else:
-                resp = await session.get(url)
-            data = await resp.read()
+        data = await resp.read()
         if convert:
             data = await convert(data)
         mime = magic.from_buffer(data, mime=True)
@@ -715,7 +715,7 @@ class Portal(BasePortal):
         event_ids = []
         if message.sticker:
             event_ids = [await self._handle_facebook_sticker(
-                intent, message.sticker, message.reply_to_id, message.created_at)]
+                source.client, intent, message.sticker, message.reply_to_id, message.created_at)]
         elif len(message.attachments) > 0:
             attach_ids = await asyncio.gather(
                 *[self._handle_facebook_attachment(source.client, intent, attachment,
@@ -769,8 +769,9 @@ class Portal(BasePortal):
         await self._add_facebook_reply(content, message.reply_to_id)
         return await self._send_message(intent, content, timestamp=message.created_at)
 
-    async def _handle_facebook_sticker(self, intent: IntentAPI, sticker: fbchat.Sticker,
-                                       reply_to: str, timestamp: datetime) -> EventID:
+    async def _handle_facebook_sticker(self, source: fbchat.Client, intent: IntentAPI,
+                                       sticker: fbchat.Sticker, reply_to: str, timestamp: datetime
+                                       ) -> EventID:
         width, height = sticker.image.width, sticker.image.height
         if sticker.is_animated and Image and convert_cmd:
             async def convert(data: bytes) -> bytes:
@@ -780,10 +781,11 @@ class Portal(BasePortal):
                 return data
 
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
-                sticker.large_sprite_image, intent, encrypt=self.encrypted, convert=convert)
+                sticker.large_sprite_image, source, intent,
+                encrypt=self.encrypted, convert=convert)
         else:
             mxc, mime, size, decryption_info = await self._reupload_fb_file(
-                sticker.image.url, intent, encrypt=self.encrypted)
+                sticker.image.url, source, intent, encrypt=self.encrypted)
         return await self._send_message(intent, event_type=EventType.STICKER,
                                         content=MediaMessageEventContent(
                                             url=mxc, file=decryption_info,
@@ -823,7 +825,7 @@ class Portal(BasePortal):
             info = VideoInfo(width=attachment.width, height=attachment.height,
                              duration=attachment.duration.seconds)
         elif isinstance(attachment, fbchat.LocationAttachment):
-            return await self._convert_facebook_location(intent, attachment)
+            return await self._convert_facebook_location(source, intent, attachment)
         else:
             msg = f"Unsupported attachment type {type(attachment)}"
             self.log.warning(msg)
@@ -836,14 +838,14 @@ class Portal(BasePortal):
         else:
             url = attachment.url
         mxc, info.mimetype, info.size, decryption_info = await self._reupload_fb_file(
-            url, intent, filename, encrypt=self.encrypted)
+            url, source, intent, filename=filename, encrypt=self.encrypted)
         if isinstance(attachment, fbchat.VideoAttachment):
             filename = f"video{guess_extension(info.mimetype)}"
         return MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
                                         body=filename, info=info)
 
     async def _convert_facebook_location(
-        self, intent: IntentAPI, location: fbchat.LocationAttachment
+        self, source: fbchat.Client, intent: IntentAPI, location: fbchat.LocationAttachment
     ) -> Union[LocationMessageEventContent, TextMessageEventContent]:
         long, lat = location.longitude, location.latitude
         if not long or not lat:
@@ -864,7 +866,7 @@ class Portal(BasePortal):
 
         if location.image and location.image.url:
             thumbnail_url, mime, size, decryption_info = await self._reupload_fb_file(
-                location.image.url, intent, encrypt=True)
+                location.image.url, source, intent, encrypt=True)
             thumbnail_info = ThumbnailInfo(mimetype=mime, width=location.image.width,
                                            height=location.image.height, size=size)
             info = LocationInfo(thumbnail_url=thumbnail_url, thumbnail_file=decryption_info,
@@ -920,7 +922,7 @@ class Portal(BasePortal):
         if self.photo_id == photo_id:
             return
         self.photo_id = photo_id
-        self.avatar_url, *_ = await self._reupload_fb_file(photo_url, sender.intent)
+        self.avatar_url, *_ = await self._reupload_fb_file(photo_url, source.client, sender.intent)
         try:
             event_id = await sender.intent.set_room_avatar(self.mxid, self.avatar_url)
         except IntentError:
