@@ -257,18 +257,25 @@ class User(BaseUser):
         event_id = None
         self._is_refreshing = True
         if self.listener:
+            self.log.debug("Disconnecting MQTT connection for session refresh...")
             if self.temp_disconnect_notices or force_notice:
                 event_id = await self.send_bridge_notice("Disconnecting Messenger MQTT connection "
                                                          "for session refresh...")
             self.listener.disconnect()
             if self.listen_task:
-                await self.listen_task
+                try:
+                    await asyncio.wait_for(self.listen_task, timeout=3)
+                except asyncio.TimeoutError:
+                    self.log.debug("Waiting for MQTT connection timed out")
+                else:
+                    self.log.debug("MQTT connection disconnected")
             self.listener = None
             if self.client:
                 self.client.sequence_id_callback = None
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
+            self.log.debug("Re-loading session for refresh")
             ok = await self.load_session(_override=True, _raise_errors=True)
         except fbchat.FacebookError as e:
             await self.send_bridge_notice("Failed to refresh Messenger session: "
