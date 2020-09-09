@@ -15,9 +15,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import asyncio
 import logging
+import random
+import time
 
 from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
+from prometheus_client import start_http_server as start_prometheus, Summary
 
 from .config import Config
 from .db import init as init_db
@@ -29,6 +32,9 @@ from .context import Context
 from .version import version, linkified_version
 from .web import PublicBridgeWebsite
 
+# Create a metric to track time spent and requests made.
+REQUEST_TIME = Summary('request_processing_seconds',
+                       'Time spent processing request')
 
 class MessengerBridge(Bridge):
     name = "mautrix-facebook"
@@ -149,5 +155,6 @@ class MessengerBridge(Bridge):
     def is_bridge_ghost(self, user_id: UserID) -> bool:
         return bool(Puppet.get_id_from_mxid(user_id))
 
+start_prometheus(8000)
 
 MessengerBridge().run()
