@@ -47,6 +47,9 @@ class Config(BaseBridgeConfig):
         else:
             copy("appservice.public.shared_secret")
 
+        copy("metrics.enabled")
+        copy("metrics.listen_port")
+
         copy("bridge.username_template")
         copy("bridge.displayname_template")
         copy("bridge.displayname_preference")
