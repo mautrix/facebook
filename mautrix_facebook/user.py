@@ -577,7 +577,7 @@ class User(BaseUser):
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
-    async def on_resync(self) -> None:
+    async def on_resync(self, evt: fbchat.Resync) -> None:
         self.log.info("sequence_id changed, resyncing threads...")
         await self.sync_threads()
 
