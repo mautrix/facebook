@@ -5,4 +5,4 @@ ruamel.yaml>=0.15.94,<0.17
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
 mautrix>=0.7.1,<0.8
-fbchat-asyncio>=0.6.17,<0.7
+fbchat-asyncio>=0.6.18,<0.7
