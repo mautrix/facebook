@@ -325,14 +325,23 @@ class Portal(BasePortal):
             return
         elif not self.mxid:
             return
+        puppets = {user.id: p.Puppet.get_by_fbid(user.id) for user in info.participants}
+        puppet_ids = [puppet.fbid for puppet in puppets.values() if puppet.should_sync]
+        if not puppet_ids:
+            return
         # TODO maybe change this back to happen simultaneously
-        async for user in source.client.fetch_thread_info([user.id for user in info.participants]):
+        async for user in source.client.fetch_thread_info(puppet_ids):
             if not isinstance(user, fbchat.UserData):
                 # TODO log
                 continue
-            puppet = p.Puppet.get_by_fbid(user.id)
-            await puppet.update_info(source, user)
-            await puppet.intent_for(self).ensure_joined(self.mxid)
+            try:
+                puppet = puppets[user.id]
+            except KeyError:
+                self.log.warning("Unexpected puppet with ID %s in fetch_thread_info response "
+                                 "while syncing portal participants", user.id)
+            else:
+                await puppet.update_info(source, user)
+                await puppet.intent_for(self).ensure_joined(self.mxid)
 
     # endregion
     # region Matrix room creation

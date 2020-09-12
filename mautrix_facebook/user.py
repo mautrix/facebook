@@ -334,7 +334,8 @@ class User(BaseUser):
             own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
         puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
         await puppet.update_info(source=self, info=cast(fbchat.UserData, own_info))
-        await asyncio.gather(self.sync_contacts(), self.sync_threads())
+        await self.sync_contacts()
+        await self.sync_threads()
 
     async def _create_community(self) -> None:
         template = config["bridge.community_template"]

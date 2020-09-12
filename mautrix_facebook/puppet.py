@@ -14,10 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, Iterator, Iterable, Awaitable, TYPE_CHECKING
+from datetime import datetime, timedelta
 import logging
 import asyncio
-import attr
 
+import attr
 import magic
 import fbchat
 import aiohttp
@@ -52,6 +53,7 @@ class Puppet(CustomPuppetMixin):
     photo_id: str
 
     is_registered: bool
+    _last_info_sync: Optional[datetime]
 
     custom_mxid: UserID
     access_token: str
@@ -69,6 +71,7 @@ class Puppet(CustomPuppetMixin):
         self.photo_id = photo_id
 
         self.is_registered = is_registered
+        self._last_info_sync = None
 
         self.custom_mxid = custom_mxid
         self.access_token = access_token
@@ -120,6 +123,15 @@ class Puppet(CustomPuppetMixin):
 
     # endregion
 
+    @property
+    def should_sync(self) -> bool:
+        now = datetime.now()
+        if not self._last_info_sync or now - self._last_info_sync > timedelta(hours=48):
+            self._last_info_sync = now
+            return True
+        return False
+
+
     async def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
         portal = p.Portal.get_by_mxid(room_id)
         return portal and portal.fbid != self.fbid
@@ -143,8 +155,11 @@ class Puppet(CustomPuppetMixin):
                           info: Optional[fbchat.UserData] = None,
                           update_avatar: bool = True) -> 'Puppet':
         if not info:
+            if not self.should_sync:
+                return self
             info = await source.client.fetch_thread_info([self.fbid]).__anext__()
             # TODO validate that we got some sane info?
+        self._last_info_sync = datetime.now()
         try:
             changed = await self._update_name(info)
             if update_avatar:
