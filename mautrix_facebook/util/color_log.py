@@ -13,17 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from mautrix.util.logging.color import (ColorFormatter as BaseColorFormatter, PREFIX, MXID_COLOR,
-                                        RESET)
+from mautrix.util.logging.color import ColorFormatter as BaseColorFormatter, PREFIX, RESET
 
 FBCHAT_COLOR = PREFIX + "35;1m"  # magenta
 
 
 class ColorFormatter(BaseColorFormatter):
     def _color_name(self, module: str) -> str:
-        fbchat = ["fbchat.util", "fbchat.request", "fbchat.client"]
-        for prefix in fbchat:
-            if module.startswith(prefix):
-                return (FBCHAT_COLOR + prefix + RESET
-                        + "." + MXID_COLOR + module[len(prefix) + 1:] + RESET)
+        if module.startswith("fbchat"):
+            return FBCHAT_COLOR + module + RESET
         return super()._color_name(module)
