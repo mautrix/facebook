@@ -191,14 +191,14 @@ class Puppet(CustomPuppetMixin):
     async def reupload_avatar(source: Optional['u.User'], intent: IntentAPI, url: str,
                               fbid: Optional[str]) -> ContentURI:
         data = None
+        http_client = source.client.session._session
         if url and source and source.client and source.client.session:
-            http_client = source.client.session._session
             graph_url = f"https://graph.facebook.com/{fbid}/picture?width=1000&height=1000"
             async with http_client.get(graph_url) as resp:
                 if resp.status < 400:
                     data = await resp.read()
         if data is None:
-            async with aiohttp.ClientSession() as session, session.get(url) as resp:
+            async with http_client.get(url) as resp:
                 data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
         return await intent.upload_media(data, mime_type=mime)
