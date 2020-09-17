@@ -244,6 +244,7 @@ class User(BaseUser):
             self.log.info("Loaded session successfully")
             self.session = session
             self.client = fbchat.Client(session=self.session)
+            METRIC_LOGGED_IN.labels('fbid', self.fbid).state('true')
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listening()
@@ -623,7 +624,6 @@ class User(BaseUser):
         self.save()
         self.stop_listening()
         self.start_listen()
-        METRIC_LOGGED_IN.labels('fbid', self.fbid).state('true')
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
     @METRIC_MESSAGE.time()
