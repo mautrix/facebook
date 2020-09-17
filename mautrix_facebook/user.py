@@ -319,7 +319,7 @@ class User(BaseUser):
             except fbchat.FacebookError:
                 self.log.exception("Error while logging out")
                 ok = False
-        METRIC_LOGGED_IN.state('false')
+        METRIC_LOGGED_IN.labels('fbid', self.fbid).state('false')
         self._session_data = None
         self._is_logged_in = False
         self.is_connected = None
@@ -585,7 +585,7 @@ class User(BaseUser):
         max_delay = config["bridge.resync_max_disconnected_time"]
         first_connect = self.is_connected is None
         self.is_connected = True
-        METRIC_CONNECTED.state('true')
+        METRIC_CONNECTED.labels('fbid', self.fbid).state('true')
         if not first_connect and disconnected_at + max_delay < now:
             duration = int(now - disconnected_at)
             self.log.debug("Disconnection lasted %d seconds, re-syncing threads...", duration)
@@ -597,7 +597,7 @@ class User(BaseUser):
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
         self.is_connected = False
-        METRIC_CONNECTED.state('false')
+        METRIC_CONNECTED.labels('fbid', self.fbid).state('false')
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
@@ -623,7 +623,7 @@ class User(BaseUser):
         self.save()
         self.stop_listening()
         self.start_listen()
-        METRIC_LOGGED_IN.state('true')
+        METRIC_LOGGED_IN.labels('fbid', self.fbid).state('true')
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
     @METRIC_MESSAGE.time()
