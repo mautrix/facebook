@@ -19,6 +19,7 @@ import asyncio
 import time
 
 import fbchat
+from prometheus_client import Summary, Enum
 from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEventContent,
                            MessageType)
 from mautrix.client import Client as MxClient
@@ -31,7 +32,6 @@ from .commands import enter_2fa_code
 from .db import (User as DBUser, UserPortal as DBUserPortal, Contact as DBContact, ThreadType,
                  Portal as DBPortal)
 from . import portal as po, puppet as pu
-from prometheus_client import Summary, Enum
 
 METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
 METRIC_RESYNC = Summary('bridge_on_resync', 'calls to on_resync')
@@ -45,8 +45,8 @@ METRIC_MESSAGE_UNSENT = Summary('bridge_on_unsent', 'calls to on_unsent')
 METRIC_MESSAGE_SEEN = Summary('bridge_on_message_seen', 'calls to on_message_seen')
 METRIC_TITLE_CHANGE = Summary('bridge_on_title_change', 'calls to on_title_change')
 METRIC_MESSAGE = Summary('bridge_on_message', 'calls to on_message')
-METRIC_LOGGED_IN = Enum('bridge_logged_in', 'Bridge Logged in', states=['true', 'false'])
-METRIC_CONNECTED = Enum('bridge_connected', 'Bridge Connected', states=['true', 'false'])
+METRIC_LOGGED_IN = Enum('bridge_logged_in', 'Bridge Logged in', states=["true", "false"], labelnames=["fbid"])
+METRIC_CONNECTED = Enum('bridge_connected', 'Bridge Connected', states=["true", "false"], labelnames=["fbid"])
 
 if TYPE_CHECKING:
     from .context import Context
@@ -244,7 +244,7 @@ class User(BaseUser):
             self.log.info("Loaded session successfully")
             self.session = session
             self.client = fbchat.Client(session=self.session)
-            METRIC_LOGGED_IN.labels('fbid', self.fbid).state('true')
+            METRIC_LOGGED_IN.labels(fbid=self.fbid).state("true")
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listening()
@@ -320,7 +320,7 @@ class User(BaseUser):
             except fbchat.FacebookError:
                 self.log.exception("Error while logging out")
                 ok = False
-        METRIC_LOGGED_IN.labels('fbid', self.fbid).state('false')
+        METRIC_LOGGED_IN.labels(fbid=self.fbid).state("false")
         self._session_data = None
         self._is_logged_in = False
         self.is_connected = None
@@ -586,7 +586,7 @@ class User(BaseUser):
         max_delay = config["bridge.resync_max_disconnected_time"]
         first_connect = self.is_connected is None
         self.is_connected = True
-        METRIC_CONNECTED.labels('fbid', self.fbid).state('true')
+        METRIC_CONNECTED.labels(fbid=self.fbid).state("true")
         if not first_connect and disconnected_at + max_delay < now:
             duration = int(now - disconnected_at)
             self.log.debug("Disconnection lasted %d seconds, re-syncing threads...", duration)
@@ -598,7 +598,7 @@ class User(BaseUser):
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
         self.is_connected = False
-        METRIC_CONNECTED.labels('fbid', self.fbid).state('false')
+        METRIC_CONNECTED.labels(fbid=self.fbid).state("false")
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
