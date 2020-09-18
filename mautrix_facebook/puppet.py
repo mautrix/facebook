@@ -176,6 +176,7 @@ class Puppet(CustomPuppetMixin):
         for preference in config["bridge.displayname_preference"]:
             if getattr(info, preference, None):
                 displayname = getattr(info, preference)
+                break
         return config["bridge.displayname_template"].format(displayname=displayname,
                                                             **attr.asdict(info))
 
