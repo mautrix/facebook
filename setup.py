@@ -70,7 +70,7 @@ setuptools.setup(
         "example-config.yaml",
     ]},
     data_files=[
-        (".", ["alembic.ini"]),
+        (".", ["alembic.ini", "mautrix_facebook/example-config.yaml"]),
         ("alembic", ["alembic/env.py"]),
         ("alembic/versions", glob.glob("alembic/versions/*.py"))
     ],
