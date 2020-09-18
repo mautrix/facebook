@@ -33,6 +33,7 @@ class Puppet(Base):
     custom_mxid: UserID = Column(String(255), nullable=True)
     access_token: str = Column(Text, nullable=True)
     next_batch: SyncToken = Column(String(255), nullable=True)
+    base_url: str = Column(Text, nullable=True)
 
     @classmethod
     def get_by_fbid(cls, fbid: str) -> Optional['Puppet']:

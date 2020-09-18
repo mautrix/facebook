@@ -18,10 +18,11 @@ from datetime import datetime, timedelta
 import logging
 import asyncio
 
-import attr
-import magic
+from yarl import URL
 import fbchat
-import aiohttp
+import magic
+import attr
+
 from mautrix.types import UserID, RoomID, SyncToken, ContentURI
 from mautrix.appservice import AppService, IntentAPI
 from mautrix.bridge.custom_puppet import CustomPuppetMixin
@@ -58,6 +59,7 @@ class Puppet(CustomPuppetMixin):
     custom_mxid: UserID
     access_token: str
     _next_batch: SyncToken
+    base_url: Optional[URL]
 
     _db_instance: Optional[DBPuppet]
 
@@ -65,7 +67,7 @@ class Puppet(CustomPuppetMixin):
 
     def __init__(self, fbid: str, name: str = "", photo_id: str = "", is_registered: bool = False,
                  custom_mxid: UserID = "", access_token: str = "", next_batch: SyncToken = "",
-                 db_instance: Optional[DBPuppet] = None) -> None:
+                 base_url: Optional[str] = None, db_instance: Optional[DBPuppet] = None) -> None:
         self.fbid = fbid
         self.name = name
         self.photo_id = photo_id
@@ -76,6 +78,7 @@ class Puppet(CustomPuppetMixin):
         self.custom_mxid = custom_mxid
         self.access_token = access_token
         self._next_batch = next_batch
+        self.base_url = URL(base_url) if base_url else None
 
         self._db_instance = db_instance
 
@@ -97,7 +100,8 @@ class Puppet(CustomPuppetMixin):
             self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, photo_id=self.photo_id,
                                          matrix_registered=self.is_registered,
                                          custom_mxid=self.custom_mxid, next_batch=self._next_batch,
-                                         access_token=self.access_token)
+                                         access_token=self.access_token,
+                                         base_url=str(self.base_url))
         return self._db_instance
 
     @classmethod
@@ -105,12 +109,12 @@ class Puppet(CustomPuppetMixin):
         return Puppet(fbid=db_puppet.fbid, name=db_puppet.name, photo_id=db_puppet.photo_id,
                       is_registered=db_puppet.matrix_registered, custom_mxid=db_puppet.custom_mxid,
                       access_token=db_puppet.access_token, next_batch=db_puppet.next_batch,
-                      db_instance=db_puppet)
+                      base_url=db_puppet.base_url, db_instance=db_puppet)
 
     async def save(self) -> None:
         self.db_instance.edit(name=self.name, photo_id=self.photo_id,
                               matrix_registered=self.is_registered, custom_mxid=self.custom_mxid,
-                              access_token=self.access_token)
+                              access_token=self.access_token, base_url=str(self.base_url))
 
     @property
     def next_batch(self) -> SyncToken:
@@ -130,7 +134,6 @@ class Puppet(CustomPuppetMixin):
             self._last_info_sync = now
             return True
         return False
-
 
     async def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
         portal = p.Portal.get_by_mxid(room_id)
@@ -291,13 +294,15 @@ def init(context: 'Context') -> Iterable[Awaitable[None]]:
     global config
     Puppet.az, config, Puppet.loop = context.core
     Puppet.mx = context.mx
-    CustomPuppetMixin.sync_with_custom_puppets = config["bridge.sync_with_custom_puppets"]
     Puppet.hs_domain = config["homeserver"]["domain"]
     Puppet.mxid_template = SimpleTemplate(config["bridge.username_template"], "userid",
                                           prefix="@", suffix=f":{Puppet.hs_domain}", type=str)
-
-    secret = config["bridge.login_shared_secret"]
-    Puppet.login_shared_secret = secret.encode("utf-8") if secret else None
+    Puppet.sync_with_custom_puppets = config["bridge.sync_with_custom_puppets"]
+    Puppet.homeserver_url_map = {server: URL(url) for server, url
+                                 in config["bridge.double_puppet_server_map"].items()}
+    Puppet.allow_discover_url = config["bridge.double_puppet_allow_discovery"]
+    Puppet.login_shared_secret_map = {server: secret.encode("utf-8") for server, secret
+                                      in config["bridge.login_shared_secret_map"].items()}
     Puppet.login_device_name = "Facebook Messenger Bridge"
 
     return (puppet.try_start() for puppet in Puppet.get_all_with_custom_mxid())

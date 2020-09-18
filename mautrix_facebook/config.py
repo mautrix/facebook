@@ -60,7 +60,14 @@ class Config(BaseBridgeConfig):
         copy("bridge.invite_own_puppet_to_pm")
         copy("bridge.sync_with_custom_puppets")
         copy("bridge.sync_direct_chat_list")
-        copy("bridge.login_shared_secret")
+        copy("bridge.double_puppet_server_map")
+        copy("bridge.double_puppet_allow_discovery")
+        if "bridge.login_shared_secret" in self:
+            base["bridge.login_shared_secret_map"] = {
+                base["homeserver.domain"]: self["bridge.login_shared_secret"]
+            }
+        else:
+            copy("bridge.login_shared_secret_map")
         copy("bridge.presence")
         copy("bridge.update_avatar_initial_sync")
         copy("bridge.encryption.allow")
