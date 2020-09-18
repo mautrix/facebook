@@ -19,13 +19,13 @@ import asyncio
 import time
 
 import fbchat
-from prometheus_client import Summary, Enum
 from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEventContent,
                            MessageType)
 from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
+from mautrix.util.opt_prometheus import Summary, Enum
 
 from .config import Config
 from .commands import enter_2fa_code
