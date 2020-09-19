@@ -25,7 +25,7 @@ from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
-from mautrix.util.opt_prometheus import Summary, Enum
+from mautrix.util.opt_prometheus import Summary, Enum, async_time
 
 from .config import Config
 from .commands import enter_2fa_code
@@ -45,8 +45,10 @@ METRIC_MESSAGE_UNSENT = Summary('bridge_on_unsent', 'calls to on_unsent')
 METRIC_MESSAGE_SEEN = Summary('bridge_on_message_seen', 'calls to on_message_seen')
 METRIC_TITLE_CHANGE = Summary('bridge_on_title_change', 'calls to on_title_change')
 METRIC_MESSAGE = Summary('bridge_on_message', 'calls to on_message')
-METRIC_LOGGED_IN = Enum('bridge_logged_in', 'Bridge Logged in', states=["true", "false"], labelnames=["fbid"])
-METRIC_CONNECTED = Enum('bridge_connected', 'Bridge Connected', states=["true", "false"], labelnames=["fbid"])
+METRIC_LOGGED_IN = Enum('bridge_logged_in', 'Bridge Logged in', states=["true", "false"],
+                        labelnames=("fbid",))
+METRIC_CONNECTED = Enum('bridge_connected', 'Bridge Connected', states=["true", "false"],
+                        labelnames=("fbid",))
 
 if TYPE_CHECKING:
     from .context import Context
@@ -270,7 +272,6 @@ class User(BaseUser):
             await self.send_bridge_notice("Fatal error while trying to refresh after connection "
                                           "error (see logs for more info)", important=True)
 
-
     async def refresh(self, force_notice: bool = False) -> None:
         event_id = None
         self._is_refreshing = True
@@ -416,7 +417,7 @@ class User(BaseUser):
             if portal.mxid
         }
 
-    @METRIC_SYNC_THREADS.time()
+    @async_time(METRIC_SYNC_THREADS)
     async def sync_threads(self) -> None:
         if ((self._prev_thread_sync + 10 > time.monotonic()
              and self.listener._sequence_id_wait is None)):
@@ -575,10 +576,9 @@ class User(BaseUser):
         except Exception:
             self.log.exception(f"Failed to handle {type(event)} event from Facebook")
 
-    @METRIC_UNKNOWN_EVENT.time()
+    @async_time(METRIC_UNKNOWN_EVENT)
     async def on_unknown_event(self, evt: fbchat.UnknownEvent) -> None:
         self.log.debug(f"Unknown event %s: %s", evt.source, evt.data)
-
 
     async def on_connect(self, evt: fbchat.Connect) -> None:
         now = time.monotonic()
@@ -602,7 +602,7 @@ class User(BaseUser):
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
-    @METRIC_RESYNC.time()
+    @async_time(METRIC_RESYNC)
     async def on_resync(self, evt: fbchat.Resync) -> None:
         self.log.info("sequence_id changed, resyncing threads...")
         await self.sync_threads()
@@ -626,7 +626,7 @@ class User(BaseUser):
         self.start_listen()
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
-    @METRIC_MESSAGE.time()
+    @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: Union[fbchat.MessageEvent, fbchat.MessageReplyEvent]) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
@@ -636,7 +636,7 @@ class User(BaseUser):
         await portal.backfill_lock.wait(evt.message.id)
         await portal.handle_facebook_message(self, puppet, evt.message)
 
-    @METRIC_TITLE_CHANGE.time()
+    @async_time(METRIC_TITLE_CHANGE)
     async def on_title_change(self, evt: fbchat.TitleSet) -> None:
         assert isinstance(evt.thread, fbchat.Group)
         portal = po.Portal.get_by_thread(evt.thread)
@@ -665,7 +665,7 @@ class User(BaseUser):
         await portal.backfill_lock.wait(mid)
         await portal.handle_facebook_photo(self, sender, new_image, mid)
 
-    @METRIC_MESSAGE_SEEN.time()
+    @async_time(METRIC_MESSAGE_SEEN)
     async def on_message_seen(self, evt: fbchat.ThreadsRead) -> None:
         puppet = pu.Puppet.get_by_fbid(evt.author.id)
         for thread in evt.threads:
@@ -675,7 +675,7 @@ class User(BaseUser):
                 await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
                 await portal.handle_facebook_seen(self, puppet)
 
-    @METRIC_MESSAGE_UNSENT.time()
+    @async_time(METRIC_MESSAGE_UNSENT)
     async def on_message_unsent(self, evt: fbchat.UnsendEvent) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
@@ -684,7 +684,7 @@ class User(BaseUser):
             puppet = pu.Puppet.get_by_fbid(evt.author.id)
             await portal.handle_facebook_unsend(self, puppet, evt.message.id)
 
-    @METRIC_REACTION.time()
+    @async_time(METRIC_REACTION)
     async def on_reaction(self, evt: fbchat.ReactionEvent) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
@@ -697,7 +697,7 @@ class User(BaseUser):
         else:
             await portal.handle_facebook_reaction_add(self, puppet, evt.message.id, evt.reaction)
 
-    @METRIC_PRESENCE.time()
+    @async_time(METRIC_PRESENCE)
     async def on_presence(self, evt: fbchat.Presence) -> None:
         for user, status in evt.statuses.items():
             puppet = pu.Puppet.get_by_fbid(user, create=False)
@@ -706,7 +706,7 @@ class User(BaseUser):
                     presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
                     ignore_cache=True)
 
-    @METRIC_TYPING.time()
+    @async_time(METRIC_TYPING)
     async def on_typing(self, evt: fbchat.Typing) -> None:
         fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
@@ -714,7 +714,7 @@ class User(BaseUser):
             puppet = pu.Puppet.get_by_fbid(evt.author.id)
             await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
 
-    @METRIC_MEMBERS_ADDED.time()
+    @async_time(METRIC_MEMBERS_ADDED)
     async def on_members_added(self, evt: fbchat.PeopleAdded) -> None:
         assert isinstance(evt.thread, fbchat.Group)
         portal = po.Portal.get_by_thread(evt.thread)
@@ -724,7 +724,7 @@ class User(BaseUser):
             await portal.backfill_lock.wait("member add")
             await portal.handle_facebook_join(self, sender, users)
 
-    @METRIC_MEMBER_REMOVED.time()
+    @async_time(METRIC_MEMBER_REMOVED)
     async def on_member_removed(self, evt: fbchat.PersonRemoved) -> None:
         assert isinstance(evt.thread, fbchat.Group)
         portal = po.Portal.get_by_thread(evt.thread)
