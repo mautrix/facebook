@@ -1147,6 +1147,7 @@ class Portal(BasePortal):
 def init(context: 'Context') -> None:
     global config
     Portal.az, config, Portal.loop = context.core
+    Portal.bridge = context.bridge
     Portal.matrix = context.mx
     Portal.invite_own_puppet_to_pm = config["bridge.invite_own_puppet_to_pm"]
     NotificationDisabler.puppet_cls = p.Puppet
