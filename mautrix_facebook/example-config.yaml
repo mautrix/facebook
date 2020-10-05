@@ -7,7 +7,9 @@ homeserver:
     # Whether or not to verify the SSL certificate of the homeserver.
     # Only applies if address starts with https://
     verify_ssl: true
-    # Homeserver supports `_matrix/client/unstable/net.maunium.asmux/dms` for atomically updating the DM list
+    # Whether or not the homeserver supports asmux-specific endpoints,
+    # such as /_matrix/client/unstable/net.maunium.asmux/dms for atomically
+    # updating m.direct.
     asmux: false
 
 # Application service host/registration related details

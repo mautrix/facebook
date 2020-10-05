@@ -9,6 +9,8 @@ cd /opt/mautrix-facebook
 
 if [ ! -f /data/config.yaml ]; then
 	cp example-config.yaml /data/config.yaml
+	sed -i "s#sqlite:///mautrix-facebook.db#sqlite:////data/mautrix-facebook.db#" /data/config.yaml
+	sed -i "s#hostname: localhost#hostname: 0.0.0.0#" /data/config.yaml
 	echo "Didn't find a config file."
 	echo "Copied default config file to /data/config.yaml"
 	echo "Modify that config file to your liking."
@@ -16,9 +18,6 @@ if [ ! -f /data/config.yaml ]; then
 	fixperms
 	exit
 fi
-
-# Replace database path in config.
-sed -i "s#sqlite:///mautrix-facebook.db#sqlite:////data/mautrix-facebook.db#" /data/config.yaml
 
 # Check that database is in the right state
 alembic -x config=/data/config.yaml upgrade head
