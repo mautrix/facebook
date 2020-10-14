@@ -979,6 +979,7 @@ class Portal(BasePortal):
             return
 
         matrix_reaction = reaction
+        # TODO there are probably other emojis that need variation selectors
         if reaction in {"\u2764", "\U0001f44d", "\U0001f44e"}:
             matrix_reaction += "\ufe0f"
         mxid = await intent.react(message.mx_room, message.mxid, matrix_reaction)
