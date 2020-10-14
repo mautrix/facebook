@@ -24,7 +24,7 @@ from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEve
 from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
-from . import user as u, portal as po, puppet as pu, commands as c
+from . import user as u, portal as po, puppet as pu
 from .db import ThreadType
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ class MatrixHandler(BaseMatrixHandler):
         homeserver = context.config["homeserver.domain"]
         self.user_id_prefix = f"@{prefix}"
         self.user_id_suffix = f"{suffix}:{homeserver}"
-        super().__init__(command_processor=c.CommandProcessor(context), bridge=context.bridge)
+        super().__init__(bridge=context.bridge)
 
     async def send_welcome_message(self, room_id: RoomID, inviter: 'u.User') -> None:
         await super().send_welcome_message(room_id, inviter)

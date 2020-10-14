@@ -17,10 +17,13 @@ from typing import Iterable, List
 import asyncio
 
 import fbchat
+from mautrix.bridge.commands import HelpSection, command_handler
 
 from .. import puppet as pu, portal as po, user as u
 from ..db import UserPortal as DBUserPortal
-from . import command_handler, CommandEvent, SECTION_MISC
+from .typehint import CommandEvent
+
+SECTION_MISC = HelpSection("Miscellaneous", 40, "")
 
 
 @command_handler(needs_auth=True, management_only=False,

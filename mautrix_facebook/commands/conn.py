@@ -16,8 +16,11 @@
 from typing import cast
 
 import fbchat
+from mautrix.bridge.commands import HelpSection, command_handler
 
-from . import command_handler, CommandEvent, SECTION_CONNECTION
+from .typehint import CommandEvent
+
+SECTION_CONNECTION = HelpSection("Connection management", 15, "")
 
 
 @command_handler(needs_auth=False, management_only=True, help_section=SECTION_CONNECTION,

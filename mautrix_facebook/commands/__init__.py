@@ -1,4 +1,3 @@
-from .handler import (CommandProcessor, CommandHandler, CommandEvent, command_handler,
-                      SECTION_AUTH, SECTION_MISC, SECTION_CONNECTION)
-from .auth import enter_2fa_code
-from . import facebook as _, conn as _
+from .auth import SECTION_AUTH, enter_2fa_code
+from .conn import SECTION_CONNECTION
+from .facebook import SECTION_MISC

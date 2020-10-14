@@ -21,10 +21,13 @@ from yarl import URL
 import fbchat
 from mautrix.client import Client
 from mautrix.util.signed_token import sign_token
+from mautrix.bridge.commands import HelpSection, command_handler
+from mautrix.bridge import custom_puppet as cpu
 
 from .. import puppet as pu
-from mautrix.bridge import custom_puppet as cpu
-from . import command_handler, CommandEvent, SECTION_AUTH
+from .typehint import CommandEvent
+
+SECTION_AUTH = HelpSection("Authentication", 10, "")
 
 
 @command_handler(needs_auth=False, management_only=True,
@@ -194,4 +197,3 @@ async def logout_matrix(evt: CommandEvent) -> None:
         return
     await puppet.switch_mxid(None, None)
     await evt.reply("Restored the original puppet for your Facebook Messenger account")
-
