@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Any, Dict, List, Iterator, Optional, Iterable, Type, Callable, Awaitable,
                     Union, TYPE_CHECKING, cast)
+from collections import defaultdict
 import asyncio
 import time
 
@@ -25,7 +26,7 @@ from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
-from mautrix.util.opt_prometheus import Summary, Enum, async_time
+from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 
 from .config import Config
 from .commands import enter_2fa_code
@@ -45,10 +46,8 @@ METRIC_MESSAGE_UNSENT = Summary('bridge_on_unsent', 'calls to on_unsent')
 METRIC_MESSAGE_SEEN = Summary('bridge_on_message_seen', 'calls to on_message_seen')
 METRIC_TITLE_CHANGE = Summary('bridge_on_title_change', 'calls to on_title_change')
 METRIC_MESSAGE = Summary('bridge_on_message', 'calls to on_message')
-METRIC_LOGGED_IN = Enum('bridge_logged_in', 'Bridge Logged in', states=["true", "false"],
-                        labelnames=("fbid",))
-METRIC_CONNECTED = Enum('bridge_connected', 'Bridge Connected', states=["true", "false"],
-                        labelnames=("fbid",))
+METRIC_LOGGED_IN = Gauge('bridge_logged_in', 'Users logged into the bridge')
+METRIC_CONNECTED = Gauge('bridge_connected', 'Bridge users connected to Facebook')
 
 if TYPE_CHECKING:
     from .context import Context
@@ -119,6 +118,7 @@ class User(BaseUser):
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log)
         self._is_refreshing = False
+        self._metric_value = defaultdict(lambda: False)
         self.dm_update_lock = asyncio.Lock()
 
         self.log = self.log.getChild(self.mxid)
@@ -246,7 +246,7 @@ class User(BaseUser):
             self.log.info("Loaded session successfully")
             self.session = session
             self.client = fbchat.Client(session=self.session)
-            METRIC_LOGGED_IN.labels(fbid=self.fbid).state("true")
+            self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listening()
@@ -321,7 +321,7 @@ class User(BaseUser):
             except fbchat.FacebookError:
                 self.log.exception("Error while logging out")
                 ok = False
-        METRIC_LOGGED_IN.labels(fbid=self.fbid).state("false")
+        self._track_metric(METRIC_LOGGED_IN, False)
         self._session_data = None
         self._is_logged_in = False
         self.is_connected = None
@@ -586,7 +586,7 @@ class User(BaseUser):
         max_delay = config["bridge.resync_max_disconnected_time"]
         first_connect = self.is_connected is None
         self.is_connected = True
-        METRIC_CONNECTED.labels(fbid=self.fbid).state("true")
+        self._track_metric(METRIC_CONNECTED, True)
         if not first_connect and disconnected_at + max_delay < now:
             duration = int(now - disconnected_at)
             self.log.debug("Disconnection lasted %d seconds, re-syncing threads...", duration)
@@ -598,7 +598,7 @@ class User(BaseUser):
 
     async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
         self.is_connected = False
-        METRIC_CONNECTED.labels(fbid=self.fbid).state("false")
+        self._track_metric(METRIC_CONNECTED, False)
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 

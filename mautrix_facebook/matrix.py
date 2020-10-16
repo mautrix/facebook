@@ -20,7 +20,8 @@ import time
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
                            RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
                            ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,
-                           TypingEvent, TextMessageEventContent, MessageType, EncryptedEvent)
+                           TypingEvent, TextMessageEventContent, MessageType, EncryptedEvent,
+                           SingleReceiptEventContent)
 from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
@@ -198,21 +199,8 @@ class MatrixHandler(BaseMatrixHandler):
         await portal.handle_matrix_typing({user for user in users
                                            if user is not None})
 
-    @staticmethod
-    async def handle_receipt(evt: ReceiptEvent) -> None:
-        # These events come from custom puppet syncing, so there's always only one user.
-        event_id, receipts = evt.content.popitem()
-        receipt_type, users = receipts.popitem()
-        user_id, data = users.popitem()
-
-        user = u.User.get_by_mxid(user_id, create=False)
-        if not user:
-            return
-
-        portal = po.Portal.get_by_mxid(evt.room_id)
-        if not portal:
-            return
-
+    async def handle_read_receipt(self, user: 'u.User', portal: 'po.Portal', event_id: EventID,
+                                  data: SingleReceiptEventContent) -> None:
         timestamp = datetime.fromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
         await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
 
