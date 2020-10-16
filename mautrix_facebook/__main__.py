@@ -143,8 +143,8 @@ class MessengerBridge(Bridge):
     async def get_double_puppet(self, user_id: UserID) -> Puppet:
         return await Puppet.get_by_custom_mxid(user_id)
 
-    async def get_user(self, user_id: UserID) -> User:
-        return User.get_by_mxid(user_id)
+    async def get_user(self, user_id: UserID, create: bool = True) -> User:
+        return User.get_by_mxid(user_id, create=create)
 
     def is_bridge_ghost(self, user_id: UserID) -> bool:
         return bool(Puppet.get_id_from_mxid(user_id))
