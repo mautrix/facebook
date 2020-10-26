@@ -78,7 +78,8 @@ bridge:
     # Localpart template for per-user room grouping community IDs.
     # The bridge will create these communities and add all of the specific user's portals to the community.
     # {localpart} is the MXID localpart and {server} is the MXID server part of the user.
-    #
+    # (Note that, by default, non-admins might not have your homeserver's permission to create
+    # communities. You should set `enable_group_creation: true` in homeserver.yaml to fix this.)
     # `facebook_{localpart}={server}` is a good value.
     community_template: null
     # Displayname template for Facebook users.
