@@ -5,5 +5,5 @@ alembic>=1,<2
 ruamel.yaml>=0.15.94,<0.17
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
-mautrix==0.8.0rc1
+mautrix==0.8.0rc2
 fbchat-asyncio>=0.6.20,<0.7
