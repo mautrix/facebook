@@ -13,11 +13,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Tuple, List, Any
+from typing import Tuple, List
 
 from mautrix.types import UserID
-from mautrix.bridge.config import (BaseBridgeConfig, ConfigUpdateHelper, ForbiddenDefault,
-                                   ForbiddenKey)
+from mautrix.util.config import ConfigUpdateHelper, ForbiddenDefault, ForbiddenKey
+from mautrix.bridge.config import BaseBridgeConfig
 
 
 class Config(BaseBridgeConfig):

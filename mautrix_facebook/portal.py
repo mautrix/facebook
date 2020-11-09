@@ -24,7 +24,6 @@ import shutil
 import re
 
 from yarl import URL
-import aiohttp
 import magic
 
 import fbchat
@@ -37,6 +36,7 @@ from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
 from mautrix.bridge import BasePortal, NotificationDisabler
 from mautrix.util.simple_lock import SimpleLock
+from mautrix.util.network_retry import call_with_net_retry
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
@@ -265,7 +265,8 @@ class Portal(BasePortal):
             data, decryption_info = encrypt_attachment(data)
             upload_mime_type = "application/octet-stream"
             filename = None
-        url = await intent.upload_media(data, mime_type=upload_mime_type, filename=filename)
+        url = await call_with_net_retry(intent.upload_media, data, mime_type=upload_mime_type,
+                                        filename=filename, _action="upload media")
         if decryption_info:
             decryption_info.url = url
         return url, mime, len(data), decryption_info
