@@ -51,7 +51,9 @@ class Puppet(CustomPuppetMixin):
 
     fbid: str
     name: str
+    name_set: bool
     photo_id: str
+    avatar_set: bool
 
     is_registered: bool
     _last_info_sync: Optional[datetime]
@@ -65,12 +67,15 @@ class Puppet(CustomPuppetMixin):
 
     intent: IntentAPI
 
-    def __init__(self, fbid: str, name: str = "", photo_id: str = "", is_registered: bool = False,
-                 custom_mxid: UserID = "", access_token: str = "", next_batch: SyncToken = "",
+    def __init__(self, fbid: str, name: str = "", name_set: bool = False, photo_id: str = "",
+                 avatar_set: bool = False, is_registered: bool = False, custom_mxid: UserID = "",
+                 access_token: str = "", next_batch: SyncToken = "",
                  base_url: Optional[str] = None, db_instance: Optional[DBPuppet] = None) -> None:
         self.fbid = fbid
         self.name = name
+        self.name_set = name_set
         self.photo_id = photo_id
+        self.avatar_set = avatar_set
 
         self.is_registered = is_registered
         self._last_info_sync = None
@@ -97,7 +102,8 @@ class Puppet(CustomPuppetMixin):
     @property
     def db_instance(self) -> DBPuppet:
         if not self._db_instance:
-            self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, photo_id=self.photo_id,
+            self._db_instance = DBPuppet(fbid=self.fbid, name=self.name, name_set=self.name_set,
+                                         photo_id=self.photo_id, avatar_set=self.avatar_set,
                                          matrix_registered=self.is_registered,
                                          custom_mxid=self.custom_mxid, next_batch=self._next_batch,
                                          access_token=self.access_token,
@@ -106,15 +112,16 @@ class Puppet(CustomPuppetMixin):
 
     @classmethod
     def from_db(cls, db_puppet: DBPuppet) -> 'Puppet':
-        return Puppet(fbid=db_puppet.fbid, name=db_puppet.name, photo_id=db_puppet.photo_id,
+        return Puppet(fbid=db_puppet.fbid, name=db_puppet.name, name_set=db_puppet.name_set,
+                      photo_id=db_puppet.photo_id, avatar_set=db_puppet.avatar_set,
                       is_registered=db_puppet.matrix_registered, custom_mxid=db_puppet.custom_mxid,
                       access_token=db_puppet.access_token, next_batch=db_puppet.next_batch,
                       base_url=db_puppet.base_url, db_instance=db_puppet)
 
     async def save(self) -> None:
-        self.db_instance.edit(name=self.name, photo_id=self.photo_id,
-                              matrix_registered=self.is_registered, custom_mxid=self.custom_mxid,
-                              access_token=self.access_token,
+        self.db_instance.edit(name=self.name, name_set=self.name_set, photo_id=self.photo_id,
+                              avatar_set=self.avatar_set, matrix_registered=self.is_registered,
+                              custom_mxid=self.custom_mxid, access_token=self.access_token,
                               base_url=str(self.base_url) if self.base_url else None)
 
     @property
@@ -186,9 +193,14 @@ class Puppet(CustomPuppetMixin):
 
     async def _update_name(self, info: fbchat.UserData) -> bool:
         name = self._get_displayname(info)
-        if name != self.name:
+        if name != self.name or not self.name_set:
             self.name = name
-            await self.default_mxid_intent.set_displayname(self.name)
+            try:
+                await self.default_mxid_intent.set_displayname(self.name)
+                self.name_set = True
+            except Exception:
+                self.log.exception("Failed to set displayname")
+                self.name_set = False
             return True
         return False
 
@@ -203,14 +215,19 @@ class Puppet(CustomPuppetMixin):
 
     async def _update_photo(self, source: 'u.User', photo: fbchat.Image) -> bool:
         photo_id = p.Portal.get_photo_id(photo)
-        if photo_id != self.photo_id:
+        if photo_id != self.photo_id or not self.avatar_set:
             self.photo_id = photo_id
             if photo:
                 avatar_uri = await self.reupload_avatar(source, self.default_mxid_intent,
                                                         photo.url, self.fbid)
             else:
                 avatar_uri = ""
-            await self.default_mxid_intent.set_avatar_url(avatar_uri)
+            try:
+                await self.default_mxid_intent.set_avatar_url(avatar_uri)
+                self.avatar_set = True
+            except Exception:
+                self.log.exception("Failed to set avatar")
+                self.avatar_set = False
             return True
         return False
 
