@@ -101,7 +101,7 @@ class Puppet(CustomPuppetMixin):
                                          matrix_registered=self.is_registered,
                                          custom_mxid=self.custom_mxid, next_batch=self._next_batch,
                                          access_token=self.access_token,
-                                         base_url=str(self.base_url))
+                                         base_url=str(self.base_url) if self.base_url else None)
         return self._db_instance
 
     @classmethod
@@ -114,7 +114,8 @@ class Puppet(CustomPuppetMixin):
     async def save(self) -> None:
         self.db_instance.edit(name=self.name, photo_id=self.photo_id,
                               matrix_registered=self.is_registered, custom_mxid=self.custom_mxid,
-                              access_token=self.access_token, base_url=str(self.base_url))
+                              access_token=self.access_token,
+                              base_url=str(self.base_url) if self.base_url else None)
 
     @property
     def next_batch(self) -> SyncToken:
@@ -194,16 +195,9 @@ class Puppet(CustomPuppetMixin):
     @staticmethod
     async def reupload_avatar(source: Optional['u.User'], intent: IntentAPI, url: str,
                               fbid: Optional[str]) -> ContentURI:
-        data = None
         http_client = source.client.session._session
-        if url and source and source.client and source.client.session:
-            graph_url = f"https://graph.facebook.com/{fbid}/picture?width=1000&height=1000"
-            async with http_client.get(graph_url) as resp:
-                if resp.status < 400:
-                    data = await resp.read()
-        if data is None:
-            async with http_client.get(url) as resp:
-                data = await resp.read()
+        async with http_client.get(url) as resp:
+            data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
         return await intent.upload_media(data, mime_type=mime)
 
