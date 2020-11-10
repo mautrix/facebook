@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Iterable, Dict
 
-from sqlalchemy import Column, String, PickleType
+from sqlalchemy import Column, Text, PickleType
 
 from mautrix.types import UserID, RoomID
 from mautrix.util.db import Base
@@ -24,12 +24,12 @@ from mautrix.util.db import Base
 class User(Base):
     __tablename__ = "user"
 
-    mxid: UserID = Column(String(255), primary_key=True)
+    mxid: UserID = Column(Text, primary_key=True)
     session: Dict[str, str] = Column(PickleType, nullable=True)
-    fbid: str = Column(String(255), nullable=True)
-    notice_room: RoomID = Column(String(255), nullable=True)
-    user_agent: str = Column(String(255), nullable=True)
-    fb_domain: str = Column(String(255), nullable=False, server_default="messenger.com")
+    fbid: str = Column(Text, nullable=True)
+    notice_room: RoomID = Column(Text, nullable=True)
+    user_agent: str = Column(Text, nullable=True)
+    fb_domain: str = Column(Text, nullable=False, server_default="messenger.com")
 
     @classmethod
     def all(cls) -> Iterable['User']:

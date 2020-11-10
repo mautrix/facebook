@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Iterator
 
-from sqlalchemy import Column, String, Text, Boolean
+from sqlalchemy import Column, Text, Boolean
 from sqlalchemy.sql import expression
 
 from mautrix.types import UserID, SyncToken
@@ -25,14 +25,14 @@ from mautrix.util.db import Base
 class Puppet(Base):
     __tablename__ = "puppet"
 
-    fbid: str = Column(String(127), primary_key=True)
-    name: str = Column(String(255), nullable=True)
-    photo_id: str = Column(String(255), nullable=True)
+    fbid: str = Column(Text, primary_key=True)
+    name: str = Column(Text, nullable=True)
+    photo_id: str = Column(Text, nullable=True)
     matrix_registered: bool = Column(Boolean, nullable=False, server_default=expression.false())
 
-    custom_mxid: UserID = Column(String(255), nullable=True)
+    custom_mxid: UserID = Column(Text, nullable=True)
     access_token: str = Column(Text, nullable=True)
-    next_batch: SyncToken = Column(String(255), nullable=True)
+    next_batch: SyncToken = Column(Text, nullable=True)
     base_url: str = Column(Text, nullable=True)
 
     @classmethod

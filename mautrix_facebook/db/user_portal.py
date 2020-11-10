@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Dict, Optional
 
-from sqlalchemy import Column, String, Boolean, ForeignKeyConstraint, and_
+from sqlalchemy import Column, Text, Boolean, ForeignKeyConstraint, and_
 from sqlalchemy.sql import expression
 
 from mautrix.util.db import Base
@@ -24,9 +24,9 @@ from mautrix.util.db import Base
 class UserPortal(Base):
     __tablename__ = "user_portal"
 
-    user: str = Column(String(255), primary_key=True)
-    portal: str = Column(String(255), primary_key=True)
-    portal_receiver: str = Column(String(255), primary_key=True)
+    user: str = Column(Text, primary_key=True)
+    portal: str = Column(Text, primary_key=True)
+    portal_receiver: str = Column(Text, primary_key=True)
     in_community: bool = Column(Boolean, nullable=False, server_default=expression.false())
 
     __table_args__ = (ForeignKeyConstraint(("portal", "portal_receiver"),

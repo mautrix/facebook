@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Iterator
 
-from sqlalchemy import Column, String, Enum, Boolean, false, and_
+from sqlalchemy import Column, Text, Enum, Boolean, false, and_
 
 from mautrix.types import RoomID, ContentURI
 from mautrix.util.db import Base
@@ -46,18 +46,18 @@ class Portal(Base):
     __tablename__ = "portal"
 
     # Facebook chat information
-    fbid: str = Column(String(127), primary_key=True)
-    fb_receiver: str = Column(String(127), primary_key=True)
+    fbid: str = Column(Text, primary_key=True)
+    fb_receiver: str = Column(Text, primary_key=True)
     fb_type: ThreadType = Column(Enum(ThreadType), nullable=False)
 
     # Matrix portal information
-    mxid: Optional[RoomID] = Column(String(255), unique=True, nullable=True)
-    avatar_url: Optional[ContentURI] = Column(String(255), nullable=True)
+    mxid: Optional[RoomID] = Column(Text, unique=True, nullable=True)
+    avatar_url: Optional[ContentURI] = Column(Text, nullable=True)
     encrypted: bool = Column(Boolean, nullable=False, server_default=false())
 
     # Facebook chat metadata
-    name = Column(String, nullable=True)
-    photo_id = Column(String, nullable=True)
+    name = Column(Text, nullable=True)
+    photo_id = Column(Text, nullable=True)
 
     @classmethod
     def get_by_fbid(cls, fbid: str, fb_receiver: str) -> Optional['Portal']:

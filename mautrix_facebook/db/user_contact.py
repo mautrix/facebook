@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Dict
 
-from sqlalchemy import Column, String, Boolean, ForeignKey
+from sqlalchemy import Column, Text, Boolean, ForeignKey
 from sqlalchemy.sql import expression
 
 from mautrix.util.db import Base
@@ -24,8 +24,8 @@ from mautrix.util.db import Base
 class Contact(Base):
     __tablename__ = "contact"
 
-    user: str = Column(String(255), primary_key=True)
-    contact: str = Column(String(255), ForeignKey("puppet.fbid"), primary_key=True)
+    user: str = Column(Text, primary_key=True)
+    contact: str = Column(Text, ForeignKey("puppet.fbid"), primary_key=True)
     in_community: bool = Column(Boolean, nullable=False, server_default=expression.false())
 
     @classmethod

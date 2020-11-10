@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional
 
-from sqlalchemy import Column, String, UniqueConstraint, and_
+from sqlalchemy import Column, Text, UniqueConstraint, and_
 
 from mautrix.types import RoomID, EventID
 from mautrix.util.db import Base
@@ -24,12 +24,12 @@ from mautrix.util.db import Base
 class Reaction(Base):
     __tablename__ = "reaction"
 
-    mxid: EventID = Column(String(255), nullable=False)
-    mx_room: RoomID = Column(String(255), nullable=False)
-    fb_msgid: str = Column(String(127), primary_key=True)
-    fb_receiver: str = Column(String(127), primary_key=True)
-    fb_sender: str = Column(String(127), primary_key=True)
-    reaction: str = Column(String(1), nullable=False)
+    mxid: EventID = Column(Text, nullable=False)
+    mx_room: RoomID = Column(Text, nullable=False)
+    fb_msgid: str = Column(Text, primary_key=True)
+    fb_receiver: str = Column(Text, primary_key=True)
+    fb_sender: str = Column(Text, primary_key=True)
+    reaction: str = Column(Text, nullable=False)
 
     __table_args__ = (UniqueConstraint("mxid", "mx_room", name="_mx_react_id_room"),)
 
