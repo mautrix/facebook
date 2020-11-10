@@ -94,7 +94,7 @@ class MatrixParser(BaseMatrixParser[FacebookFormatString]):
 def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> 'SendParams':
     mentions = []
     reply_to_id = None
-    if content.relates_to.rel_type == RelationType.REFERENCE:
+    if content.relates_to.rel_type == RelationType.REPLY:
         message = DBMessage.get_by_mxid(content.relates_to.event_id, room_id)
         if message:
             content.trim_reply_fallback()

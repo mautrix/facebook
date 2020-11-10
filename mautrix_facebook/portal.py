@@ -762,7 +762,7 @@ class Portal(BasePortal):
         if reply:
             message = DBMessage.get_by_fbid(reply, self.fb_receiver)
             if message:
-                return RelatesTo(rel_type=RelationType.REFERENCE, event_id=message.mxid)
+                return RelatesTo(rel_type=RelationType.REPLY, event_id=message.mxid)
         return None
 
     async def _send_message(self, intent: IntentAPI, content: MessageEventContent,
