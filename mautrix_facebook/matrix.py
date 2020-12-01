@@ -96,9 +96,7 @@ class MatrixHandler(BaseMatrixHandler):
             except MatrixError:
                 pass
         portal.mxid = room_id
-        e2be_ok = None
-        if self.config["bridge.encryption.default"] and self.e2ee:
-            e2be_ok = await portal.enable_dm_encryption()
+        e2be_ok = await portal.check_dm_encryption()
         await portal.save()
         if e2be_ok is True:
             evt_type, content = await self.e2ee.encrypt(
