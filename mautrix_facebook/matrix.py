@@ -205,8 +205,10 @@ class MatrixHandler(BaseMatrixHandler):
         await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
 
     def filter_matrix_event(self, evt: Event) -> bool:
-        if not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent,
-                                EncryptedEvent, ReceiptEvent, TypingEvent, PresenceEvent)):
+        if isinstance(evt, (ReceiptEvent, TypingEvent, PresenceEvent)):
+            return False
+        elif not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent,
+                                  EncryptedEvent)):
             return True
         return (evt.sender == self.az.bot_mxid
                 or pu.Puppet.get_id_from_mxid(evt.sender) is not None)
