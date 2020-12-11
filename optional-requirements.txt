@@ -5,7 +5,7 @@
 psycopg2-binary>=2,<3
 
 #/animated_stickers
-pillow>=4,<8
+pillow>=4,<9
 
 #/e2be
 asyncpg>=0.20,<0.22
@@ -14,4 +14,4 @@ pycryptodome>=3,<4
 unpaddedbase64>=1,<2
 
 #/metrics
-prometheus_client>=0.6,<0.9
+prometheus_client>=0.6,<0.10
