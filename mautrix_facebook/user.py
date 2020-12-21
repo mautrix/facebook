@@ -53,10 +53,13 @@ if TYPE_CHECKING:
     from .context import Context
 
 try:
-    from aiohttp_socks import ProxyError
+    from aiohttp_socks import ProxyError, ProxyConnectionError, ProxyTimeoutError
 except ImportError:
     class ProxyError(Exception):
         pass
+
+
+    ProxyErrorConnectionError = ProxyTimeoutError = ProxyError
 
 config: Config
 
@@ -227,21 +230,25 @@ class User(BaseUser):
             return True
         elif not self._session_data:
             return False
-        try:
-            session = await fbchat.Session.from_cookies(self._session_data,
-                                                        user_agent=self.user_agent,
-                                                        domain=self.fb_domain)
-            logged_in = await session.is_logged_in()
-        except ProxyError:
-            self.log.exception("ProxyError while trying to restore session, "
-                               "retrying in 10 seconds")
-            await asyncio.sleep(10)
-            return await self.load_session(_override, _raise_errors)
-        except Exception:
-            self.log.exception("Failed to restore session")
-            if _raise_errors:
-                raise
-            return False
+        attempt = 0
+        while True:
+            try:
+                session = await fbchat.Session.from_cookies(self._session_data,
+                                                            user_agent=self.user_agent,
+                                                            domain=self.fb_domain)
+                logged_in = await session.is_logged_in()
+                break
+            except (ProxyError, ProxyTimeoutError, ProxyConnectionError) as e:
+                attempt += 1
+                wait = max(attempt * 10, 60)
+                self.log.warning(f"{e.__class__.__name__} while trying to restore session, "
+                                 f"retrying in {wait} seconds: {e}")
+                await asyncio.sleep(wait)
+            except Exception:
+                self.log.exception("Failed to restore session")
+                if _raise_errors:
+                    raise
+                return False
         if logged_in:
             self.log.info("Loaded session successfully")
             self.session = session
