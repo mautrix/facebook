@@ -238,9 +238,9 @@ class User(BaseUser):
                                                             domain=self.fb_domain)
                 logged_in = await session.is_logged_in()
                 break
-            except (ProxyError, ProxyTimeoutError, ProxyConnectionError) as e:
+            except (ProxyError, ProxyTimeoutError, ProxyConnectionError, ConnectionError) as e:
                 attempt += 1
-                wait = max(attempt * 10, 60)
+                wait = min(attempt * 10, 60)
                 self.log.warning(f"{e.__class__.__name__} while trying to restore session, "
                                  f"retrying in {wait} seconds: {e}")
                 await asyncio.sleep(wait)
