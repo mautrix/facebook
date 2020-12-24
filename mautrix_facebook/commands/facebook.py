@@ -56,6 +56,9 @@ async def _handle_search_result(sender: 'u.User', res: Iterable[fbchat.UserData]
 @command_handler(needs_auth=True, management_only=False, help_section=SECTION_MISC,
                  help_text="Synchronize portals", help_args="[_limit_] [--create] [--contacts]")
 async def sync(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("Syncing is disabled for this outbound-only account")
+        return
     contacts = False
     create_portals = False
     limit = evt.config["bridge.initial_chat_sync"]

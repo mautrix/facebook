@@ -218,6 +218,7 @@ bridge:
     # Permitted values:
     #       user - Use the bridge with puppeting.
     #      admin - Use and administrate the bridge.
+    #      outbound - Use the bridge only to send messages.
     # Permitted keys:
     #        * - All Matrix users
     #   domain - All users on that homeserver

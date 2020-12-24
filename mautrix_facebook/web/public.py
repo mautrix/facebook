@@ -173,6 +173,9 @@ class PublicBridgeWebsite:
 
     async def reconnect(self, request: web.Request) -> web.Response:
         user = self.check_token(request)
+        if user.is_outbound:
+            return web.HTTPClientError(body='{"error": "Messenger MQTT connections are disabled for this outbound-only user"}',
+                                       headers=self._headers)
         if user.is_connected:
             raise web.HTTPConflict(body='{"error": "User is already connected"}',
                                    headers=self._headers)

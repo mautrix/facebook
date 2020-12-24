@@ -37,7 +37,16 @@ class User(Base):
 
     @classmethod
     def get_by_fbid(cls, fbid: str) -> Optional['User']:
-        return cls._select_one_or_none(cls.c.fbid == fbid)
+        # Don't return an outbound-only user for this
+        # TODO Disallow multiple non-outbound users for the same fbid,
+        #      otherwise sync conflicts may occur
+        user = cls._select_one_or_none(cls.c.fbid == fbid)
+        if user and user.is_outbound:
+            for user in cls._select_all():
+                if not user.is_outbound:
+                    break
+
+        return user
 
     @classmethod
     def get_by_mxid(cls, mxid: UserID) -> Optional['User']:

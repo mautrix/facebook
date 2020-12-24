@@ -96,13 +96,14 @@ class Config(BaseBridgeConfig):
 
         copy_dict("bridge.permissions")
 
-    def _get_permissions(self, key: str) -> Tuple[bool, bool, str]:
+    def _get_permissions(self, key: str) -> Tuple[bool, bool, bool, str]:
         level = self["bridge.permissions"].get(key, "")
         admin = level == "admin"
-        user = level == "user" or admin
-        return user, admin, level
+        outbound = level == "outbound"
+        user = level == "user" or admin or outbound
+        return user, admin, outbound, level
 
-    def get_permissions(self, mxid: UserID) -> Tuple[bool, bool, str]:
+    def get_permissions(self, mxid: UserID) -> Tuple[bool, bool, bool, str]:
         permissions = self["bridge.permissions"] or {}
         if mxid in permissions:
             return self._get_permissions(mxid)

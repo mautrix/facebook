@@ -82,6 +82,7 @@ class User(BaseUser):
     fb_domain: str
     user_agent: Optional[str]
     is_admin: bool
+    is_outbound: bool
     permission_level: str
     _is_logged_in: Optional[bool]
     _is_connected: Optional[bool]
@@ -109,7 +110,7 @@ class User(BaseUser):
         self.user_agent = user_agent
         self.fb_domain = fb_domain
         self.command_status = None
-        self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
+        self.is_whitelisted, self.is_admin, self.is_outbound, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
         self._is_connected = None
         self._connection_time = time.monotonic()
@@ -256,9 +257,7 @@ class User(BaseUser):
             self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
-            self.stop_listening()
-            self.start_listen()
-            asyncio.ensure_future(self.post_login(), loop=self.loop)
+            self._prepare_listening()
             return True
         return False
 
@@ -624,14 +623,20 @@ class User(BaseUser):
             self.client.sequence_id_callback = None
         self.listen_task = None
 
+    def _prepare_listening(self) -> None:
+        if self.is_outbound:
+            self.log.debug(f"Not running post-login actions for outbound-only user")
+        else:
+            self.stop_listening()
+            self.start_listen()
+            asyncio.ensure_future(self.post_login(), loop=self.loop)
+
     async def on_logged_in(self, session: fbchat.Session) -> None:
         self.session = session
         self.fb_domain = session.domain
         self.client = fbchat.Client(session=session)
         self.save()
-        self.stop_listening()
-        self.start_listen()
-        asyncio.ensure_future(self.post_login(), loop=self.loop)
+        self._prepare_listening()
 
     @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: Union[fbchat.MessageEvent, fbchat.MessageReplyEvent]) -> None:

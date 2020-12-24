@@ -173,6 +173,9 @@ async def logout(evt: CommandEvent) -> None:
                  help_section=SECTION_AUTH, help_text="Replace your Facebook Messenger account's "
                                                       "Matrix puppet with your Matrix account")
 async def login_matrix(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("Double-puppeting is disabled for this outbound-only account")
+        return
     puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
     _, homeserver = Client.parse_mxid(evt.sender.mxid)
     if homeserver != pu.Puppet.hs_domain:
