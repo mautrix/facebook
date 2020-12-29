@@ -59,7 +59,7 @@ except ImportError:
         pass
 
 
-    ProxyErrorConnectionError = ProxyTimeoutError = ProxyError
+    ProxyConnectionError = ProxyTimeoutError = ProxyError
 
 config: Config
 
