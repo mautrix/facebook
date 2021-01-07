@@ -13,7 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, List
+from typing import Any, Tuple, List
+import os
 
 from mautrix.types import UserID
 from mautrix.util.config import ConfigUpdateHelper, ForbiddenDefault, ForbiddenKey
@@ -21,6 +22,12 @@ from mautrix.bridge.config import BaseBridgeConfig
 
 
 class Config(BaseBridgeConfig):
+    def __getitem__(self, key: str) -> Any:
+        try:
+            return os.environ[f"MAUTRIX_FACEBOOK_{key.replace('.', '_').upper()}"]
+        except KeyError:
+            return super().__getitem__(key)
+
     @property
     def forbidden_defaults(self) -> List[ForbiddenDefault]:
         return [
