@@ -29,7 +29,8 @@ class AndroidApplication(SerializableAttrs['AndroidApplication']):
     version: str = "294.0.0.24.129"
     id: str = "com.facebook.orca"
     locale: str = "en_US"
-    build: int = 263695267
+    build: int = 263695262
+    version_id: int = 3402226163209239
 
     client_id = "256002347743983"
     client_secret = "374e60f8b9bb6b8cbb30f78030438895"
@@ -69,8 +70,10 @@ class AndroidCarrier(SerializableAttrs['AndroidCarrier']):
 @dataclass
 class AndroidSession(SerializableAttrs['AndroidSession']):
     access_token: Optional[str] = None
+    uid: Optional[int] = None
     password_encryption_pubkey: Optional[str] = None
     password_encryption_key_id: Optional[int] = None
+    region_hint: str = "ODN"
 
 
 @dataclass
@@ -87,7 +90,7 @@ class AndroidState(SerializableAttrs['AndroidState']):
         # TODO randomize carrier and device model
 
     @property
-    def ua_parts(self) -> Dict[str, str]:
+    def _ua_parts(self) -> Dict[str, str]:
         return {
             "FBAN": self.application.name,
             "FBAV": self.application.version,
@@ -105,6 +108,10 @@ class AndroidState(SerializableAttrs['AndroidState']):
         }
 
     @property
+    def user_agent_meta(self) -> str:
+        ua_meta = ";".join(f"{key}/{value}" for key, value in self._ua_parts.items())
+        return f"[{ua_meta};]"
+
+    @property
     def user_agent(self) -> str:
-        ua_meta = ";".join(f"{key}/{value}" for key, value in self.ua_parts.items())
-        return f"{self.device.user_agent} [{ua_meta};]"
+        return f"{self.device.user_agent} {self.user_agent_meta}"

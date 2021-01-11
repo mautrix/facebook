@@ -112,6 +112,8 @@ class LoginAPI(BaseAndroidAPI):
         json_data = await self._handle_response(resp)
         parsed = LoginResponse.deserialize(json_data)
         self.state.session.access_token = parsed.access_token
+        self.state.session.uid = parsed.uid
+        # TODO maybe store the cookies and other data too?
         return parsed
 
     def _encrypt_password(self, password: str) -> str:
