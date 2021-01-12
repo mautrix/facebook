@@ -24,9 +24,8 @@ class TType(IntEnum):
     I16 = 4
     I32 = 5
     I64 = 6
-    # DOUBLE = 7
+    DOUBLE = 7
     BINARY = 8
-    STRING = 8
     LIST = 9
     SET = 10
     MAP = 11

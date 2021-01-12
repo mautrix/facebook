@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Any
+import struct
 import io
 
 from .type import TType
@@ -21,11 +22,13 @@ from .type import TType
 
 class ThriftReader(io.BytesIO):
     prev_field_id: int
+    struct_id: int
     stack: List[int]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.prev_field_id = 0
+        self.struct_id = ord("a") - 1
         self.stack = []
 
     def _push_stack(self) -> None:
@@ -43,7 +46,7 @@ class ThriftReader(io.BytesIO):
     def _from_zigzag(val: int) -> int:
         return (val >> 1) ^ -(val & 1)
 
-    def read_small_int(self) -> int:
+    def read_int(self) -> int:
         return self._from_zigzag(self.read_varint())
 
     def read_varint(self) -> int:
@@ -59,11 +62,11 @@ class ThriftReader(io.BytesIO):
 
     def read_field(self) -> TType:
         byte = self._read_byte()
-        if byte == 0:
+        if byte == 0 or byte == 15:
             return TType.STOP
         delta = (byte & 0xf0) >> 4
         if delta == 0:
-            self.prev_field_id = self._from_zigzag(self.read_varint())
+            self.prev_field_id = self.read_int()
         else:
             self.prev_field_id += delta
         return TType(byte & 0x0f)
@@ -78,7 +81,9 @@ class ThriftReader(io.BytesIO):
         elif type == TType.BINARY:
             return self.read(self.read_varint())
         elif type in (TType.I16, TType.I32, TType.I64):
-            return self.read_small_int()
+            return self.read_int()
+        elif type == TType.DOUBLE:
+            return struct.unpack("f", self.read(8))
 
     def pretty_print(self, field_type: TType, _indent: str = "", _prefix: str = "") -> None:
         if _prefix:
@@ -91,7 +96,7 @@ class ThriftReader(io.BytesIO):
                 length = self.read_varint()
             print(f"{item_type.name} {length} items")
             for i in range(length):
-                self.pretty_print(item_type, _indent + "  ", f"*")
+                self.pretty_print(item_type, _indent + "  ", f"{i+1}.")
         elif field_type == TType.MAP:
             length = self.read_varint()
             types = self._read_byte()
@@ -102,7 +107,9 @@ class ThriftReader(io.BytesIO):
                 key = self.read_val(key_type)
                 self.pretty_print(value_type, _indent + "  ", f"{key}:")
         elif field_type == TType.STRUCT:
-            print("Struct")
+            self.struct_id += 1
+            struct_id = chr(self.struct_id)
+            print(f"start-{struct_id}")
             self._push_stack()
             while True:
                 subfield_type = self.read_field()
@@ -110,6 +117,7 @@ class ThriftReader(io.BytesIO):
                     break
                 self.pretty_print(subfield_type, _indent + "  ",
                                   f"{self.prev_field_id} ({subfield_type.name}):")
+            print(f"{_indent}end-{struct_id}")
             self._pop_stack()
         else:
             print(self.read_val(field_type))

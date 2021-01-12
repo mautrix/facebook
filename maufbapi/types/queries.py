@@ -26,7 +26,7 @@ class GraphQLQuery(ABC, Serializable):
 
 
 @dataclass
-class ThreadListQueryNTContext(SerializableAttrs['ThreadListQueryNTContext']):
+class NTContext(SerializableAttrs['ThreadListQueryNTContext']):
     styles_id: str = "7d328425a4dfa3aa76b1310fa8dc30bf"
     using_white_navbar: bool = True
     pixel_ratio: int = 3
@@ -44,7 +44,7 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs['ThreadListQuery']):
     filter_to_groups: str = "false"
     include_booking_requests: bool = True
 
-    nt_context: ThreadListQueryNTContext = attr.ib(factory=lambda: ThreadListQueryNTContext())
+    nt_context: NTContext = attr.ib(factory=lambda: NTContext())
     folder_tag: Optional[List[str]] = None
 
     theme_icon_size_small: int = 66
@@ -65,7 +65,7 @@ class MoreMessagesQuery(GraphQLQuery, SerializableAttrs['MoreMessagesQuery']):
     msg_count: int = 20
     blur: int = 0
 
-    nt_context: ThreadListQueryNTContext = attr.ib(factory=lambda: ThreadListQueryNTContext())
+    nt_context: NTContext = attr.ib(factory=lambda: NTContext())
 
     full_screen_width: int = 4096
     full_screen_height: int = 4096

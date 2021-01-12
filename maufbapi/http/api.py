@@ -16,6 +16,17 @@
 from .base import BaseAndroidAPI
 from .login import LoginAPI
 
+from ..types import ThreadListResponse, ThreadListQuery, MessageList, MoreMessagesQuery
+
 
 class AndroidAPI(LoginAPI, BaseAndroidAPI):
-    pass
+    async def fetch_threads(self, **kwargs) -> ThreadListResponse:
+        return await self.graphql(ThreadListQuery(**kwargs), response_type=ThreadListResponse,
+                                  path=["data", "viewer", "message_threads"])
+
+    async def fetch_messages(self, thread_id: str, before_time_ms: int, **kwargs
+                             ) -> MessageList:
+        return await self.graphql(MoreMessagesQuery(thread_id=str(thread_id),
+                                                    before_time_ms=str(before_time_ms), **kwargs),
+                                  path=["data", "message_thread", "messages"],
+                                  response_type=MessageList)

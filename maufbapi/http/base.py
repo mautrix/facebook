@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, TypeVar, Type
+from typing import Optional, Dict, TypeVar, Type, List
 from urllib.parse import quote
 import hashlib
 import logging
@@ -116,7 +116,8 @@ class BaseAndroidAPI:
         }
 
     async def graphql(self, req: GraphQLQuery, headers: Optional[Dict[str, str]] = None,
-                      response_type: Optional[Type[T]] = JSON) -> T:
+                      response_type: Optional[Type[T]] = JSON, path: Optional[List[str]] = None
+                      ) -> T:
         headers = {
             **self._headers,
             **(headers or {}),
@@ -142,6 +143,9 @@ class BaseAndroidAPI:
             self._handle_response_headers(resp)
             return None
         json_data = await self._handle_response(resp)
+        if path:
+            for item in path:
+                json_data = json_data[item]
         if response_type is not JSON:
             return response_type.deserialize(json_data)
         return json_data

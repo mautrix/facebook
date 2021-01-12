@@ -105,7 +105,7 @@ class IncomingMessage:
         if topic_type == TType.BINARY:
             topic = buf.read(buf.read_varint()).decode("utf-8")
         elif topic_type == TType.I32:
-            topic = buf.read_small_int()
+            topic = buf.read_int()
         else:
             raise ValueError(f"Unsupported topic type {topic_type}")
         payload_type = buf.read_field()
