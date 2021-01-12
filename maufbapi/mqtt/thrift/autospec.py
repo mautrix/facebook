@@ -13,14 +13,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 import sys
 
 import attr
 
 from .type import TType
 
-TYPE_META = "net.maunium.instagram.thrift.type"
+TYPE_META = "net.maunium.thrift.type"
+INDEX_META = "net.maunium.thrift.index"
+SECONDARY_META = "net.maunium.thrift.secondary"
 
 if sys.version_info >= (3, 7):
     def _get_type_class(typ):
@@ -75,25 +77,42 @@ def autospec(clazz):
         The class given as a parameter.
     """
     clazz.thrift_spec = {}
+    clazz.thrift_spec_secondaries = {}
     index = 1
     for field in attr.fields(clazz):
         field_type, subtype = field.metadata.get(TYPE_META) or _guess_type(field.type, field.name)
-        clazz.thrift_spec[index] = (field_type, field.name, subtype)
-        index += 1
+        if field.metadata.get(SECONDARY_META, False):
+            clazz.thrift_spec_secondaries[(index, field_type)] = (field_type, field.name, subtype)
+        else:
+            try:
+                index = field.metadata[INDEX_META]
+            except KeyError:
+                index += 1
+            clazz.thrift_spec[index] = (field_type, field.name, subtype)
     return clazz
 
 
-def field(thrift_type: TType, subtype: Subtype = None, **kwargs) -> attr.Attribute:
+def field(thrift_type: Optional[TType] = None, subtype: Subtype = None,
+          index: Optional[int] = None, secondary: bool = False, **kwargs) -> attr.Attribute:
     """
     Specify an explicit type for the :meth:`autospec` decorator.
 
     Args:
         thrift_type: The thrift type to use for the field.
         subtype: The subtype, for multi-part types like lists and maps.
+        index: Override value for the Thrift field index
+        secondary: Mark as a secondary option when the first one at the same index
+            doesn't have a value or is a different type.
         **kwargs: Other parameters to pass to :meth:`attr.ib`.
 
     Returns:
         The result of :meth:`attr.ib`
     """
-    kwargs.setdefault("metadata", {})[TYPE_META] = (thrift_type, subtype)
+    meta = kwargs.setdefault("metadata", {})
+    if thrift_type is not None:
+        meta[TYPE_META] = (thrift_type, subtype)
+    if index is not None:
+        meta[INDEX_META] = index
+    if secondary:
+        meta[SECONDARY_META] = True
     return attr.ib(**kwargs)

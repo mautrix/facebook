@@ -20,15 +20,25 @@ import io
 from .type import TType
 
 
+alpha_start = ord("a")
+alpha_length = ord("z") - ord("a") + 1
+
+
 class ThriftReader(io.BytesIO):
     prev_field_id: int
-    struct_id: int
+    _struct_id: int
     stack: List[int]
+
+    @property
+    def struct_id(self) -> str:
+        self._struct_id += 1
+        return (chr(alpha_start + (self._struct_id // alpha_length))
+                + chr(alpha_start + self._struct_id % alpha_length))
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.prev_field_id = 0
-        self.struct_id = ord("a") - 1
+        self._struct_id = -1
         self.stack = []
 
     def _push_stack(self) -> None:
@@ -92,7 +102,7 @@ class ThriftReader(io.BytesIO):
             item_type = self._read_byte()
             length = item_type >> 4
             item_type = TType(item_type & 0x0f)
-            if length == 0xf0:
+            if length == 0x0f:
                 length = self.read_varint()
             print(f"{item_type.name} {length} items")
             for i in range(length):
@@ -107,8 +117,7 @@ class ThriftReader(io.BytesIO):
                 key = self.read_val(key_type)
                 self.pretty_print(value_type, _indent + "  ", f"{key}:")
         elif field_type == TType.STRUCT:
-            self.struct_id += 1
-            struct_id = chr(self.struct_id)
+            struct_id = self.struct_id
             print(f"start-{struct_id}")
             self._push_stack()
             while True:

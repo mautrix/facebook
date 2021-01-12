@@ -13,18 +13,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import (Union, Set, Optional, Any, Dict, Awaitable, Type, List, TypeVar, Callable,
-                    Iterable)
+from typing import Union, Set, Optional, Any, Dict, Awaitable, Type, List, TypeVar, Callable
 from collections import defaultdict
 from socket import socket, error as SocketError
-from uuid import uuid4
 import logging
 import urllib.request
 import asyncio
 import zlib
 import time
 import json
-import re
 
 import paho.mqtt.client
 from paho.mqtt.client import MQTTMessage, WebsocketConnectionError
@@ -32,9 +29,9 @@ from yarl import URL
 from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
-from .thrift import RealtimeConfig, RealtimeClientInfo
+from .thrift import RealtimeConfig, RealtimeClientInfo, ThriftReader, TType
 from .otclient import MQTToTClient
-from .subscription import RealtimeTopic
+from .subscription import RealtimeTopic, topic_map
 from .events import Connect, Disconnect
 
 try:
@@ -52,10 +49,7 @@ class AndroidMQTT:
     _client: MQTToTClient
     log: TraceLogger
     state: AndroidState
-    _graphql_subs: Set[str]
-    _skywalker_subs: Set[str]
-    _iris_seq_id: Optional[int]
-    _iris_snapshot_at_ms: Optional[int]
+    _seq_id: Optional[int]
     _publish_waiters: Dict[int, asyncio.Future]
     _response_waiters: Dict[RealtimeTopic, asyncio.Future]
     _response_waiter_locks: Dict[RealtimeTopic, asyncio.Lock]
@@ -66,10 +60,7 @@ class AndroidMQTT:
 
     def __init__(self, state: AndroidState, loop: Optional[asyncio.AbstractEventLoop] = None,
                  log: Optional[TraceLogger] = None) -> None:
-        self._graphql_subs = set()
-        self._skywalker_subs = set()
-        self._iris_seq_id = None
-        self._iris_snapshot_at_ms = None
+        self._seq_id = None
         self._publish_waiters = {}
         self._response_waiters = {}
         self._disconnect_error = None
@@ -117,10 +108,16 @@ class AndroidMQTT:
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
     def _form_client_id(self) -> bytes:
-        # TODO deobfuscate
-        subscribe_topic_ids = [65, 155, 72, 63, 59, 34, 62, 86, 131, 90, 85, 75, 107, 195, 259,
-                               245, 150, 100, 174, 103, 92, 179, 98]
-        # subscribe_topic_ids = [155, 72, 63, 59, 34, 62, 86, 131, 90, 85, 75, 107, 245, 150, 174, 179, 98] # when reconnecting
+        subscribe_topics = ["/t_p", "/t_assist_rp", "/t_rtc", "/webrtc_response",
+                            RealtimeTopic.MESSAGE_SYNC, "/pp", "/webrtc",
+                            "/quick_promotion_refresh", "/t_omnistore_sync_low_pri",
+                            "/get_media_resp", "/t_dr_response", "/t_omnistore_sync", "/t_push",
+                            "/t_thread_typing", "/ixt_trigger", "/rs_resp",
+                            RealtimeTopic.REGION_HINT, "/t_tn", "/sr_res", "/t_tp", "/t_sp",
+                            "/ls_resp", "/t_rtc_multi",  # RealtimeTopic.SEND_MESSAGE_RESP,
+                            ]
+        topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
+                     for topic in subscribe_topics]
         cfg = RealtimeConfig(
             client_identifier=self.state.device.uuid[:20],
             client_info=RealtimeClientInfo(
@@ -131,12 +128,12 @@ class AndroidMQTT:
                 publish_format=1,
                 no_automatic_foreground=True,
                 make_user_available_in_foreground=True,
-                device_id=self.state.device.uuid,  # Skipped for reconnects
+                device_id=self.state.device.uuid,
                 is_initially_foreground=True,
                 network_type=1,
                 network_subtype=0,
                 client_mqtt_session_id=int(time.time() * 1000) & 0xffffffff,
-                subscribe_topics=subscribe_topic_ids,
+                subscribe_topics=topic_ids,
                 client_type="",
                 app_id=int(self.state.application.client_id),
                 region_preference=self.state.session.region_hint or "ODN",
@@ -176,12 +173,8 @@ class AndroidMQTT:
         self._loop.create_task(self._post_connect())
 
     async def _post_connect(self) -> None:
-        print("Successfully connected")
+        self.log.debug("Re-creating sync queue after reconnect")
         await self._dispatch(Connect())
-        # self._client.publish("/ls_app_settings", json.dumps({
-        #     "ls_fdid": self.state.device.uuid,
-        #     "ls_sv": self.state.application.version_id,
-        # }), qos=1)
         await self.publish("/ls_req", {
             "label": "1",
             "payload": json.dumps({
@@ -192,7 +185,7 @@ class AndroidMQTT:
         })
         await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, {
             # TODO un-hardcode
-            "initial_titan_sequence_id": 42,
+            "initial_titan_sequence_id": self._seq_id,
             "delta_batch_size": 125,
             "device_params": {
                 "image_sizes": {
@@ -248,15 +241,6 @@ class AndroidMQTT:
                 }
             }
         })
-        # self.log.debug("Re-subscribing to things after connect")
-        # if self._graphql_subs:
-        #     res = await self.graphql_subscribe(self._graphql_subs)
-        #     self.log.trace("GraphQL subscribe response: %s", res)
-        # if self._skywalker_subs:
-        #     res = await self.skywalker_subscribe(self._skywalker_subs)
-        #     self.log.trace("Skywalker subscribe response: %s", res)
-        # if self._iris_seq_id:
-        #     await self.iris_subscribe(self._iris_seq_id, self._iris_snapshot_at_ms)
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
@@ -269,9 +253,15 @@ class AndroidMQTT:
 
     def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
         try:
-            decomp_payload = ((b"zlib: " + zlib.decompress(message.payload))
-                              if message.payload.startswith(b"x\xda") else message.payload)
-            print(f"Message in {message.topic}: {decomp_payload}")
+            payload = message.payload
+            is_compressed = payload.startswith(b"x\xda")
+            if is_compressed:
+                payload = zlib.decompress(payload)
+                print(f"Message in {message.topic} (zlib): {payload}")
+            else:
+                print(f"Message in {message.topic} (plain): {payload}")
+            if payload.startswith(b"\x00"):
+                ThriftReader(payload[1:]).pretty_print(TType.STRUCT)
             # topic = RealtimeTopic.decode(message.topic)
             # # Instagram Android MQTT messages are always compressed
             # message.payload = zlib.decompress(message.payload)
@@ -318,12 +308,8 @@ class AndroidMQTT:
     def disconnect(self) -> None:
         self._client.disconnect()
 
-    async def listen(self, graphql_subs: Set[str] = None, skywalker_subs: Set[str] = None,
-                     seq_id: int = None, snapshot_at_ms: int = None, retry_limit: int = 5) -> None:
-        self._graphql_subs = graphql_subs or set()
-        self._skywalker_subs = skywalker_subs or set()
-        self._iris_seq_id = seq_id
-        self._iris_snapshot_at_ms = snapshot_at_ms
+    async def listen(self, seq_id: int = None, retry_limit: int = 5) -> None:
+        self._seq_id = seq_id
 
         self.log.debug("Connecting to Messenger MQTT")
         await self._reconnect()
@@ -399,28 +385,5 @@ class AndroidMQTT:
             self._response_waiters[response] = fut
             await self.publish(topic, payload)
             return await fut
-
-    # async def iris_subscribe(self, seq_id: int, snapshot_at_ms: int) -> None:
-    #     self.log.debug(f"Requesting iris subscribe {seq_id}/{snapshot_at_ms}")
-    #     resp = await self.request(RealtimeTopic.SUB_IRIS, RealtimeTopic.SUB_IRIS_RESPONSE,
-    #                               {"seq_id": seq_id, "snapshot_at_ms": snapshot_at_ms})
-    #     # TODO check succeeded and raise error if needed
-    #     self.log.debug("Iris subscribe response: %s", resp.payload.decode("utf-8"))
-    #
-    # def graphql_subscribe(self, subs: Set[str]) -> asyncio.Future:
-    #     self._graphql_subs |= subs
-    #     return self.publish(RealtimeTopic.REALTIME_SUB, {"sub": list(subs)})
-    #
-    # def graphql_unsubscribe(self, subs: Set[str]) -> asyncio.Future:
-    #     self._graphql_subs -= subs
-    #     return self.publish(RealtimeTopic.REALTIME_SUB, {"unsub": list(subs)})
-    #
-    # def skywalker_subscribe(self, subs: Set[str]) -> asyncio.Future:
-    #     self._skywalker_subs |= subs
-    #     return self.publish(RealtimeTopic.PUBSUB, {"sub": list(subs)})
-    #
-    # def skywalker_unsubscribe(self, subs: Set[str]) -> asyncio.Future:
-    #     self._skywalker_subs -= subs
-    #     return self.publish(RealtimeTopic.PUBSUB, {"unsub": list(subs)})
 
     # endregion
