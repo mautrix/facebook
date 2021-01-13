@@ -13,12 +13,40 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union, Optional, Dict, Type, NamedTuple, Any, TYPE_CHECKING
 import sys
 
 import attr
 
 from .type import TType
+
+Subtype = Union[None, TType, Tuple['Subtype', 'Subtype']]
+
+
+class RecursiveType(NamedTuple):
+    type: TType
+    python_type: Optional[Type['Any']] = None
+    item_type: Optional['RecursiveType'] = None
+    key_type: Optional[TType] = None
+    value_type: Optional['RecursiveType'] = None
+
+
+class ThriftField(NamedTuple):
+    name: str
+    rtype: RecursiveType
+
+
+if TYPE_CHECKING:
+    from typing import Protocol
+
+
+    class ThriftObject(Protocol):
+        thrift_spec: Dict[int, ThriftField]
+        thrift_spec_by_type: Dict[Tuple[int, TType], ThriftField]
+
+        def __init__(self, **kwargs) -> None: ...
+else:
+    ThriftObject = 'ThriftObject'
 
 TYPE_META = "net.maunium.thrift.type"
 INDEX_META = "net.maunium.thrift.index"
@@ -38,35 +66,34 @@ else:
             return None
 
 
-Subtype = Union[None, TType, Tuple['Subtype', 'Subtype']]
-
-
-def _guess_type(python_type, name: str) -> Tuple[TType, Subtype]:
+def _guess_type(python_type, name: str) -> RecursiveType:
     if python_type == str or python_type == bytes:
-        return TType.BINARY, None
+        return RecursiveType(TType.BINARY, python_type=python_type)
     elif python_type == bool:
-        return TType.BOOL, None
+        return RecursiveType(TType.BOOL, python_type=python_type)
     elif python_type == int:
         raise ValueError(f"Ambiguous integer field {name}")
     elif python_type == float:
-        return TType.DOUBLE, None
+        return RecursiveType(TType.DOUBLE, python_type=python_type)
     elif attr.has(python_type):
-        return TType.STRUCT, None
+        return RecursiveType(TType.STRUCT, python_type=python_type)
 
     type_class = _get_type_class(python_type)
     args = getattr(python_type, "__args__", None)
     if type_class == list:
-        return TType.LIST, _guess_type(args[0], f"{name} item")
+        return RecursiveType(TType.LIST, item_type=_guess_type(args[0], f"{name} item"),
+                             python_type=list)
     elif type_class == dict:
-        return TType.MAP, (_guess_type(args[0], f"{name} key"),
-                           _guess_type(args[1], f"{name} value"))
+        return RecursiveType(TType.MAP, key_type=_guess_type(args[0], f"{name} key").type,
+                             value_type=_guess_type(args[1], f"{name} value"), python_type=map)
     elif type_class == set:
-        return TType.SET, _guess_type(args[0], f"{name} item")
+        return RecursiveType(TType.SET, item_type=_guess_type(args[0], f"{name} item"),
+                             python_type=set)
 
     raise ValueError(f"Unknown type {python_type} for {name}")
 
 
-def autospec(clazz):
+def autospec(clazz: Any) -> Type[ThriftObject]:
     """
     Automatically generate a thrift_spec dict based on attrs metadata.
 
@@ -77,23 +104,26 @@ def autospec(clazz):
         The class given as a parameter.
     """
     clazz.thrift_spec = {}
-    clazz.thrift_spec_secondaries = {}
-    index = 1
+    clazz.thrift_spec_by_type = {}
+    index = 0
     for field in attr.fields(clazz):
-        field_type, subtype = field.metadata.get(TYPE_META) or _guess_type(field.type, field.name)
-        if field.metadata.get(SECONDARY_META, False):
-            clazz.thrift_spec_secondaries[(index, field_type)] = (field_type, field.name, subtype)
-        else:
+        try:
+            field_type = field.metadata[TYPE_META]._replace(python_type=field.type)
+        except KeyError:
+            field_type = _guess_type(field.type, field.name)
+        field_meta = ThriftField(field.name, field_type)
+        if not field.metadata.get(SECONDARY_META, False):
             try:
                 index = field.metadata[INDEX_META]
             except KeyError:
                 index += 1
-            clazz.thrift_spec[index] = (field_type, field.name, subtype)
+            clazz.thrift_spec[index] = field_meta
+        clazz.thrift_spec_by_type[(index, field_type.type)] = field_meta
     return clazz
 
 
-def field(thrift_type: Optional[TType] = None, subtype: Subtype = None,
-          index: Optional[int] = None, secondary: bool = False, **kwargs) -> attr.Attribute:
+def field(thrift_type: Union[TType, RecursiveType] = None, index: Optional[int] = None,
+          secondary: bool = False, **kwargs) -> attr.Attribute:
     """
     Specify an explicit type for the :meth:`autospec` decorator.
 
@@ -110,7 +140,8 @@ def field(thrift_type: Optional[TType] = None, subtype: Subtype = None,
     """
     meta = kwargs.setdefault("metadata", {})
     if thrift_type is not None:
-        meta[TYPE_META] = (thrift_type, subtype)
+        meta[TYPE_META] = (RecursiveType(thrift_type) if isinstance(thrift_type, TType)
+                           else thrift_type)
     if index is not None:
         meta[INDEX_META] = index
     if secondary:

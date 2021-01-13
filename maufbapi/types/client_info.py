@@ -13,14 +13,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, List, Union, Any
+from typing import Dict, List
 
 from attr import dataclass
 
-from .type import TType
-from .autospec import field, autospec
-from .write import ThriftWriter
-from .read import ThriftReader
+from ..thrift import TType, ThriftWriter, RecursiveType, field, autospec
 
 
 @autospec
@@ -40,7 +37,8 @@ class RealtimeClientInfo:
     network_subtype: int = field(TType.I32)
     client_mqtt_session_id: int = field(TType.I64)
     client_ip_address: str = None
-    subscribe_topics: List[int] = field(TType.LIST, TType.I32)
+    subscribe_topics: List[int] = field(RecursiveType(TType.LIST,
+                                                      item_type=RecursiveType(TType.I32)))
     client_type: str
     app_id: int = field(TType.I64)
     override_nectar_logging: bool = None
@@ -66,8 +64,8 @@ class RealtimeConfig:
     password: str
     get_diffs_request: List[str] = None
     zero_rating_token_hash: str = None
-    mysterious_struct_list: List[Any] = field(TType.LIST, TType.STRUCT, factory=lambda: [])
-    app_specific_info: Dict[str, str]
+    # mysterious_struct_list: List[Any] = field(TType.LIST, TType.STRUCT, factory=lambda: [])
+    app_specific_info: Dict[str, str] = field(index=9)
 
     def to_thrift(self) -> bytes:
         buf = ThriftWriter()
@@ -91,25 +89,3 @@ class ForegroundStateConfig:
         buf = ThriftWriter()
         buf.write_struct(self)
         return buf.getvalue()
-
-
-@dataclass(kw_only=True)
-class IncomingMessage:
-    topic: Union[str, int]
-    payload: str
-
-    @classmethod
-    def from_thrift(cls, data: bytes) -> 'IncomingMessage':
-        buf = ThriftReader(data)
-        topic_type = buf.read_field()
-        if topic_type == TType.BINARY:
-            topic = buf.read(buf.read_varint()).decode("utf-8")
-        elif topic_type == TType.I32:
-            topic = buf.read_int()
-        else:
-            raise ValueError(f"Unsupported topic type {topic_type}")
-        payload_type = buf.read_field()
-        if payload_type != TType.BINARY:
-            raise ValueError(f"Unsupported payload type {topic_type}")
-        payload = buf.read(buf.read_varint()).decode("utf-8")
-        return cls(topic=topic, payload=payload)

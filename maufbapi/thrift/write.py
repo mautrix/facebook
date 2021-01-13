@@ -17,6 +17,7 @@ from typing import Any, Union, List, Dict, Optional
 import io
 
 from .type import TType
+from .autospec import ThriftObject
 
 
 class ThriftWriter(io.BytesIO):
@@ -148,24 +149,23 @@ class ThriftWriter(io.BytesIO):
         else:
             raise ValueError(f"{ttype} is not supported by write_val()")
 
-    def write_struct(self, obj: Any) -> None:
+    def write_struct(self, obj: ThriftObject) -> None:
         for field_id in iter(obj.thrift_spec):
-            field_type, field_name, inner_type = obj.thrift_spec[field_id]
+            meta = obj.thrift_spec[field_id]
 
-            val = getattr(obj, field_name, None)
+            val = getattr(obj, meta.name, None)
             if val is None:
                 continue
 
-            start = len(self.getvalue())
-            if field_type in (TType.BOOL, TType.BYTE, TType.I16, TType.I32, TType.I64,
+            rtype = meta.rtype
+            if rtype.type in (TType.BOOL, TType.BYTE, TType.I16, TType.I32, TType.I64,
                               TType.BINARY):
-                self.write_val(field_id, field_type, val)
-            elif field_type in (TType.LIST, TType.SET):
-                self.write_list(field_id, inner_type, val)
-            elif field_type == TType.MAP:
-                (key_type, _), (value_type, _) = inner_type
-                self.write_map(field_id, key_type, value_type, val)
-            elif field_type == TType.STRUCT:
+                self.write_val(field_id, rtype.type, val)
+            elif rtype.type in (TType.LIST, TType.SET):
+                self.write_list(field_id, rtype.item_type.type, val)
+            elif rtype.type == TType.MAP:
+                self.write_map(field_id, rtype.key_type, rtype.value_type.type, val)
+            elif rtype.type == TType.STRUCT:
                 self.write_struct_begin(field_id)
                 self.write_struct(val)
         self.write_stop()

@@ -17,7 +17,7 @@ from typing import List, Dict
 
 from attr import dataclass
 
-from maufbapi.mqtt.thrift import TType, field, autospec
+from ..thrift import TType, RecursiveType, field, autospec
 from .responses import MessageUnsendability
 
 
@@ -51,7 +51,8 @@ class MessageMetadata:
 class ImageInfo:
     original_width: int = field(TType.I32)
     original_height: int = field(TType.I64)
-    previews: Dict[int, str] = field(TType.MAP, (TType.I32, TType.BINARY))
+    previews: Dict[int, str] = field(RecursiveType(TType.MAP, key_type=TType.I32,
+                                                   value_type=RecursiveType(TType.BINARY)))
     # index 4: unknown int32
     # indices 5-7: ???
     image_type: str = field(index=8)
@@ -110,15 +111,15 @@ class MessageSyncEvent:
     data: MessageSyncData = field(index=2, default=None)
     binary: BinaryData = field(index=42, default=None)
 
-    first_seq_id: int = field(TType.I64, index=1)
-    last_seq_id: int = field(TType.I64, index=2, secondary=True)
-    viewer: int = field(TType.I64, index=3)
+    first_seq_id: int = field(TType.I64, index=1, default=None)
+    last_seq_id: int = field(TType.I64, index=2, secondary=True, default=None)
+    viewer: int = field(TType.I64, index=3, default=None)
 
 
 @autospec
 @dataclass(kw_only=True)
 class MessageSyncPayload:
-    items: List[MessageSyncEvent]
+    items: List[MessageSyncEvent] = field(factory=lambda: [])
     first_seq_id: int = field(TType.I64, default=None)
     last_seq_id: int = field(TType.I64, default=None)
     viewer: int = field(TType.I64, default=None)

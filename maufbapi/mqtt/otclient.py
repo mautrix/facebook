@@ -22,6 +22,9 @@ http2_header = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
 
 class MQTToTClient(paho.mqtt.client.Client):
+    def set_client_id(self, client_id: bytes) -> None:
+        self._client_id = client_id
+
     # This is equivalent to the original _send_connect, except:
     # * the protocol ID is MQTToT.
     # * the client ID is sent without a length.
@@ -33,7 +36,6 @@ class MQTToTClient(paho.mqtt.client.Client):
         remaining_length = (2 + len(protocol) + 1 +
                             1 + 2 + len(self._client_id))
 
-        # Username, password, clean session
         connect_flags = 0x02
 
         command = paho.mqtt.client.CONNECT

@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Union, Set, Optional, Any, Dict, Awaitable, Type, List, TypeVar, Callable
+from typing import Union, Optional, Any, Dict, Awaitable, Type, List, TypeVar, Callable
 from collections import defaultdict
 from socket import socket, error as SocketError
 import logging
@@ -29,7 +29,8 @@ from yarl import URL
 from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
-from .thrift import RealtimeConfig, RealtimeClientInfo, ThriftReader, TType
+from ..types import MessageSyncPayload, RealtimeConfig, RealtimeClientInfo
+from ..thrift import ThriftReader
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
 from .events import Connect, Disconnect
@@ -118,6 +119,7 @@ class AndroidMQTT:
                             ]
         topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
                      for topic in subscribe_topics]
+        print(topic_ids)
         cfg = RealtimeConfig(
             client_identifier=self.state.device.uuid[:20],
             client_info=RealtimeClientInfo(
@@ -166,8 +168,12 @@ class AndroidMQTT:
     def _on_connect_handler(self, client: MQTToTClient, _: Any, flags: Dict[str, Any], rc: int
                             ) -> None:
         if rc != 0:
-            err = paho.mqtt.client.connack_string(rc)
-            self.log.error("MQTT Connection Error: %s (%d)", err, rc)
+            if rc == paho.mqtt.client.MQTT_ERR_INVAL:
+                self.log.error("MQTT connection error, regenerating client ID")
+                self._client.set_client_id(self._form_client_id())
+            else:
+                err = paho.mqtt.client.connack_string(rc)
+                self.log.error("MQTT Connection Error: %s (%d)", err, rc)
             return
 
         self._loop.create_task(self._post_connect())
@@ -260,8 +266,14 @@ class AndroidMQTT:
                 print(f"Message in {message.topic} (zlib): {payload}")
             else:
                 print(f"Message in {message.topic} (plain): {payload}")
+            topic = RealtimeTopic.decode(message.topic)
             if payload.startswith(b"\x00"):
-                ThriftReader(payload[1:]).pretty_print(TType.STRUCT)
+                reader = ThriftReader(payload[1:])
+                if topic == RealtimeTopic.MESSAGE_SYNC:
+                    parsed = reader.read_struct(MessageSyncPayload)
+                    print(f"Parsed message sync: {parsed}")
+                else:
+                    reader.pretty_print()
             # topic = RealtimeTopic.decode(message.topic)
             # # Instagram Android MQTT messages are always compressed
             # message.payload = zlib.decompress(message.payload)
@@ -280,7 +292,7 @@ class AndroidMQTT:
             #                        topic.value, message.payload)
             #     else:
             #         waiter.set_result(message)
-        except Exception as e:
+        except Exception:
             self.log.exception("Error in incoming MQTT message handler")
             self.log.trace("Errored MQTT payload: %s", message.payload)
 
@@ -331,7 +343,7 @@ class AndroidMQTT:
                 break  # Stop listening
 
             if rc != paho.mqtt.client.MQTT_ERR_SUCCESS:
-                print(paho.mqtt.client.error_string(rc))
+                print(rc, paho.mqtt.client.error_string(rc))
                 # If known/expected error
                 if rc == paho.mqtt.client.MQTT_ERR_CONN_LOST:
                     await self._dispatch(Disconnect(reason="Connection lost, retrying"))
