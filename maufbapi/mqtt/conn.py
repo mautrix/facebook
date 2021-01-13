@@ -257,6 +257,20 @@ class AndroidMQTT:
 
     # region Incoming event parsing
 
+    def _on_message_sync(self, reader: ThriftReader) -> None:
+        parsed: MessageSyncPayload = reader.read_struct(MessageSyncPayload)
+        print(f"Parsed message sync: {parsed}")
+        for item in parsed.items:
+            if item.binary:
+                try:
+                    ThriftReader(item.binary.data).pretty_print()
+                except Exception as e:
+                    print("oh noes", e)
+            if item.last_seq_id and item.last_seq_id > self._seq_id:
+                self._seq_id = item.last_seq_id
+        if parsed.last_seq_id and parsed.last_seq_id > self._seq_id:
+            self._seq_id = parsed.last_seq_id
+
     def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
         try:
             payload = message.payload
@@ -267,13 +281,13 @@ class AndroidMQTT:
             else:
                 print(f"Message in {message.topic} (plain): {payload}")
             topic = RealtimeTopic.decode(message.topic)
-            if payload.startswith(b"\x00"):
-                reader = ThriftReader(payload[1:])
-                if topic == RealtimeTopic.MESSAGE_SYNC:
-                    parsed = reader.read_struct(MessageSyncPayload)
-                    print(f"Parsed message sync: {parsed}")
-                else:
-                    reader.pretty_print()
+            reader = ThriftReader(payload)
+            if payload[0] == 0:
+                reader.seek(1)
+            if topic == RealtimeTopic.MESSAGE_SYNC:
+                self._on_message_sync(reader)
+            else:
+                reader.pretty_print()
             # topic = RealtimeTopic.decode(message.topic)
             # # Instagram Android MQTT messages are always compressed
             # message.payload = zlib.decompress(message.payload)

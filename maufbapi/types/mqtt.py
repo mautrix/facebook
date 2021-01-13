@@ -17,8 +17,8 @@ from typing import List, Dict
 
 from attr import dataclass
 
-from ..thrift import TType, RecursiveType, field, autospec
-from .responses import MessageUnsendability
+from ..thrift import TType, RecursiveType, ThriftReader, field, autospec
+from .responses import MessageUnsendability as Unsendability
 
 
 @autospec
@@ -33,17 +33,20 @@ class BinaryThreadKey:
 class MessageMetadata:
     thread: BinaryThreadKey
     id: str
-    # index 3: unknown int64, example: 6754745637852805729
-    sender: int = field(TType.I64, index=4)
+    offline_threading_id: int = field(default=None)
+    sender: int = field(TType.I64)
     timestamp: int = field(TType.I64)
-    # index 6: unknown bool
+    # index 6: unknown bool (ex: true)
     # index 7: ???
     tags: List[str] = field(index=8, factory=lambda: [])
-    # index 9: unknown int32
-    # index 10: unknown bool
-    message_unsendability_status: MessageUnsendability = field(TType.BINARY, index=12)
+    # index 9: unknown int32 (ex: 3)
+    # index 10: unknown bool (ex: false)
+    message_unsendability: Unsendability = field(TType.BINARY, index=12,
+                                                 default=Unsendability.DENY_FOR_NON_SENDER)
     # indices 13-16: ???
-    # index 17: struct -> set at index 2 of int64 user ids
+    # index 17: struct
+    #   index 1: int64 group id
+    #   index 2: set of int64 recipient user ids in private chats?
 
 
 @autospec
@@ -87,16 +90,56 @@ class Reaction:
 
 @autospec
 @dataclass(kw_only=True)
-class MessageSyncData:
+class Message:
     metadata: MessageMetadata
     text: str
-    # indices 3 and 4: ???
+    # index 3: ???
+    # index 4: possibly int32 (ex: zero)
     attachments: List[Attachment] = field(index=5, factory=lambda: [])
     # index 6: some sort of struct:
     #    1: List[BinaryThreadKey]?
     #    2: ???
     #    3: timestamp?
     #    4: timestamp?
+    # index 7: mysterious map
+    # index 1000?!: int64 (ex: 81)
+    # index 1017: int64 (ex: 924)
+    # index 1003: struct
+    #   index 1: struct
+    #     index 1: binary, replying to message id
+    # index 1012: map<binary, binary>
+    #   key apiArgs: binary containing thrift
+    #     index 2: binary url, https://www.facebook.com/intern/agent/realtime_delivery/
+    #     index 4: int64 (ex: 0)
+    #     index 7: binary, empty?
+    #     index 5: binary, some sort of uuid
+    #     index 8: list<map>
+    #       item 1: map<binary, binary>
+    #         {"layer": "www", "push_phase": "C3", "www_rev": "1003179603",
+    #          "buenopath": "XRealtimeDeliveryThriftServerController:sendRealtimeDeliveryRequest:/ls_req:TASK_LABEL=SEND_MESSAGE_V{N}"}
+    #     index 9: binary (ex: www)
+    #     index 10: boolean (ex: false)
+    # index 1015: list<binary>, some sort of tags
+
+
+@autospec
+@dataclass(kw_only=True)
+class ExtendedMessage:
+    reply_to_message: Message
+    message: Message
+
+
+@autospec
+@dataclass
+class MessageSyncInnerEvent:
+    reaction: Reaction = field(index=10, default=None)
+    extended_message: ExtendedMessage = field(index=55, default=None)
+
+
+@autospec
+@dataclass
+class MessageSyncInnerPayload:
+    items: List[MessageSyncInnerEvent]
 
 
 @autospec
@@ -104,11 +147,14 @@ class MessageSyncData:
 class BinaryData:
     data: bytes
 
+    def parse(self) -> MessageSyncInnerPayload:
+        return ThriftReader(self.data).read_struct(MessageSyncInnerPayload)
+
 
 @autospec
 @dataclass(kw_only=True)
 class MessageSyncEvent:
-    data: MessageSyncData = field(index=2, default=None)
+    data: Message = field(index=2, default=None)
     binary: BinaryData = field(index=42, default=None)
 
     first_seq_id: int = field(TType.I64, index=1, default=None)
@@ -125,3 +171,28 @@ class MessageSyncPayload:
     viewer: int = field(TType.I64, default=None)
     # index 11: unknown string, contains "1"
     error: str = field(index=12, default=None)
+
+
+@autospec
+@dataclass
+class SendMessageRequest:
+    # tfbid_<groupid> for groups, plain user id for users
+    chat_id: str
+    message: str
+    offline_threading_id: int = field(TType.I64)
+    # index 4: ???
+    # Example values:
+    #   'is_in_chatheads': 'false'
+    #   'ld': '{"u":1674434246165228}'
+    #   'trigger': '2:thread_list:thread'
+    #   'active_now': '{"is_online":"false","last_active_seconds":"1431"}'
+    extra_meta: Dict[str, str] = field(index=5)
+    # indices 6-11: ???
+    sender_id: int = field(TType.I64, index=12)
+    # indices 13-17: ???
+    unknown_int32: int = field(TType.I32, index=18, default=0)
+    # indices 19 and 20: ???
+    unknown_int64: int = field(TType.I64, index=21, default=0)
+    # index 22: ???
+    unknown_bool: bool = field(TType.BOOL, index=23, default=False)
+    # index 24: a weird int64 that looks like offline_threading_id, but isn't quite the same

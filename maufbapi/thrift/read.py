@@ -54,6 +54,12 @@ class ThriftReader(io.BytesIO):
     def _read_byte(self, signed: bool = False) -> int:
         return int.from_bytes(self.read(1), "big", signed=signed)
 
+    def reset(self) -> None:
+        self.seek(0)
+        self.prev_field_id = 0
+        self._struct_id = -1
+        self.stack = []
+
     @staticmethod
     def _from_zigzag(val: int) -> int:
         return (val >> 1) ^ -(val & 1)
@@ -74,14 +80,15 @@ class ThriftReader(io.BytesIO):
 
     def read_field(self) -> Tuple[TType, int]:
         byte = self._read_byte()
-        if byte == 0 or byte == 15:
+        if (byte & 0x0f) == 0:
             return TType.STOP, -1
-        delta = (byte & 0xf0) >> 4
+        ttype = TType(byte & 0x0f)
+        delta = byte >> 4
         if delta == 0:
             self.prev_field_id = self.read_int()
         else:
             self.prev_field_id += delta
-        return TType(byte & 0x0f), self.prev_field_id
+        return ttype, self.prev_field_id
 
     def read_val(self, type: TType) -> Any:
         if type == TType.TRUE:
@@ -106,6 +113,10 @@ class ThriftReader(io.BytesIO):
         return item_type, length
 
     def read_map_header(self) -> Tuple[TType, TType, int]:
+        pos = self.tell()
+        if self._read_byte() == 0:
+            return TType.STOP, TType.STOP, 0
+        self.seek(pos)
         length = self.read_varint()
         types = self._read_byte()
         key_type = TType(types >> 4)
@@ -175,7 +186,7 @@ class ThriftReader(io.BytesIO):
                 raise ValueError("Couldn't find corresponding Python field "
                                  f"for Thrift field {field_index}/{field_type}")
             args[field_meta.name] = self.read_val_recursive(field_meta.rtype)
-        print("Creating a", type.__name__, "with", args)
+        # print("Creating a", type.__name__, "with", args)
         return type(**args)
 
     def pretty_print(self, field_type: TType = TType.STRUCT, _indent: str = "", _prefix: str = ""
