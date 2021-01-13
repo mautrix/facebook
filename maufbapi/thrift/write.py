@@ -13,7 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Union, List, Dict, Optional, TYPE_CHECKING
+from typing import Any, Union, List, Collection, Dict, Optional, TYPE_CHECKING
+import struct
 import io
 
 from .type import TType
@@ -23,21 +24,26 @@ if TYPE_CHECKING:
 
 
 class ThriftWriter(io.BytesIO):
-    prev_field_id: int
-    stack: List[int]
+    """
+    ThriftWriter implements encoding Python values into the Thrift Compact protocol.
+
+    https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md
+    """
+    _prev_field_id: int
+    _stack: List[int]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.prev_field_id = 0
-        self.stack = []
+        self._prev_field_id = 0
+        self._stack = []
 
     def _push_stack(self) -> None:
-        self.stack.append(self.prev_field_id)
-        self.prev_field_id = 0
+        self._stack.append(self._prev_field_id)
+        self._prev_field_id = 0
 
     def _pop_stack(self) -> None:
-        if self.stack:
-            self.prev_field_id = self.stack.pop()
+        if self._stack:
+            self._prev_field_id = self._stack.pop()
 
     def _write_byte(self, byte: Union[int, TType]) -> None:
         self.write(bytes([byte]))
@@ -68,19 +74,25 @@ class ThriftWriter(io.BytesIO):
     def _write_long(self, val: int) -> None:
         self._write_varint(self._to_zigzag(val, 64))
 
-    def write_field_begin(self, field_id: int, ttype: TType) -> None:
+    def _write_field_begin(self, field_id: int, ttype: TType) -> None:
         ttype_val = ttype.value
-        delta = field_id - self.prev_field_id
+        delta = field_id - self._prev_field_id
         if 0 < delta < 16:
             self._write_byte((delta << 4) | ttype_val)
         else:
             self._write_byte(ttype_val)
             self._write_word(field_id)
-        self.prev_field_id = field_id
+        self._prev_field_id = field_id
+
+    def _write_string(self, val: Union[str, bytes]) -> None:
+        if isinstance(val, str):
+            val = val.encode("utf-8")
+        self._write_varint(len(val))
+        self.write(val)
 
     def write_map(self, field_id: int, key_type: TType, value_type: TType, val: Dict[Any, Any]
                   ) -> None:
-        self.write_field_begin(field_id, TType.MAP)
+        self._write_field_begin(field_id, TType.MAP)
         if not map:
             self._write_byte(0)
             return
@@ -90,34 +102,12 @@ class ThriftWriter(io.BytesIO):
             self.write_val(None, key_type, key)
             self.write_val(None, value_type, value)
 
-    def write_string_direct(self, val: Union[str, bytes]) -> None:
-        if isinstance(val, str):
-            val = val.encode("utf-8")
-        self._write_varint(len(val))
-        self.write(val)
-
     def write_stop(self) -> None:
         self._write_byte(TType.STOP.value)
         self._pop_stack()
 
-    def write_int8(self, field_id: int, val: int) -> None:
-        self.write_field_begin(field_id, TType.BYTE)
-        self._write_byte(val)
-
-    def write_int16(self, field_id: int, val: int) -> None:
-        self.write_field_begin(field_id, TType.I16)
-        self._write_word(val)
-
-    def write_int32(self, field_id: int, val: int) -> None:
-        self.write_field_begin(field_id, TType.I32)
-        self._write_int(val)
-
-    def write_int64(self, field_id: int, val: int) -> None:
-        self.write_field_begin(field_id, TType.I64)
-        self._write_long(val)
-
-    def write_list(self, field_id: int, item_type: TType, val: List[Any]) -> None:
-        self.write_field_begin(field_id, TType.LIST)
+    def write_list(self, field_id: int, item_type: TType, val: Collection[Any]) -> None:
+        self._write_field_begin(field_id, TType.LIST)
         if len(val) < 0x0f:
             self._write_byte((len(val) << 4) | item_type.value)
         else:
@@ -127,17 +117,17 @@ class ThriftWriter(io.BytesIO):
             self.write_val(None, item_type, item)
 
     def write_struct_begin(self, field_id: int) -> None:
-        self.write_field_begin(field_id, TType.STRUCT)
+        self._write_field_begin(field_id, TType.STRUCT)
         self._push_stack()
 
     def write_val(self, field_id: Optional[int], ttype: TType, val: Any) -> None:
         if ttype == TType.BOOL:
             if field_id is None:
-                raise ValueError("booleans can only be in structs")
-            self.write_field_begin(field_id, TType.TRUE if val else TType.FALSE)
+                raise ValueError("booleans can only be used in structs")
+            self._write_field_begin(field_id, TType.TRUE if val else TType.FALSE)
             return
         if field_id is not None:
-            self.write_field_begin(field_id, ttype)
+            self._write_field_begin(field_id, ttype)
         if ttype == TType.BYTE:
             self._write_byte(val)
         elif ttype == TType.I16:
@@ -146,8 +136,10 @@ class ThriftWriter(io.BytesIO):
             self._write_int(val)
         elif ttype == TType.I64:
             self._write_long(val)
+        elif ttype == TType.DOUBLE:
+            self.write(struct.pack("<d", val))
         elif ttype == TType.BINARY:
-            self.write_string_direct(val)
+            self._write_string(val)
         else:
             raise ValueError(f"{ttype} is not supported by write_val()")
 
@@ -160,14 +152,13 @@ class ThriftWriter(io.BytesIO):
                 continue
 
             rtype = meta.rtype
-            if rtype.type in (TType.BOOL, TType.BYTE, TType.I16, TType.I32, TType.I64,
-                              TType.BINARY):
-                self.write_val(field_id, rtype.type, val)
-            elif rtype.type in (TType.LIST, TType.SET):
+            if rtype.type in (TType.LIST, TType.SET):
                 self.write_list(field_id, rtype.item_type.type, val)
             elif rtype.type == TType.MAP:
                 self.write_map(field_id, rtype.key_type, rtype.value_type.type, val)
             elif rtype.type == TType.STRUCT:
                 self.write_struct_begin(field_id)
                 self.write_struct(val)
+            else:
+                self.write_val(field_id, rtype.type, val)
         self.write_stop()

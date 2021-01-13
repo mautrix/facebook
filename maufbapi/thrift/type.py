@@ -18,6 +18,11 @@ from enum import IntEnum
 
 
 class TType(IntEnum):
+    """
+    Thrift type identifiers for the compact struct encoding.
+
+    https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#struct-encoding
+    """
     STOP = 0
     TRUE = 1
     FALSE = 2
@@ -32,11 +37,12 @@ class TType(IntEnum):
     MAP = 11
     STRUCT = 12
 
-    # internal
+    # Used internally to represent booleans in schemas.
     BOOL = 0xa1
 
 
 class RecursiveType(NamedTuple):
+    """A type container that can exactly specify the expected types for nested lists/maps."""
     type: TType
     python_type: Optional[Type[Any]] = None
     item_type: Optional['RecursiveType'] = None

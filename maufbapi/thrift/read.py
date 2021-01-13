@@ -26,43 +26,52 @@ if TYPE_CHECKING:
 else:
     T = TypeVar('T', bound='ThriftObject')
 
-alpha_start = ord("a")
-alpha_length = ord("z") - ord("a") + 1
+_alpha_start = ord("a")
+_alpha_length = ord("z") - ord("a") + 1
 
 
 class ThriftReader(io.BytesIO):
-    prev_field_id: int
-    _struct_id: int
-    stack: List[int]
+    """
+    ThriftReader implements decodiong the Thrift Compact protocol into Python values.
+
+    https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md
+    """
+
+    _prev_field_id: int
+    _stack: List[int]
+
+    _prev_struct_id: int
 
     @property
-    def struct_id(self) -> str:
-        self._struct_id += 1
-        return (chr(alpha_start + (self._struct_id // alpha_length))
-                + chr(alpha_start + self._struct_id % alpha_length))
+    def _struct_id(self) -> str:
+        """An incrementing alphabetical identifier used for pretty-printing structs."""
+        self._prev_struct_id += 1
+        return (chr(_alpha_start + (self._prev_struct_id // _alpha_length))
+                + chr(_alpha_start + self._prev_struct_id % _alpha_length))
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.prev_field_id = 0
-        self._struct_id = -1
-        self.stack = []
+        self._prev_field_id = 0
+        self._prev_struct_id = -1
+        self._stack = []
 
     def _push_stack(self) -> None:
-        self.stack.append(self.prev_field_id)
-        self.prev_field_id = 0
+        self._stack.append(self._prev_field_id)
+        self._prev_field_id = 0
 
     def _pop_stack(self) -> None:
-        if self.stack:
-            self.prev_field_id = self.stack.pop()
+        if self._stack:
+            self._prev_field_id = self._stack.pop()
 
     def _read_byte(self, signed: bool = False) -> int:
         return int.from_bytes(self.read(1), "big", signed=signed)
 
     def reset(self) -> None:
+        """Reset the parser to the start of the data."""
         self.seek(0)
-        self.prev_field_id = 0
-        self._struct_id = -1
-        self.stack = []
+        self._prev_field_id = 0
+        self._prev_struct_id = -1
+        self._stack = []
 
     @staticmethod
     def _from_zigzag(val: int) -> int:
@@ -84,17 +93,24 @@ class ThriftReader(io.BytesIO):
 
     def read_field(self) -> Tuple[TType, int]:
         byte = self._read_byte()
-        if (byte & 0x0f) == 0:
-            return TType.STOP, -1
-        ttype = TType(byte & 0x0f)
-        delta = byte >> 4
-        if delta == 0:
-            self.prev_field_id = self.read_int()
-        else:
-            self.prev_field_id += delta
-        return ttype, self.prev_field_id
+        type = TType(byte & 0x0f)
+        if type == TType.STOP:
+            return type, -1
+        field_id_delta = byte >> 4
+        self._prev_field_id = (self.read_int() if field_id_delta == 0
+                               else self._prev_field_id + field_id_delta)
+        return type, self._prev_field_id
 
     def read_val(self, type: TType) -> Any:
+        """
+        Read a primitive value.
+
+        Args:
+            type: The type of value to read.
+
+        Returns:
+
+        """
         if type == TType.TRUE:
             return True
         elif type == TType.FALSE:
@@ -104,30 +120,67 @@ class ThriftReader(io.BytesIO):
         elif type == TType.BINARY:
             return self.read(self.read_varint())
         elif type in (TType.I16, TType.I32, TType.I64):
+            # All sizes of ints are decoded the same way from zigzag.
             return self.read_int()
         elif type == TType.DOUBLE:
-            return struct.unpack("f", self.read(8))
+            # Doubles are encoded as little endian
+            # https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#double-encoding
+            return struct.unpack("<d", self.read(8))
+        else:
+            raise ValueError(f"{type.name} is not a primitive type")
 
     def read_list_header(self) -> Tuple[TType, int]:
-        item_type = self._read_byte()
-        length = item_type >> 4
-        item_type = TType(item_type & 0x0f)
+        """
+        Read the type and length metadata of a list or set.
+
+        https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#list-and-set
+
+        Returns:
+            A tuple containing the item type and length of the list or set.
+        """
+        header_byte = self._read_byte()
+
+        # The upstream Thrift spec uses different element type identifiers for list and map types,
+        # but Facebook just uses the same types as structs.
+        item_type = TType(header_byte & 0x0f)
+
+        length = header_byte >> 4
         if length == 0x0f:
             length = self.read_varint()
+
         return item_type, length
 
     def read_map_header(self) -> Tuple[TType, TType, int]:
+        """
+        Read the type and length metadata of a map.
+
+        https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#map
+
+        Returns:
+            A tuple containing the key type, value type and length of the map.
+        """
         pos = self.tell()
         if self._read_byte() == 0:
+            # If the first byte is zero, the map is empty.
             return TType.STOP, TType.STOP, 0
+        # Go back one byte so we can read the length varint normally.
         self.seek(pos)
         length = self.read_varint()
+
         types = self._read_byte()
         key_type = TType(types >> 4)
         value_type = TType(types & 0x0f)
+
         return key_type, value_type, length
 
     def skip(self, type: TType) -> None:
+        """
+        Skip the next field in the data. If the type is a struct, list, set or map, this will
+        recursively skip everything it contains.
+
+        Args:
+            type: The type of the field.
+        """
         if type == TType.STRUCT:
             self._push_stack()
             while True:
@@ -149,6 +202,15 @@ class ThriftReader(io.BytesIO):
             self.read_val(type)
 
     def read_val_recursive(self, rtype: RecursiveType) -> Any:
+        """
+        Read any type of value from the buffer.
+
+        Args:
+            rtype: The exact type specification for the value to read.
+
+        Returns:
+            The parsed value.
+        """
         if rtype.type == TType.STRUCT:
             self._push_stack()
             val = self.read_struct(rtype.python_type)
@@ -172,21 +234,38 @@ class ThriftReader(io.BytesIO):
             return set(data) if rtype.type == TType.SET else list(data)
         else:
             if rtype.type == TType.BINARY and rtype.python_type != bytes:
+                # For non-bytes python types, decode as UTF-8 and then call the
+                # type constructor in case it's an enum or something like that.
                 return rtype.python_type(self.read_val(rtype.type).decode("utf-8"))
             return self.read_val(rtype.type)
 
     def read_struct(self, type: Type[T]) -> T:
+        """
+        Assuming the data in the buffer is a Thrift struct, parse it into a dataclass.
+
+        Args:
+            type: The Python type to parse the struct into.
+
+        Returns:
+            An instance of the given type with the parsed data.
+        """
         args = {}
         while True:
             field_type, field_index = self.read_field()
             if field_type == TType.STOP:
                 break
             elif field_index not in type.thrift_spec:
+                # If the field isn't present in the class at all, ignore it.
                 self.skip(field_type)
                 continue
             try:
-                field_meta = type.thrift_spec_by_type[(field_index, field_type)]
+                # Boolean types use the internal TType.BOOL in classes, so change TRUE/FALSE wire
+                # types to BOOL.
+                expected_t = TType.BOOL if field_type in (TType.TRUE, TType.FALSE) else field_type
+                # Get the Python field name for the (index, type) combination.
+                field_meta = type.thrift_spec_by_type[(field_index, expected_t)]
             except KeyError:
+                # Unexpected types could break things later, so raise an error right away.
                 raise ValueError("Couldn't find corresponding Python field "
                                  f"for Thrift field {field_index}/{field_type}")
             args[field_meta.name] = self.read_val_recursive(field_meta.rtype)
@@ -195,6 +274,10 @@ class ThriftReader(io.BytesIO):
 
     def pretty_print(self, field_type: TType = TType.STRUCT, _indent: str = "", _prefix: str = ""
                      ) -> None:
+        """
+        Pretty-print the value in the reader.
+        Useful for debugging and reverse-engineering schemas.
+        """
         if _prefix:
             print(f"{_indent}{_prefix} ", end="")
         if field_type in (TType.LIST, TType.SET):
@@ -209,7 +292,7 @@ class ThriftReader(io.BytesIO):
                 key = self.read_val(key_type)
                 self.pretty_print(value_type, _indent + "  ", f"{key}:")
         elif field_type == TType.STRUCT:
-            struct_id = self.struct_id
+            struct_id = self._struct_id
             print(f"start-{struct_id}")
             self._push_stack()
             while True:
