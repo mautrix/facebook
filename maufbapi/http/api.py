@@ -15,11 +15,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from .base import BaseAndroidAPI
 from .login import LoginAPI
+from .upload import UploadAPI
 
 from ..types import ThreadListResponse, ThreadListQuery, MessageList, MoreMessagesQuery
 
 
-class AndroidAPI(LoginAPI, BaseAndroidAPI):
+class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
     async def fetch_threads(self, **kwargs) -> ThreadListResponse:
         return await self.graphql(ThreadListQuery(**kwargs), response_type=ThreadListResponse,
                                   path=["data", "viewer", "message_threads"])

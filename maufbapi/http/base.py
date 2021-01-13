@@ -28,7 +28,7 @@ from mautrix.util.logging import TraceLogger
 from yarl import URL
 
 from ..state import AndroidState
-from ..types import GraphQLQuery
+from ..types import GraphQLQuery, GraphQLMutation
 
 T = TypeVar('T')
 
@@ -38,6 +38,7 @@ class BaseAndroidAPI:
     b_url = URL("https://b-api.facebook.com")
     graph_url = URL("https://graph.facebook.com")
     b_graph_url = URL("https://b-graph.facebook.com")
+    rupload_url = URL("https://rupload.facebook.com")
     graphql_url = graph_url / "graphql"
     http: ClientSession
     log: TraceLogger
@@ -124,9 +125,12 @@ class BaseAndroidAPI:
             "content-type": "application/x-www-form-urlencoded",
             "x-fb-friendly-name": req.__class__.__name__,
         }
+        variables = req.serialize()
+        if isinstance(req, GraphQLMutation):
+            variables = {"input": variables}
         params = {
             **self._params,
-            "variables": json.dumps(req.serialize()),
+            "variables": json.dumps(variables),
             "method": "post",
             "doc_id": req.doc_id,
             "format": "json",

@@ -31,6 +31,7 @@ from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
 from ..types import MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest
+from ..types.mqtt import Mention
 from ..thrift import ThriftReader, ThriftObject
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
@@ -266,11 +267,10 @@ class AndroidMQTT:
         for item in parsed.items:
             if item.binary:
                 try:
+                    print("Binary data:")
                     ThriftReader(item.binary.data).pretty_print()
                 except Exception as e:
                     print("oh noes", e)
-            if item.last_seq_id and item.last_seq_id > self._seq_id:
-                self._seq_id = item.last_seq_id
         if parsed.last_seq_id and parsed.last_seq_id > self._seq_id:
             self._seq_id = parsed.last_seq_id
 
@@ -411,15 +411,19 @@ class AndroidMQTT:
         return int(f"{int(time.time() * 1000):b}{rand}", 2)
 
     async def send_message(self, target: int, is_group: bool, message: str,
-                           offline_threading_id: Optional[int] = None) -> Any:
+                           offline_threading_id: Optional[int] = None,
+                           mentions: Optional[List[Mention]] = None) -> Any:
         if not offline_threading_id:
             offline_threading_id = self.generate_offline_threading_id()
         req = SendMessageRequest(chat_id=f"tfbid_{target}" if is_group else str(target),
                                  message=message, offline_threading_id=offline_threading_id,
                                  sender_id=self.state.session.uid,
-                                 extra_meta={"is_in_chatheads": "false",
-                                             "trigger": "2:thread_list:thread"},
+                                 flags={"is_in_chatheads": "false",
+                                        "trigger": "2:thread_list:thread"},
                                  tid2=self.generate_offline_threading_id())
+        if mentions:
+            req.extra_metadata = {"prng": json.dumps([mention.serialize() for mention in mentions],
+                                                     separators=(',', ':'))}
         print("Send message request:", req)
         resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req)
         print("Send message response:", resp.payload)

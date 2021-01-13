@@ -16,13 +16,19 @@
 from typing import Optional, List, ClassVar
 from abc import ABC
 
-from mautrix.types import Serializable, SerializableAttrs
 from attr import dataclass
 import attr
+
+from mautrix.types import Serializable, SerializableAttrs, SerializableEnum
+from ..common import ThreadFolder
 
 
 class GraphQLQuery(ABC, Serializable):
     doc_id: ClassVar[int]
+
+
+class GraphQLMutation(GraphQLQuery):
+    pass
 
 
 @dataclass
@@ -45,7 +51,7 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs['ThreadListQuery']):
     include_booking_requests: bool = True
 
     nt_context: NTContext = attr.ib(factory=lambda: NTContext())
-    folder_tag: Optional[List[str]] = None
+    folder_tag: Optional[List[ThreadFolder]] = None
 
     theme_icon_size_small: int = 66
     reaction_static_asset_size_small: int = 39
@@ -75,3 +81,18 @@ class MoreMessagesQuery(GraphQLQuery, SerializableAttrs['MoreMessagesQuery']):
     medium_preview_height: int = 481
     small_preview_width: int = 716
     small_preview_height: int = 358
+
+
+class ThreadNameMutationSource(SerializableEnum):
+    SETTINGS = "SETTINGS"
+
+
+@dataclass
+class ThreadNameMutation(GraphQLQuery, SerializableAttrs['ThreadNameMutation']):
+    doc_id: ClassVar[int] = 3090707060965997
+
+    new_thread_name: str
+    thread_id: str
+    client_mutation_id: str
+    actor_id: str
+    source: ThreadNameMutationSource = ThreadNameMutationSource.SETTINGS

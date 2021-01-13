@@ -14,16 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Dict
+import json
 
 from attr import dataclass
+import attr
 
-from ..thrift import TType, RecursiveType, ThriftObject, field, autospec
-from .responses import MessageUnsendability as Unsendability
+from mautrix.types import SerializableAttrs, SerializableEnum
+from maufbapi.thrift import TType, RecursiveType, ThriftObject, field, autospec
+from ..common import MessageUnsendability as Unsendability
 
 
 @autospec
 @dataclass
-class BinaryThreadKey(ThriftObject):
+class ThreadKey(ThriftObject):
     other_user_id: int = field(TType.I64, default=None)
     thread_fbid: int = field(TType.I64, default=None)
 
@@ -31,20 +34,20 @@ class BinaryThreadKey(ThriftObject):
 @autospec
 @dataclass(kw_only=True)
 class MessageMetadata(ThriftObject):
-    thread: BinaryThreadKey
+    thread: ThreadKey
     id: str
     offline_threading_id: int = field(TType.I64, default=None)
     sender: int = field(TType.I64)
     timestamp: int = field(TType.I64)
     # index 6: unknown bool (ex: true)
-    # index 7: ???
+    action_summary: str = field(default=None)
     tags: List[str] = field(index=8, factory=lambda: [])
     # index 9: unknown int32 (ex: 3)
     # index 10: unknown bool (ex: false)
     message_unsendability: Unsendability = field(TType.BINARY, index=12,
                                                  default=Unsendability.DENY_FOR_NON_SENDER)
     # indices 13-16: ???
-    # index 17: struct
+    # index 17: struct (or maybe union?)
     #   index 1: int64 group id
     #   index 2: set of int64 recipient user ids in private chats?
 
@@ -53,14 +56,30 @@ class MessageMetadata(ThriftObject):
 @dataclass(kw_only=True)
 class ImageInfo(ThriftObject):
     original_width: int = field(TType.I32)
-    original_height: int = field(TType.I64)
-    previews: Dict[int, str] = field(RecursiveType(TType.MAP, key_type=TType.I32,
-                                                   value_type=RecursiveType(TType.BINARY)))
+    original_height: int = field(TType.I32)
+    previews: Dict[int, str] = field(TType.MAP, key_type=TType.I32, default=None,
+                                     value_type=RecursiveType(TType.BINARY, python_type=str))
     # index 4: unknown int32
-    # indices 5-7: ???
-    image_type: str = field(index=8)
+    # indices 5 and 6: ???
+    alt_previews: Dict[int, str] = field(TType.MAP, key_type=TType.I32, default=None, index=7,
+                                         value_type=RecursiveType(TType.BINARY, python_type=str))
+    image_type: str = field(default=None)
+    alt_preview_type: str = field(default=None)
     # index 9: ???
     # index 10: unknown bool
+
+
+@autospec
+@dataclass(kw_only=True)
+class VideoInfo(ThriftObject):
+    original_width: int = field(TType.I32)
+    original_height: int = field(TType.I32)
+    duration_ms: int = field(TType.I32)
+    thumbnail_url: str
+    download_url: str
+    # index 6: unknown int32 (ex: 1)
+    # index 7: unknown int32 (ex: 0)
+    # index 8: unknown int32 (ex: 0)
 
 
 @autospec
@@ -70,16 +89,21 @@ class Attachment(ThriftObject):
     mime_type: str
     file_name: str
     media_id: int = field(TType.I64)
-    file_size: int = field(TType.I64)
+    file_size: int = field(TType.I64, default=None)
     # indices 6-9: ???
     image_info: ImageInfo = field(default=None, index=10)
+    video_info: VideoInfo = field(default=None, index=11)
+    # index 12: ???
+    # can contain a dash_manifest key with some XML as the value
+    # or fbtype key with a number as value
+    extra_metadata: Dict[str, str] = field(index=13)
     # index 1007?!: unknown bool
 
 
 @autospec
 @dataclass(kw_only=True)
 class Reaction(ThriftObject):
-    thread: BinaryThreadKey
+    thread: ThreadKey
     message_id: str
     # index 3: unknown int32 (zero)
     reaction_sender_id: int = field(TType.I64, index=4)
@@ -88,20 +112,33 @@ class Reaction(ThriftObject):
     # index 7: unknown number as string, similar to MessageMetadata's index 3
 
 
+class MentionType(SerializableEnum):
+    PERSON = "p"
+
+
+@dataclass
+class Mention(SerializableAttrs['Mention']):
+    offset: int = attr.ib(metadata={"json": "o"})
+    length: int = attr.ib(metadata={"json": "l"})
+    user_id: str = attr.ib(metadata={"json": "i"})
+    type: MentionType = attr.ib(metadata={"json": "t"})
+
+
 @autospec
 @dataclass(kw_only=True)
 class Message(ThriftObject):
     metadata: MessageMetadata
-    text: str
+    text: str = field(default=None)
     # index 3: ???
-    # index 4: possibly int32 (ex: zero)
-    attachments: List[Attachment] = field(index=5, factory=lambda: [])
+    sticker: int = field(TType.I64, index=4, default=None)
+    attachments: List[Attachment] = field(factory=lambda: [])
     # index 6: some sort of struct:
     #    1: List[BinaryThreadKey]?
     #    2: ???
     #    3: timestamp?
     #    4: timestamp?
-    # index 7: mysterious map
+    extra_metadata: Dict[str, bytes] = field(index=7, factory=lambda: {})
+
     # index 1000?!: int64 (ex: 81)
     # index 1017: int64 (ex: 924)
     # index 1003: struct
@@ -120,6 +157,11 @@ class Message(ThriftObject):
     #     index 9: binary (ex: www)
     #     index 10: boolean (ex: false)
     # index 1015: list<binary>, some sort of tags
+
+    @property
+    def mentions(self) -> List[Mention]:
+        return [Mention.deserialize(item) for item
+                in json.loads(self.extra_metadata.get("prng", "[]"))]
 
 
 @autospec
@@ -154,22 +196,63 @@ class BinaryData(ThriftObject):
 @autospec
 @dataclass
 class ReadReceipt(ThriftObject):
-    thread: BinaryThreadKey
+    thread: ThreadKey
     user_id: int = field(TType.I64)
     read_at: int = field(TType.I64)
     read_to: int = field(TType.I64)
 
 
 @autospec
+@dataclass
+class OwnReadReceipt(ThriftObject):
+    thread: List[ThreadKey]
+    # index 2: ???
+    read_to: int = field(TType.I64, index=3)
+    read_at: int = field(TType.I64)
+
+
+@autospec
+@dataclass
+class NameChange(ThriftObject):
+    metadata: MessageMetadata
+    new_name: str
+
+
+@autospec
+@dataclass
+class AvatarChange(ThriftObject):
+    metadata: MessageMetadata
+    new_avatar: Attachment
+
+
+# TODO are there others?
+class EmojiChangeAction(SerializableEnum):
+    CHANGE_THREAD_ICON = "change_thread_icon"
+
+
+@autospec
+@dataclass(kw_only=True)
+class EmojiChange(ThriftObject):
+    metadata: MessageMetadata
+    action: EmojiChangeAction = field(TType.BINARY)
+    action_data: Dict[str, str]
+
+
+@autospec
 @dataclass(kw_only=True)
 class MessageSyncEvent(ThriftObject):
     data: Message = field(index=2, default=None)
+    own_read_receipt: OwnReadReceipt = field(index=4, default=None)
+    name_change: NameChange = field(index=10, default=None)
+    avatar_change: AvatarChange = field(index=11, default=None)
+    emoji_change: EmojiChange = field(index=17, default=None)
     read_receipt: ReadReceipt = field(index=19, default=None)
+    # index 25: unknown struct
+    #   index 1: ThreadKey
+    #   index 2: some user ID
+    #   index 6: list of binary (message IDs)
+    #   index 7: timestamp
     binary: BinaryData = field(index=42, default=None)
-
-    first_seq_id: int = field(TType.I64, index=1, default=None)
-    last_seq_id: int = field(TType.I64, index=2, secondary=True, default=None)
-    viewer: int = field(TType.I64, index=3, default=None)
 
 
 @autospec
@@ -181,29 +264,3 @@ class MessageSyncPayload(ThriftObject):
     viewer: int = field(TType.I64, default=None)
     # index 11: unknown string, contains "1"
     error: str = field(index=12, default=None)
-
-
-@autospec
-@dataclass(kw_only=True)
-class SendMessageRequest(ThriftObject):
-    # tfbid_<groupid> for groups, plain user id for users
-    chat_id: str
-    message: str
-    offline_threading_id: int = field(TType.I64)
-    # index 4: ???
-    # Example values:
-    #   'is_in_chatheads': 'false'
-    #   'ld': '{"u":1674434.........}'
-    #   'trigger': '2:thread_list:thread'
-    #   'active_now': '{"is_online":"false","last_active_seconds":"1431"}'
-    extra_meta: Dict[str, str] = field(index=5, factory=lambda: {})
-    # indices 6-11: ???
-    sender_id: int = field(TType.I64, index=12)
-    # indices 13-17: ???
-    unknown_int32: int = field(TType.I32, index=18, default=0)
-    # indices 19 and 20: ???
-    unknown_int64: int = field(TType.I64, index=21, default=0)
-    # index 22: ???
-    unknown_bool: bool = field(TType.BOOL, index=23, default=False)
-    # this is weird int64 that looks like offline_threading_id, but isn't quite the same
-    tid2: int = field(TType.I64, index=23)

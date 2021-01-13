@@ -15,9 +15,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, List
 
-from mautrix.types import SerializableEnum, SerializableAttrs
 from attr import dataclass
 import attr
+
+from mautrix.types import SerializableEnum, SerializableAttrs
+from ..common import ThreadFolder, MessageUnsendability
 
 
 @dataclass
@@ -121,8 +123,9 @@ class MessageSender(SerializableAttrs['MessageSender']):
 
 @dataclass
 class MessageRange(SerializableAttrs['MessageRange']):
-    # TODO
-    pass
+    length: int
+    offset: int
+    entity: Optional[ParticipantID] = None
 
 
 @dataclass
@@ -198,12 +201,6 @@ class Reply(SerializableAttrs['Reply']):
     status: ReplyStatus
 
 
-class MessageUnsendability(SerializableEnum):
-    DENY_FOR_NON_SENDER = "deny_for_non_sender"
-    DENY_LOG_MESSAGE = "deny_log_message"
-    CAN_UNSEND = "can_unsend"
-
-
 @dataclass(kw_only=True)
 class Message(MinimalMessage, SerializableAttrs['Message']):
     snippet: str
@@ -238,13 +235,6 @@ class MessageList(SerializableAttrs['MessageList']):
 class ThreadKey(SerializableAttrs['ThreadKey']):
     other_user_id: Optional[str] = None
     thread_fbid: Optional[str] = None
-
-
-class ThreadFolder(SerializableEnum):
-    INBOX = "INBOX"
-    PENDING = "PENDING"
-    ARCHIVED = "ARCHIVED"
-    OTHER = "OTHER"
 
 
 @dataclass(kw_only=True)

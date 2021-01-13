@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,13 +13,17 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from mautrix.util.logging.color import ColorFormatter as BaseColorFormatter, PREFIX, RESET
-
-FBCHAT_COLOR = PREFIX + "35;1m"  # magenta
+from mautrix.types import SerializableEnum
 
 
-class ColorFormatter(BaseColorFormatter):
-    def _color_name(self, module: str) -> str:
-        if module.startswith("fbchat") or module.startswith("maufbapi"):
-            return FBCHAT_COLOR + module + RESET
-        return super()._color_name(module)
+class MessageUnsendability(SerializableEnum):
+    DENY_FOR_NON_SENDER = "deny_for_non_sender"
+    DENY_LOG_MESSAGE = "deny_log_message"
+    CAN_UNSEND = "can_unsend"
+
+
+class ThreadFolder(SerializableEnum):
+    INBOX = "INBOX"
+    PENDING = "PENDING"
+    ARCHIVED = "ARCHIVED"
+    OTHER = "OTHER"

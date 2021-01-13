@@ -155,7 +155,7 @@ class ThriftWriter(io.BytesIO):
             if rtype.type in (TType.LIST, TType.SET):
                 self.write_list(field_id, rtype.item_type.type, val)
             elif rtype.type == TType.MAP:
-                self.write_map(field_id, rtype.key_type, rtype.value_type.type, val)
+                self.write_map(field_id, rtype.key_type.type, rtype.value_type.type, val)
             elif rtype.type == TType.STRUCT:
                 self.write_struct_begin(field_id)
                 self.write_struct(val)

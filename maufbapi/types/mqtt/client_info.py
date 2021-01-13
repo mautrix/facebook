@@ -17,7 +17,7 @@ from typing import Dict, List
 
 from attr import dataclass
 
-from ..thrift import TType, ThriftObject, RecursiveType, field, autospec
+from maufbapi.thrift import TType, ThriftObject, RecursiveType, field, autospec
 
 
 @autospec
@@ -37,8 +37,7 @@ class RealtimeClientInfo(ThriftObject):
     network_subtype: int = field(TType.I32)
     client_mqtt_session_id: int = field(TType.I64)
     client_ip_address: str = None
-    subscribe_topics: List[int] = field(RecursiveType(TType.LIST,
-                                                      item_type=RecursiveType(TType.I32)))
+    subscribe_topics: List[int] = field(TType.LIST, item_type=TType.I32)
     client_type: str
     app_id: int = field(TType.I64)
     override_nectar_logging: bool = None

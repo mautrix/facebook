@@ -32,7 +32,6 @@ class ThriftField(NamedTuple):
 
 class ThriftObject:
     thrift_spec: Dict[int, ThriftField]
-    thrift_spec_by_type: Dict[Tuple[int, TType], ThriftField]
 
     def to_thrift(self) -> bytes:
         buf = ThriftWriter()
@@ -46,7 +45,6 @@ class ThriftObject:
 
 TYPE_META = "net.maunium.thrift.type"
 INDEX_META = "net.maunium.thrift.index"
-SECONDARY_META = "net.maunium.thrift.secondary"
 
 if sys.version_info >= (3, 7):
     def _get_type_class(typ):
@@ -80,8 +78,8 @@ def _guess_type(python_type, name: str) -> RecursiveType:
         return RecursiveType(TType.LIST, item_type=_guess_type(args[0], f"{name} item"),
                              python_type=list)
     elif type_class == dict:
-        return RecursiveType(TType.MAP, key_type=_guess_type(args[0], f"{name} key").type,
-                             value_type=_guess_type(args[1], f"{name} value"), python_type=map)
+        return RecursiveType(TType.MAP, key_type=_guess_type(args[0], f"{name} key"),
+                             value_type=_guess_type(args[1], f"{name} value"), python_type=dict)
     elif type_class == set:
         return RecursiveType(TType.SET, item_type=_guess_type(args[0], f"{name} item"),
                              python_type=set)
@@ -100,7 +98,6 @@ def autospec(clazz: Any) -> Type[ThriftObject]:
         The class given as a parameter.
     """
     clazz.thrift_spec = {}
-    clazz.thrift_spec_by_type = {}
     index = 0
     for field in attr.fields(clazz):
         try:
@@ -108,27 +105,39 @@ def autospec(clazz: Any) -> Type[ThriftObject]:
         except KeyError:
             field_type = _guess_type(field.type, field.name)
         field_meta = ThriftField(field.name, field_type)
-        if not field.metadata.get(SECONDARY_META, False):
-            try:
-                index = field.metadata[INDEX_META]
-            except KeyError:
-                index += 1
-            clazz.thrift_spec[index] = field_meta
-        clazz.thrift_spec_by_type[(index, field_type.type)] = field_meta
+        try:
+            index = field.metadata[INDEX_META]
+        except KeyError:
+            index += 1
+        clazz.thrift_spec[index] = field_meta
     return clazz
 
 
-def field(thrift_type: Union[TType, RecursiveType] = None, index: Optional[int] = None,
-          secondary: bool = False, **kwargs) -> attr.Attribute:
+RTType = Union[None, TType, RecursiveType]
+
+
+def _rttype_to_rtype(typ: RTType, item_type: RTType = None, key_type: RTType = None,
+                     value_type: RTType = None) -> Optional[RecursiveType]:
+    if not typ:
+        return None
+    elif isinstance(typ, RecursiveType):
+        return typ
+    return RecursiveType(typ, item_type=_rttype_to_rtype(item_type),
+                         key_type=_rttype_to_rtype(key_type),
+                         value_type=_rttype_to_rtype(value_type))
+
+
+def field(thrift_type: RTType = None, index: Optional[int] = None, item_type: RTType = None,
+          key_type: RTType = None, value_type: RTType = None, **kwargs) -> attr.Attribute:
     """
     Specify an explicit type for the :meth:`autospec` decorator.
 
     Args:
         thrift_type: The thrift type to use for the field.
-        subtype: The subtype, for multi-part types like lists and maps.
-        index: Override value for the Thrift field index
-        secondary: Mark as a secondary option when the first one at the same index
-            doesn't have a value or is a different type.
+        index: Override value for the Thrift field index.
+        item_type: Type of list/set items.
+        key_type: Type of map keys.
+        value_type: Type of map values.
         **kwargs: Other parameters to pass to :meth:`attr.ib`.
 
     Returns:
@@ -136,10 +145,7 @@ def field(thrift_type: Union[TType, RecursiveType] = None, index: Optional[int] 
     """
     meta = kwargs.setdefault("metadata", {})
     if thrift_type is not None:
-        meta[TYPE_META] = (RecursiveType(thrift_type) if isinstance(thrift_type, TType)
-                           else thrift_type)
+        meta[TYPE_META] = _rttype_to_rtype(thrift_type, item_type, key_type, value_type)
     if index is not None:
         meta[INDEX_META] = index
-    if secondary:
-        meta[SECONDARY_META] = True
     return attr.ib(**kwargs)

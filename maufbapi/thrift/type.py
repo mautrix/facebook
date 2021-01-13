@@ -46,5 +46,5 @@ class RecursiveType(NamedTuple):
     type: TType
     python_type: Optional[Type[Any]] = None
     item_type: Optional['RecursiveType'] = None
-    key_type: Optional[TType] = None
+    key_type: Optional['RecursiveType'] = None
     value_type: Optional['RecursiveType'] = None

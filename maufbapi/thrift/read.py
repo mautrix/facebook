@@ -218,18 +218,23 @@ class ThriftReader(io.BytesIO):
             return val
         elif rtype.type == TType.MAP:
             key_type, value_type, length = self.read_map_header()
-            if key_type != rtype.key_type:
-                raise ValueError(f"Unexpected key type: expected {rtype.key_type}, got {key_type}")
+            if length == 0:
+                return {}
+            elif key_type != rtype.key_type.type:
+                raise ValueError(f"Unexpected key type: expected {rtype.key_type.type.name}, "
+                                 f"got {key_type.name}")
             elif value_type != rtype.value_type.type:
-                raise ValueError(f"Unexpected value type: expected {rtype.value_type.type}, "
-                                 f"got {value_type}")
-            return {self.read_val(key_type): self.read_val_recursive(rtype.value_type)
-                    for _ in range(length)}
+                raise ValueError(f"Unexpected value type: expected {rtype.value_type.type.name}, "
+                                 f"got {value_type.name}")
+            return {
+                self.read_val_recursive(rtype.key_type): self.read_val_recursive(rtype.value_type)
+                for _ in range(length)
+            }
         elif rtype.type in (TType.LIST, TType.SET):
             item_type, length = self.read_list_header()
             if item_type != rtype.item_type.type:
-                raise ValueError(f"Unexpected item type: expected {rtype.item_type.type}, "
-                                 f"got {item_type}")
+                raise ValueError(f"Unexpected item type: expected {rtype.item_type.type.name}, "
+                                 f"got {item_type.name}")
             data = (self.read_val_recursive(rtype.item_type) for _ in range(length))
             return set(data) if rtype.type == TType.SET else list(data)
         else:
@@ -254,20 +259,16 @@ class ThriftReader(io.BytesIO):
             field_type, field_index = self.read_field()
             if field_type == TType.STOP:
                 break
-            elif field_index not in type.thrift_spec:
+            try:
+                field_meta = type.thrift_spec[field_index]
+            except KeyError:
                 # If the field isn't present in the class at all, ignore it.
                 self.skip(field_type)
                 continue
-            try:
-                # Boolean types use the internal TType.BOOL in classes, so change TRUE/FALSE wire
-                # types to BOOL.
-                expected_t = TType.BOOL if field_type in (TType.TRUE, TType.FALSE) else field_type
-                # Get the Python field name for the (index, type) combination.
-                field_meta = type.thrift_spec_by_type[(field_index, expected_t)]
-            except KeyError:
-                # Unexpected types could break things later, so raise an error right away.
-                raise ValueError("Couldn't find corresponding Python field "
-                                 f"for Thrift field {field_index}/{field_type}")
+            expected_type = TType.BOOL if field_type in (TType.TRUE, TType.FALSE) else field_type
+            if field_meta.rtype.type != expected_type:
+                raise ValueError(f"Mismatching type for for field {field_meta.name}/#{field_index}"
+                                 f": expected {field_meta.rtype.type.name}, got {field_type.name}")
             args[field_meta.name] = self.read_val_recursive(field_meta.rtype)
         # print("Creating a", type.__name__, "with", args)
         return type(**args)
