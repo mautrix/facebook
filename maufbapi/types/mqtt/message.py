@@ -121,7 +121,7 @@ class Mention(SerializableAttrs['Mention']):
     offset: int = attr.ib(metadata={"json": "o"})
     length: int = attr.ib(metadata={"json": "l"})
     user_id: str = attr.ib(metadata={"json": "i"})
-    type: MentionType = attr.ib(metadata={"json": "t"})
+    type: MentionType = attr.ib(metadata={"json": "t"}, default=MentionType.PERSON)
 
 
 @autospec
@@ -172,10 +172,21 @@ class ExtendedMessage(ThriftObject):
 
 
 @autospec
+@dataclass(kw_only=True)
+class UnsendMessage(ThriftObject):
+    thread: ThreadKey
+    message_id: str
+    timestamp: int = field(TType.I64)
+    user_id: int = field(TType.I64)
+    # index 5: unknown int64 (ex: 0)
+
+
+@autospec
 @dataclass
 class MessageSyncInnerEvent(ThriftObject):
     reaction: Reaction = field(index=10, default=None)
     extended_message: ExtendedMessage = field(index=55, default=None)
+    unsend_message: UnsendMessage = field(index=67, default=None)
 
 
 @autospec

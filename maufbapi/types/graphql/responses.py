@@ -127,6 +127,10 @@ class MessageRange(SerializableAttrs['MessageRange']):
     offset: int
     entity: Optional[ParticipantID] = None
 
+    @property
+    def user_id(self) -> str:
+        return self.entity.id
+
 
 @dataclass
 class MessagePowerUp(SerializableAttrs['MessagePowerUp']):

@@ -1139,7 +1139,7 @@ class Portal(BasePortal):
                 yield cls.from_db(db_portal)
 
     @classmethod
-    def get_by_thread(cls, thread: fbchat.ThreadABC, fb_receiver: Optional[str] = None
+    def get_by_thread(cls, thread: ThreadKey, fb_receiver: Optional[str] = None
                       ) -> 'Portal':
         return cls.get_by_fbid(thread.id, fb_receiver, ThreadType.from_thread(thread))
 

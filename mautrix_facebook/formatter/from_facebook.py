@@ -13,12 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, List, Optional, Match
+from typing import Tuple, List, Optional, Match, Union
 from html import escape
 import re
 
-import fbchat
 from mautrix.types import TextMessageEventContent, Format, MessageType
+from maufbapi.types.mqtt import Message as MQTTMessage
+from maufbapi.types.graphql import Message as GraphQLMessage
 
 from .. import puppet as pu, user as u
 
@@ -137,14 +138,22 @@ def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptSt
             output.append(_convert_formatting(post_cb_content))
 
 
-def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
-    text = message.text or ""
+def facebook_to_matrix(msg: Union[GraphQLMessage, MQTTMessage]) -> TextMessageEventContent:
+    if isinstance(msg, MQTTMessage):
+        text = msg.text
+        mentions = msg.mentions
+    elif isinstance(msg, GraphQLMessage):
+        text = msg.message.text
+        mentions = msg.message.ranges
+    else:
+        raise ValueError(f"Unsupported Facebook message type {type(msg).__name__}")
+    text = text or ""
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
-    for m in reversed(message.mentions):
+    for m in reversed(mentions):
         original = text[m.offset:m.offset + m.length]
         if len(original) > 0 and original[0] == "@":
             original = original[1:]
-        text = f"{text[:m.offset]}@{m.thread_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
+        text = f"{text[:m.offset]}@{m.user_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
     html = escape(text)
     output = []
     if html:
@@ -159,14 +168,15 @@ def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
             if i != len(lines) - 1:
                 output.append("<br/>")
             _handle_codeblock_post(output, *post_args)
-    for attachment in message.attachments:
-        if ((isinstance(attachment, fbchat.ShareAttachment)
-             and attachment.original_url.rstrip("/") not in text)):
-            output.append(f"<br/><a href='{attachment.original_url}'>"
-                          f"{attachment.title or attachment.original_url}"
-                          "</a>")
-            content.body += (f"\n{attachment.title}: {attachment.original_url}"
-                             if attachment.title else attachment.original_url)
+    # TODO find out if share attachments still exist
+    # for attachment in message.attachments:
+    #     if ((isinstance(attachment, fbchat.ShareAttachment)
+    #          and attachment.original_url.rstrip("/") not in text)):
+    #         output.append(f"<br/><a href='{attachment.original_url}'>"
+    #                       f"{attachment.title or attachment.original_url}"
+    #                       "</a>")
+    #         content.body += (f"\n{attachment.title}: {attachment.original_url}"
+    #                          if attachment.title else attachment.original_url)
     html = "".join(output)
 
     html = MENTION_REGEX.sub(_mention_replacer, html)

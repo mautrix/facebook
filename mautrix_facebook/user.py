@@ -19,7 +19,6 @@ from collections import defaultdict
 import asyncio
 import time
 
-import fbchat
 from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEventContent,
                            MessageType)
 from mautrix.client import Client as MxClient
@@ -27,6 +26,9 @@ from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.opt_prometheus import Summary, Gauge, async_time
+from maufbapi import AndroidState, AndroidMQTT, AndroidAPI
+from maufbapi.mqtt import Disconnect, Connect, MQTTNotLoggedIn, MQTTNotConnected
+from maufbapi.types.graphql import Thread
 
 from .config import Config
 from .commands import enter_2fa_code
@@ -71,9 +73,9 @@ class User(BaseUser):
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[str, 'User'] = {}
 
-    session: Optional[fbchat.Session]
-    client: Optional[fbchat.Client]
-    listener: Optional[fbchat.Listener]
+    state: Optional[AndroidState]
+    client: Optional[AndroidAPI]
+    mqtt: Optional[AndroidMQTT]
     listen_task: Optional[asyncio.Task]
 
     notice_room: RoomID
@@ -88,7 +90,6 @@ class User(BaseUser):
     _connection_time: float
     _prev_thread_sync: float
     _prev_reconnect_fail_refresh: float
-    _session_data: Optional[Dict[str, str]]
     _db_instance: Optional[DBUser]
     _sync_lock: SimpleLock
     _is_refreshing: bool
@@ -96,18 +97,16 @@ class User(BaseUser):
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
 
-    _handlers: Dict[Type[fbchat.Event], Callable[[Any], Awaitable[None]]]
+    _handlers: Dict[Type[TODO], Callable[[Any], Awaitable[None]]]
 
-    def __init__(self, mxid: UserID, session: Optional[Dict[str, str]] = None,
-                 notice_room: Optional[RoomID] = None, user_agent: Optional[str] = None,
-                 fb_domain: str = "messenger.com", db_instance: Optional[DBUser] = None) -> None:
+    def __init__(self, mxid: UserID, state: Optional[str] = None,
+                 notice_room: Optional[RoomID] = None,
+                 db_instance: Optional[DBUser] = None) -> None:
         self.mxid = mxid
         self.by_mxid[mxid] = self
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
-        self.user_agent = user_agent
-        self.fb_domain = fb_domain
         self.command_status = None
         self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
         self._is_logged_in = None
@@ -115,7 +114,6 @@ class User(BaseUser):
         self._connection_time = time.monotonic()
         self._prev_thread_sync = -10
         self._prev_reconnect_fail_refresh = time.monotonic()
-        self._session_data = session
         self._db_instance = db_instance
         self._community_id = None
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
@@ -126,9 +124,9 @@ class User(BaseUser):
 
         self.log = self.log.getChild(self.mxid)
 
+        self.state = AndroidState.parse_json(state) if state else None
         self.client = None
-        self.session = None
-        self.listener = None
+        self.mqtt = None
         self.listen_task = None
 
         self._handlers = {
@@ -142,8 +140,8 @@ class User(BaseUser):
             fbchat.Typing: self.on_typing,
             fbchat.PeopleAdded: self.on_members_added,
             fbchat.PersonRemoved: self.on_member_removed,
-            fbchat.Connect: self.on_connect,
-            fbchat.Disconnect: self.on_disconnect,
+            Connect: self.on_connect,
+            Disconnect: self.on_disconnect,
             fbchat.Resync: self.on_resync,
             fbchat.UnknownEvent: self.on_unknown_event,
         }
@@ -162,29 +160,24 @@ class User(BaseUser):
 
     @property
     def fbid(self) -> Optional[str]:
-        if not self.session:
-            return None
-        return self.session.user.id
+        return str(self.state.session.uid) if self.state and self.state.session.uid else None
 
     @property
     def db_instance(self) -> DBUser:
         if not self._db_instance:
-            self._db_instance = DBUser(mxid=self.mxid, session=self._session_data, fbid=self.fbid,
-                                       notice_room=self.notice_room, user_agent=self.user_agent,
-                                       fb_domain=self.fb_domain)
+            self._db_instance = DBUser(mxid=self.mxid, fbid=self.fbid,
+                                       state=self.state.json() if self.state else None,
+                                       notice_room=self.notice_room)
         return self._db_instance
 
-    def save(self, _update_session_data: bool = True) -> None:
+    def save(self) -> None:
         self.log.debug("Saving session")
-        if _update_session_data and self.session:
-            self._session_data = self.session.get_cookies()
-        self.db_instance.edit(session=self._session_data, fbid=self.fbid, fb_domain=self.fb_domain,
+        self.db_instance.edit(session=self.state.json() if self.state else None, fbid=self.fbid,
                               notice_room=self.notice_room, user_agent=self.user_agent)
 
     @classmethod
     def from_db(cls, db_user: DBUser) -> 'User':
-        return User(mxid=db_user.mxid, session=db_user.session, user_agent=db_user.user_agent,
-                    notice_room=db_user.notice_room, fb_domain=db_user.fb_domain,
+        return User(mxid=db_user.mxid, state=db_user.state, notice_room=db_user.notice_room,
                     db_instance=db_user)
 
     @classmethod
@@ -228,15 +221,14 @@ class User(BaseUser):
     async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
-        elif not self._session_data:
+        elif not self.state:
             return False
         attempt = 0
         while True:
             try:
-                session = await fbchat.Session.from_cookies(self._session_data,
-                                                            user_agent=self.user_agent,
-                                                            domain=self.fb_domain)
-                logged_in = await session.is_logged_in()
+                client = AndroidAPI(self.state)
+                # TODO implement is_logged_in?
+                logged_in = await client.is_logged_in()
                 break
             except (ProxyError, ProxyTimeoutError, ProxyConnectionError, ConnectionError) as e:
                 attempt += 1
@@ -251,8 +243,7 @@ class User(BaseUser):
                 return False
         if logged_in:
             self.log.info("Loaded session successfully")
-            self.session = session
-            self.client = fbchat.Client(session=self.session)
+            self.client = client
             self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
@@ -282,12 +273,12 @@ class User(BaseUser):
     async def refresh(self, force_notice: bool = False) -> None:
         event_id = None
         self._is_refreshing = True
-        if self.listener:
+        if self.mqtt:
             self.log.debug("Disconnecting MQTT connection for session refresh...")
             if self.temp_disconnect_notices or force_notice:
                 event_id = await self.send_bridge_notice("Disconnecting Messenger MQTT connection "
                                                          "for session refresh...")
-            self.listener.disconnect()
+            self.mqtt.disconnect()
             if self.listen_task:
                 try:
                     await asyncio.wait_for(self.listen_task, timeout=3)
@@ -295,7 +286,7 @@ class User(BaseUser):
                     self.log.debug("Waiting for MQTT connection timed out")
                 else:
                     self.log.debug("MQTT connection disconnected")
-            self.listener = None
+            self.mqtt = None
             if self.client:
                 self.client.sequence_id_callback = None
         if self.temp_disconnect_notices or force_notice:
@@ -323,19 +314,20 @@ class User(BaseUser):
         ok = True
         self.stop_listening()
         if self.session:
-            try:
-                await self.session.logout()
-            except fbchat.FacebookError:
-                self.log.exception("Error while logging out")
-                ok = False
+            # TODO is there even a logout API for messenger mobile?
+            pass
+            # try:
+            #     await self.session.logout()
+            # except fbchat.FacebookError:
+            #     self.log.exception("Error while logging out")
+            #     ok = False
         self._track_metric(METRIC_LOGGED_IN, False)
-        self._session_data = None
+        self.state = None
         self._is_logged_in = False
         self.is_connected = None
         self.client = None
-        self.session = None
-        self.listener = None
-        self.save(_update_session_data=False)
+        self.mqtt = None
+        self.save()
         return ok
 
     async def post_login(self) -> None:
@@ -352,15 +344,14 @@ class User(BaseUser):
             self.log.exception("Failed to automatically enable custom puppet")
 
         await self._create_community()
-        self.log.debug("Updating own puppet info")
-        # TODO this might not be right (if it is, check that we got something sensible?)
-        try:
-            own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
-        except Exception:
-            self.log.warning("Error fetching own info, retrying...", exc_info=True)
-            own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
-        puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
-        await puppet.update_info(source=self, info=cast(fbchat.UserData, own_info))
+        # self.log.debug("Updating own puppet info")
+        # try:
+        #     own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
+        # except Exception:
+        #     self.log.warning("Error fetching own info, retrying...", exc_info=True)
+        #     own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
+        # puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
+        # await puppet.update_info(source=self, info=cast(fbchat.UserData, own_info))
         await self.sync_contacts()
         await self.sync_threads()
 
@@ -438,10 +429,8 @@ class User(BaseUser):
             self.log.debug("Fetching threads...")
             ups = DBUserPortal.all(self.fbid)
             contacts = DBContact.all(self.fbid)
-            async for thread in self.client.fetch_threads(limit=sync_count):
-                if not isinstance(thread, (fbchat.UserData, fbchat.PageData, fbchat.GroupData)):
-                    # TODO log?
-                    continue
+            resp = await self.client.fetch_threads(limit=sync_count)
+            for thread in resp.nodes:
                 try:
                     await self._sync_thread(thread, ups, contacts)
                 except Exception:
@@ -451,16 +440,15 @@ class User(BaseUser):
         except Exception:
             self.log.exception("Failed to sync threads")
 
-    async def _sync_thread(self, thread: Union[fbchat.UserData, fbchat.PageData, fbchat.GroupData],
-                           ups: Dict[str, DBUserPortal], contacts: Dict[str, DBContact]
-                           ) -> None:
-        self.log.debug(f"Syncing thread {thread.id} {thread.name}")
+    async def _sync_thread(self, thread: Thread, ups: Dict[str, DBUserPortal],
+                           contacts: Dict[str, DBContact]) -> None:
+        self.log.debug(f"Syncing thread {thread.thread_key} {thread.name}")
         fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(thread, fb_receiver)
+        portal = po.Portal.get_by_thread(thread.thread_key, fb_receiver)
         puppet = None
 
-        if isinstance(thread, fbchat.UserData):
-            puppet = pu.Puppet.get_by_fbid(thread.id, create=True)
+        if thread.thread_key.other_user_id:
+            puppet = pu.Puppet.get_by_fbid(thread.thread_key.other_user_id, create=True)
             await puppet.update_info(self, thread)
 
         await self._add_community(ups.get(portal.fbid, None),
@@ -529,9 +517,13 @@ class User(BaseUser):
 
     async def _try_listen(self) -> None:
         try:
-            await self._listen()
-            return
-        except (fbchat.NotLoggedIn, fbchat.NotConnected, fbchat.PleaseRefresh) as e:
+            if not self.mqtt:
+                self.mqtt = AndroidMQTT(self.state)
+            await self.mqtt.listen(self.seq_id)
+            self.is_connected = False
+            if not self._is_refreshing and not self.shutdown:
+                await self.send_bridge_notice("Facebook Messenger connection closed without error")
+        except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
             refresh = (config["bridge.refresh_on_reconnection_fail"]
                        and self._prev_reconnect_fail_refresh + 120 < time.monotonic())
@@ -553,18 +545,6 @@ class User(BaseUser):
             await self.send_bridge_notice("Fatal error in listener (see logs for more info)",
                                           important=True)
             self._disconnect_listener_after_error()
-
-    async def _listen(self) -> None:
-        if not self.listener:
-            self.listener = fbchat.Listener(session=self.session, chat_on=True, foreground=False)
-            self.client.sequence_id_callback = self.listener.set_sequence_id
-
-        self.log.debug("Starting fbchat listener")
-        async for event in self.listener.listen():
-            await self._handle_event(event)
-        self.is_connected = False
-        if not self._is_refreshing and not self.shutdown:
-            await self.send_bridge_notice("Facebook Messenger connection closed without error")
 
     async def _handle_event(self, event: Any) -> None:
         self.log.debug("Handling facebook event of type %s", type(event))

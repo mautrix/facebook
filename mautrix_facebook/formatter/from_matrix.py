@@ -13,13 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, Any, cast, TYPE_CHECKING
-
-from fbchat import Mention
+from typing import Optional, cast, TYPE_CHECKING
 
 from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
                                     SimpleEntity, EntityType)
+from maufbapi.types.mqtt import Mention
 
 from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
@@ -102,7 +101,7 @@ def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> 'Se
     if content.format == Format.HTML and content.formatted_body:
         parsed = MatrixParser.parse(content.formatted_body)
         text = parsed.text
-        mentions = [Mention(thread_id=mention.extra_info['fbid'], offset=mention.offset,
+        mentions = [Mention(user_id=mention.extra_info['fbid'], offset=mention.offset,
                             length=mention.length)
                     for mention in parsed.entities]
     else:

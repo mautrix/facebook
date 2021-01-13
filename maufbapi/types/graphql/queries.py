@@ -27,7 +27,7 @@ class GraphQLQuery(ABC, Serializable):
     doc_id: ClassVar[int]
 
 
-class GraphQLMutation(GraphQLQuery):
+class GraphQLMutation(GraphQLQuery, ABC):
     pass
 
 

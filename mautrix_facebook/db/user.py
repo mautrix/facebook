@@ -13,9 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Iterable, Dict
+from typing import Optional, Iterable
 
-from sqlalchemy import Column, Text, PickleType
+from sqlalchemy import Column, Text
 
 from mautrix.types import UserID, RoomID
 from mautrix.util.db import Base
@@ -25,11 +25,9 @@ class User(Base):
     __tablename__ = "user"
 
     mxid: UserID = Column(Text, primary_key=True)
-    session: Dict[str, str] = Column(PickleType, nullable=True)
+    state: str = Column(Text, nullable=True)
     fbid: str = Column(Text, nullable=True)
     notice_room: RoomID = Column(Text, nullable=True)
-    user_agent: str = Column(Text, nullable=True)
-    fb_domain: str = Column(Text, nullable=False, server_default="messenger.com")
 
     @classmethod
     def all(cls) -> Iterable['User']:

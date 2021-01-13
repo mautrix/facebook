@@ -44,7 +44,14 @@ except ImportError:
 
 T = TypeVar('T')
 
-MQTTNotLoggedIn = MQTTNotConnected = Exception
+
+# TODO add some custom stuff in these?
+class MQTTNotLoggedIn(Exception):
+    pass
+
+
+class MQTTNotConnected(Exception):
+    pass
 
 
 class AndroidMQTT:
