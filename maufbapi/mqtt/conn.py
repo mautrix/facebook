@@ -16,9 +16,10 @@
 from typing import Union, Optional, Any, Dict, Awaitable, Type, List, TypeVar, Callable
 from collections import defaultdict
 from socket import socket, error as SocketError
-import logging
 import urllib.request
+import logging
 import asyncio
+import random
 import zlib
 import time
 import json
@@ -29,8 +30,8 @@ from yarl import URL
 from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
-from ..types import MessageSyncPayload, RealtimeConfig, RealtimeClientInfo
-from ..thrift import ThriftReader
+from ..types import MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest
+from ..thrift import ThriftReader, ThriftObject
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
 from .events import Connect, Disconnect
@@ -109,14 +110,16 @@ class AndroidMQTT:
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
     def _form_client_id(self) -> bytes:
-        subscribe_topics = ["/t_p", "/t_assist_rp", "/t_rtc", "/webrtc_response",
-                            RealtimeTopic.MESSAGE_SYNC, "/pp", "/webrtc",
-                            "/quick_promotion_refresh", "/t_omnistore_sync_low_pri",
-                            "/get_media_resp", "/t_dr_response", "/t_omnistore_sync", "/t_push",
-                            "/t_thread_typing", "/ixt_trigger", "/rs_resp",
-                            RealtimeTopic.REGION_HINT, "/t_tn", "/sr_res", "/t_tp", "/t_sp",
-                            "/ls_resp", "/t_rtc_multi",  # RealtimeTopic.SEND_MESSAGE_RESP,
-                            ]
+        # subscribe_topics = ["/t_p", "/t_assist_rp", "/t_rtc", "/webrtc_response",
+        #                     RealtimeTopic.MESSAGE_SYNC, "/pp", "/webrtc",
+        #                     "/quick_promotion_refresh", "/t_omnistore_sync_low_pri",
+        #                     "/get_media_resp", "/t_dr_response", "/t_omnistore_sync", "/t_push",
+        #                     "/t_thread_typing", "/ixt_trigger", "/rs_resp",
+        #                     RealtimeTopic.REGION_HINT, "/t_tn", "/sr_res", "/t_tp", "/t_sp",
+        #                     "/ls_resp", "/t_rtc_multi",  # RealtimeTopic.SEND_MESSAGE_RESP,
+        #                     ]
+        subscribe_topics = [RealtimeTopic.MESSAGE_SYNC, RealtimeTopic.REGION_HINT,
+                            RealtimeTopic.SEND_MESSAGE_RESP]
         topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
                      for topic in subscribe_topics]
         print(topic_ids)
@@ -257,8 +260,8 @@ class AndroidMQTT:
 
     # region Incoming event parsing
 
-    def _on_message_sync(self, reader: ThriftReader) -> None:
-        parsed: MessageSyncPayload = reader.read_struct(MessageSyncPayload)
+    def _on_message_sync(self, payload: bytes) -> None:
+        parsed = MessageSyncPayload.from_thrift(payload)
         print(f"Parsed message sync: {parsed}")
         for item in parsed.items:
             if item.binary:
@@ -273,39 +276,27 @@ class AndroidMQTT:
 
     def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
         try:
-            payload = message.payload
-            is_compressed = payload.startswith(b"x\xda")
+            is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
-                payload = zlib.decompress(payload)
-                print(f"Message in {message.topic} (zlib): {payload}")
+                message.payload = zlib.decompress(message.payload)
+                print(f"Message in {message.topic} (zlib): {message.payload}")
             else:
-                print(f"Message in {message.topic} (plain): {payload}")
+                print(f"Message in {message.topic} (plain): {message.payload}")
             topic = RealtimeTopic.decode(message.topic)
-            reader = ThriftReader(payload)
-            if payload[0] == 0:
-                reader.seek(1)
+            if message.payload[0] == 0:
+                message.payload = message.payload[1:]
             if topic == RealtimeTopic.MESSAGE_SYNC:
-                self._on_message_sync(reader)
+                self._on_message_sync(message.payload)
             else:
-                reader.pretty_print()
-            # topic = RealtimeTopic.decode(message.topic)
-            # # Instagram Android MQTT messages are always compressed
-            # message.payload = zlib.decompress(message.payload)
-            # if topic == RealtimeTopic.MESSAGE_SYNC:
-            #     self._on_message_sync(message.payload)
-            # elif topic == RealtimeTopic.PUBSUB:
-            #     self._on_pubsub(message.payload)
-            # elif topic == RealtimeTopic.REALTIME_SUB:
-            #     self._on_realtime_sub(message.payload)
-            # else:
-            #     self.log.trace("Other message payload: %s", message.payload)
-            #     try:
-            #         waiter = self._response_waiters.pop(topic)
-            #     except KeyError:
-            #         self.log.debug("No handler for MQTT message in %s: %s",
-            #                        topic.value, message.payload)
-            #     else:
-            #         waiter.set_result(message)
+                # self.log.trace("Other message payload: %s", message.payload)
+                try:
+                    waiter = self._response_waiters.pop(topic)
+                except KeyError:
+                    self.log.debug("No handler for MQTT message in %s: %s",
+                                   topic.value, message.payload)
+                    ThriftReader(message.payload).pretty_print()
+                else:
+                    waiter.set_result(message)
         except Exception:
             self.log.exception("Error in incoming MQTT message handler")
             self.log.trace("Errored MQTT payload: %s", message.payload)
@@ -391,12 +382,14 @@ class AndroidMQTT:
 
     # region Basic outgoing MQTT
 
-    def publish(self, topic: Union[RealtimeTopic, str], payload: Union[str, bytes, dict]
-                ) -> asyncio.Future:
+    def publish(self, topic: Union[RealtimeTopic, str],
+                payload: Union[str, bytes, dict, ThriftObject]) -> asyncio.Future:
         if isinstance(payload, dict):
             payload = json.dumps(payload)
         if isinstance(payload, str):
             payload = payload.encode("utf-8")
+        if isinstance(payload, ThriftObject):
+            payload = b"\x18\x00\x00" + payload.to_thrift()
         payload = zlib.compress(payload, level=9)
         info = self._client.publish(topic.encoded if isinstance(topic, RealtimeTopic) else topic,
                                     payload, qos=1)
@@ -405,11 +398,31 @@ class AndroidMQTT:
         return fut
 
     async def request(self, topic: RealtimeTopic, response: RealtimeTopic,
-                      payload: Union[str, bytes, dict]) -> MQTTMessage:
+                      payload: Union[str, bytes, dict, ThriftObject]) -> MQTTMessage:
         async with self._response_waiter_locks[response]:
             fut = asyncio.Future()
             self._response_waiters[response] = fut
             await self.publish(topic, payload)
             return await fut
+
+    @staticmethod
+    def generate_offline_threading_id() -> int:
+        rand = format(int(random.random() * 4294967295), "022b")[-22:]
+        return int(f"{int(time.time() * 1000):b}{rand}", 2)
+
+    async def send_message(self, target: int, is_group: bool, message: str,
+                           offline_threading_id: Optional[int] = None) -> Any:
+        if not offline_threading_id:
+            offline_threading_id = self.generate_offline_threading_id()
+        req = SendMessageRequest(chat_id=f"tfbid_{target}" if is_group else str(target),
+                                 message=message, offline_threading_id=offline_threading_id,
+                                 sender_id=self.state.session.uid,
+                                 extra_meta={"is_in_chatheads": "false",
+                                             "trigger": "2:thread_list:thread"},
+                                 tid2=self.generate_offline_threading_id())
+        print("Send message request:", req)
+        resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req)
+        print("Send message response:", resp.payload)
+        ThriftReader(resp.payload).pretty_print()
 
     # endregion

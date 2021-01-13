@@ -13,22 +13,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, Union, Optional, Dict, Type, NamedTuple, Any, TYPE_CHECKING
+from typing import Tuple, Union, Optional, Dict, Type, NamedTuple, Any, TypeVar
 import sys
 
 import attr
 
-from .type import TType
+from .type import TType, RecursiveType
+from .write import ThriftWriter
+from .read import ThriftReader
 
-Subtype = Union[None, TType, Tuple['Subtype', 'Subtype']]
-
-
-class RecursiveType(NamedTuple):
-    type: TType
-    python_type: Optional[Type['Any']] = None
-    item_type: Optional['RecursiveType'] = None
-    key_type: Optional[TType] = None
-    value_type: Optional['RecursiveType'] = None
+T = TypeVar('T')
 
 
 class ThriftField(NamedTuple):
@@ -36,17 +30,19 @@ class ThriftField(NamedTuple):
     rtype: RecursiveType
 
 
-if TYPE_CHECKING:
-    from typing import Protocol
+class ThriftObject:
+    thrift_spec: Dict[int, ThriftField]
+    thrift_spec_by_type: Dict[Tuple[int, TType], ThriftField]
 
+    def to_thrift(self) -> bytes:
+        buf = ThriftWriter()
+        buf.write_struct(self)
+        return buf.getvalue()
 
-    class ThriftObject(Protocol):
-        thrift_spec: Dict[int, ThriftField]
-        thrift_spec_by_type: Dict[Tuple[int, TType], ThriftField]
+    @classmethod
+    def from_thrift(cls: Type[T], data: bytes) -> T:
+        return ThriftReader(data).read_struct(cls)
 
-        def __init__(self, **kwargs) -> None: ...
-else:
-    ThriftObject = 'ThriftObject'
 
 TYPE_META = "net.maunium.thrift.type"
 INDEX_META = "net.maunium.thrift.index"

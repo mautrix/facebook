@@ -13,14 +13,18 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Any, TypeVar, Type, Tuple
+from typing import List, Any, TypeVar, Type, Tuple, TYPE_CHECKING
 import struct
 import io
 
-from .type import TType
-from .autospec import ThriftObject, RecursiveType
+from .type import TType, RecursiveType
 
-T = TypeVar('T', bound=ThriftObject)
+if TYPE_CHECKING:
+    from .autospec import ThriftObject
+
+    T = TypeVar('T', bound=ThriftObject)
+else:
+    T = TypeVar('T', bound='ThriftObject')
 
 alpha_start = ord("a")
 alpha_length = ord("z") - ord("a") + 1

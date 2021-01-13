@@ -17,23 +17,23 @@ from typing import List, Dict
 
 from attr import dataclass
 
-from ..thrift import TType, RecursiveType, ThriftReader, field, autospec
+from ..thrift import TType, RecursiveType, ThriftObject, field, autospec
 from .responses import MessageUnsendability as Unsendability
 
 
 @autospec
 @dataclass
-class BinaryThreadKey:
+class BinaryThreadKey(ThriftObject):
     other_user_id: int = field(TType.I64, default=None)
     thread_fbid: int = field(TType.I64, default=None)
 
 
 @autospec
 @dataclass(kw_only=True)
-class MessageMetadata:
+class MessageMetadata(ThriftObject):
     thread: BinaryThreadKey
     id: str
-    offline_threading_id: int = field(default=None)
+    offline_threading_id: int = field(TType.I64, default=None)
     sender: int = field(TType.I64)
     timestamp: int = field(TType.I64)
     # index 6: unknown bool (ex: true)
@@ -51,7 +51,7 @@ class MessageMetadata:
 
 @autospec
 @dataclass(kw_only=True)
-class ImageInfo:
+class ImageInfo(ThriftObject):
     original_width: int = field(TType.I32)
     original_height: int = field(TType.I64)
     previews: Dict[int, str] = field(RecursiveType(TType.MAP, key_type=TType.I32,
@@ -65,7 +65,7 @@ class ImageInfo:
 
 @autospec
 @dataclass(kw_only=True)
-class Attachment:
+class Attachment(ThriftObject):
     media_id_str: str
     mime_type: str
     file_name: str
@@ -78,7 +78,7 @@ class Attachment:
 
 @autospec
 @dataclass(kw_only=True)
-class Reaction:
+class Reaction(ThriftObject):
     thread: BinaryThreadKey
     message_id: str
     # index 3: unknown int32 (zero)
@@ -90,7 +90,7 @@ class Reaction:
 
 @autospec
 @dataclass(kw_only=True)
-class Message:
+class Message(ThriftObject):
     metadata: MessageMetadata
     text: str
     # index 3: ???
@@ -124,37 +124,47 @@ class Message:
 
 @autospec
 @dataclass(kw_only=True)
-class ExtendedMessage:
+class ExtendedMessage(ThriftObject):
     reply_to_message: Message
     message: Message
 
 
 @autospec
 @dataclass
-class MessageSyncInnerEvent:
+class MessageSyncInnerEvent(ThriftObject):
     reaction: Reaction = field(index=10, default=None)
     extended_message: ExtendedMessage = field(index=55, default=None)
 
 
 @autospec
 @dataclass
-class MessageSyncInnerPayload:
+class MessageSyncInnerPayload(ThriftObject):
     items: List[MessageSyncInnerEvent]
 
 
 @autospec
 @dataclass(kw_only=True)
-class BinaryData:
+class BinaryData(ThriftObject):
     data: bytes
 
     def parse(self) -> MessageSyncInnerPayload:
-        return ThriftReader(self.data).read_struct(MessageSyncInnerPayload)
+        return MessageSyncInnerPayload.from_thrift(self.data)
+
+
+@autospec
+@dataclass
+class ReadReceipt(ThriftObject):
+    thread: BinaryThreadKey
+    user_id: int = field(TType.I64)
+    read_at: int = field(TType.I64)
+    read_to: int = field(TType.I64)
 
 
 @autospec
 @dataclass(kw_only=True)
-class MessageSyncEvent:
+class MessageSyncEvent(ThriftObject):
     data: Message = field(index=2, default=None)
+    read_receipt: ReadReceipt = field(index=19, default=None)
     binary: BinaryData = field(index=42, default=None)
 
     first_seq_id: int = field(TType.I64, index=1, default=None)
@@ -164,7 +174,7 @@ class MessageSyncEvent:
 
 @autospec
 @dataclass(kw_only=True)
-class MessageSyncPayload:
+class MessageSyncPayload(ThriftObject):
     items: List[MessageSyncEvent] = field(factory=lambda: [])
     first_seq_id: int = field(TType.I64, default=None)
     last_seq_id: int = field(TType.I64, default=None)
@@ -174,8 +184,8 @@ class MessageSyncPayload:
 
 
 @autospec
-@dataclass
-class SendMessageRequest:
+@dataclass(kw_only=True)
+class SendMessageRequest(ThriftObject):
     # tfbid_<groupid> for groups, plain user id for users
     chat_id: str
     message: str
@@ -183,10 +193,10 @@ class SendMessageRequest:
     # index 4: ???
     # Example values:
     #   'is_in_chatheads': 'false'
-    #   'ld': '{"u":1674434246165228}'
+    #   'ld': '{"u":1674434.........}'
     #   'trigger': '2:thread_list:thread'
     #   'active_now': '{"is_online":"false","last_active_seconds":"1431"}'
-    extra_meta: Dict[str, str] = field(index=5)
+    extra_meta: Dict[str, str] = field(index=5, factory=lambda: {})
     # indices 6-11: ???
     sender_id: int = field(TType.I64, index=12)
     # indices 13-17: ???
@@ -195,4 +205,5 @@ class SendMessageRequest:
     unknown_int64: int = field(TType.I64, index=21, default=0)
     # index 22: ???
     unknown_bool: bool = field(TType.BOOL, index=23, default=False)
-    # index 24: a weird int64 that looks like offline_threading_id, but isn't quite the same
+    # this is weird int64 that looks like offline_threading_id, but isn't quite the same
+    tid2: int = field(TType.I64, index=23)

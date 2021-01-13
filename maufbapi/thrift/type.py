@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from typing import NamedTuple, Type, Optional, Any
 from enum import IntEnum
 
 
@@ -33,3 +34,11 @@ class TType(IntEnum):
 
     # internal
     BOOL = 0xa1
+
+
+class RecursiveType(NamedTuple):
+    type: TType
+    python_type: Optional[Type[Any]] = None
+    item_type: Optional['RecursiveType'] = None
+    key_type: Optional[TType] = None
+    value_type: Optional['RecursiveType'] = None

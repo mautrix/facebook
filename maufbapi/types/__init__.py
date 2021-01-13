@@ -6,5 +6,5 @@ from .responses import (ThreadListResponse, PageInfo, Thread, ThreadKey, Message
                         ParticipantList, ParticipantNode, Participant, ParticipantID, ReadReceipt,
                         ReadReceiptList, MinimalParticipant, FriendCount, StructuredName, Picture,
                         StructuredNameChunk, MessageUnsendability, ThreadFolder)
-from .mqtt import MessageSyncPayload
+from .mqtt import MessageSyncPayload, SendMessageRequest
 from .client_info import RealtimeConfig, RealtimeClientInfo

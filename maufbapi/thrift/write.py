@@ -13,11 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Union, List, Dict, Optional
+from typing import Any, Union, List, Dict, Optional, TYPE_CHECKING
 import io
 
 from .type import TType
-from .autospec import ThriftObject
+
+if TYPE_CHECKING:
+    from .autospec import ThriftObject
 
 
 class ThriftWriter(io.BytesIO):
@@ -149,7 +151,7 @@ class ThriftWriter(io.BytesIO):
         else:
             raise ValueError(f"{ttype} is not supported by write_val()")
 
-    def write_struct(self, obj: ThriftObject) -> None:
+    def write_struct(self, obj: 'ThriftObject') -> None:
         for field_id in iter(obj.thrift_spec):
             meta = obj.thrift_spec[field_id]
 

@@ -17,12 +17,12 @@ from typing import Dict, List
 
 from attr import dataclass
 
-from ..thrift import TType, ThriftWriter, RecursiveType, field, autospec
+from ..thrift import TType, ThriftObject, RecursiveType, field, autospec
 
 
 @autospec
 @dataclass(kw_only=True)
-class RealtimeClientInfo:
+class RealtimeClientInfo(ThriftObject):
     user_id: int = field(TType.I64)
     user_agent: str
     client_capabilities: int = field(TType.I64)
@@ -56,7 +56,7 @@ class RealtimeClientInfo:
 
 @autospec
 @dataclass(kw_only=True)
-class RealtimeConfig:
+class RealtimeConfig(ThriftObject):
     client_identifier: str
     will_topic: str = None
     will_message: str = None
@@ -67,15 +67,10 @@ class RealtimeConfig:
     # mysterious_struct_list: List[Any] = field(TType.LIST, TType.STRUCT, factory=lambda: [])
     app_specific_info: Dict[str, str] = field(index=9)
 
-    def to_thrift(self) -> bytes:
-        buf = ThriftWriter()
-        buf.write_struct(self)
-        return buf.getvalue()
-
 
 @autospec
 @dataclass(kw_only=True)
-class ForegroundStateConfig:
+class ForegroundStateConfig(ThriftObject):
     in_foreground_app: bool
     in_foreground_device: bool
     keep_alive_timeout: int = field(TType.I32)
@@ -84,8 +79,3 @@ class ForegroundStateConfig:
     unsubscribe_topics: List[str]
     unsubscribe_generic_topics: List[str]
     request_id: int = field(TType.I64)
-
-    def to_thrift(self) -> bytes:
-        buf = ThriftWriter()
-        buf.write_struct(self)
-        return buf.getvalue()
