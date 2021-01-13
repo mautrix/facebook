@@ -21,8 +21,8 @@ def upgrade():
         batch_op.add_column(sa.Column('name_set', sa.Boolean(), server_default=sa.false(), nullable=False))
 
     # Fill the database with assumed data so the bridge doesn't spam a ton of no-op profile updates
-    op.execute("UPDATE puppet SET name_set=true WHERE name<>''")
-    op.execute("UPDATE puppet SET avatar_set=true WHERE photo_id<>''")
+    puppet = sa.table("puppet")
+    puppet.update().where(len(puppet.name) > 0).values(name_set=sa.true(), avatar_set=sa.true())
 
 
 def downgrade():
