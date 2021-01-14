@@ -240,6 +240,15 @@ class ThreadKey(SerializableAttrs['ThreadKey']):
     other_user_id: Optional[str] = None
     thread_fbid: Optional[str] = None
 
+    @property
+    def id(self) -> Optional[int]:
+        if self.other_user_id:
+            return int(self.other_user_id)
+        elif self.thread_fbid:
+            return int(self.thread_fbid)
+        else:
+            return None
+
 
 @dataclass(kw_only=True)
 class Thread(SerializableAttrs['Thread']):

@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Dict
+from typing import List, Dict, Optional
 import json
 
 from attr import dataclass
@@ -29,6 +29,15 @@ from ..common import MessageUnsendability as Unsendability
 class ThreadKey(ThriftObject):
     other_user_id: int = field(TType.I64, default=None)
     thread_fbid: int = field(TType.I64, default=None)
+
+    @property
+    def id(self) -> Optional[int]:
+        if self.other_user_id:
+            return self.other_user_id
+        elif self.thread_fbid:
+            return self.thread_fbid
+        else:
+            return None
 
 
 @autospec

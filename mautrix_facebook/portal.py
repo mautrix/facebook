@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Dict, Deque, Optional, Tuple, Union, Set, Iterator, List, Callable, Awaitable,
-                    Pattern, Any, TYPE_CHECKING)
+                    Pattern, Any, TYPE_CHECKING, cast)
 from tempfile import NamedTemporaryFile
 from datetime import datetime, timezone
 from mimetypes import guess_extension
@@ -26,7 +26,6 @@ import re
 from yarl import URL
 import magic
 
-import fbchat
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
                            ThumbnailInfo, FileInfo, AudioInfo, Format, RelatesTo, RelationType,
@@ -38,14 +37,17 @@ from mautrix.bridge import BasePortal, NotificationDisabler
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.network_retry import call_with_net_retry
 
+from maufbapi.types.mqtt import ThreadKey as MQTTThreadKey
+from maufbapi.types.graphql import ThreadKey as GraphQLThreadKey, Thread, Picture
+
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
 from .db import (Portal as DBPortal, Message as DBMessage, Reaction as DBReaction,
-                 UserPortal as DBUserPortal, ThreadType)
+                 UserPortal as UserPortal, ThreadType)
 from . import puppet as p, user as u
 
 if TYPE_CHECKING:
-    from .context import Context
+    from .__main__ import MessengerBridge
     from .matrix import MatrixHandler
 
 try:
@@ -60,10 +62,7 @@ try:
 except ImportError:
     decrypt_attachment = encrypt_attachment = None
 
-config: Config
 geo_uri_regex: Pattern = re.compile(r"^geo:(-?\d+.\d+),(-?\d+.\d+)$")
-
-ThreadClass = Union[fbchat.UserData, fbchat.GroupData, fbchat.PageData]
 
 
 class FakeLock:
@@ -78,57 +77,33 @@ StateBridge = EventType.find("m.bridge", EventType.Class.STATE)
 StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STATE)
 
 
-class Portal(BasePortal):
+class Portal(DBPortal, BasePortal):
     invite_own_puppet_to_pm: bool = False
     by_mxid: Dict[RoomID, 'Portal'] = {}
-    by_fbid: Dict[Tuple[str, str], 'Portal'] = {}
+    by_fbid: Dict[Tuple[int, int], 'Portal'] = {}
     matrix: 'MatrixHandler'
-
-    fbid: str
-    fb_receiver: str
-    fb_type: ThreadType
-    mxid: Optional[RoomID]
-    avatar_url: Optional[ContentURI]
-    encrypted: bool
-
-    name: str
-    photo_id: str
-
-    _db_instance: DBPortal
+    config: Config
 
     _main_intent: Optional[IntentAPI]
     _create_room_lock: asyncio.Lock
     _last_bridged_mxid: Optional[EventID]
     _dedup: Deque[str]
-    _send_locks: Dict[str, asyncio.Lock]
+    _send_locks: Dict[int, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
     _typing: Set['u.User']
     backfill_lock: SimpleLock
     _backfill_leave: Optional[Set[IntentAPI]]
 
-    def __init__(self, fbid: str, fb_receiver: str, fb_type: ThreadType,
-                 mxid: Optional[RoomID] = None, avatar_url: Optional[ContentURI] = None,
-                 encrypted: bool = False, name: str = "", photo_id: str = "",
-                 db_instance: Optional[DBPortal] = None) -> None:
-        self.fbid = fbid
-        self.fb_receiver = fb_receiver
-        self.fb_type = fb_type
-        self.mxid = mxid
-        self.avatar_url = avatar_url
-        self.encrypted = encrypted
-
-        self.name = name
-        self.photo_id = photo_id
-
+    def __init__(self, fbid: int, fb_receiver: int, fb_type: ThreadType,
+                 mxid: Optional[RoomID] = None, name: str = "", photo_id: str = "",
+                 avatar_url: Optional[ContentURI] = None, encrypted: bool = False) -> None:
+        super().__init__(fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted)
         self.log = self.log.getChild(self.fbid_log)
-
-        self._db_instance = db_instance
 
         self._main_intent = None
         self._create_room_lock = asyncio.Lock()
         self._last_bridged_mxid = None
         self._dedup = deque(maxlen=100)
-        self.avatar_url = None
         self._send_locks = {}
         self._typing = set()
 
@@ -136,60 +111,52 @@ class Portal(BasePortal):
                                         log=self.log)
         self._backfill_leave = None
 
-        self.by_fbid[self.fbid_full] = self
-        if self.mxid:
-            self.by_mxid[self.mxid] = self
+    @classmethod
+    def init_cls(cls, bridge: 'MessengerBridge') -> None:
+        BasePortal.bridge = bridge
+        cls.az = bridge.az
+        cls.config = bridge.config
+        cls.loop = bridge.loop
+        cls.matrix = bridge.matrix
+        cls.invite_own_puppet_to_pm = cls.config["bridge.invite_own_puppet_to_pm"]
+        NotificationDisabler.puppet_cls = p.Puppet
+        NotificationDisabler.config_enabled = cls.config["bridge.backfill.disable_notifications"]
 
     # region DB conversion
 
-    @property
-    def db_instance(self) -> DBPortal:
-        if not self._db_instance:
-            self._db_instance = DBPortal(fbid=self.fbid, fb_receiver=self.fb_receiver,
-                                         fb_type=self.fb_type, mxid=self.mxid,
-                                         avatar_url=self.avatar_url, encrypted=self.encrypted,
-                                         name=self.name, photo_id=self.photo_id)
-        return self._db_instance
-
-    @classmethod
-    def from_db(cls, db_portal: DBPortal) -> 'Portal':
-        return Portal(fbid=db_portal.fbid, fb_receiver=db_portal.fb_receiver,
-                      fb_type=db_portal.fb_type, mxid=db_portal.mxid,
-                      avatar_url=db_portal.avatar_url, encrypted=db_portal.encrypted,
-                      name=db_portal.name, photo_id=db_portal.photo_id, db_instance=db_portal)
-
-    async def save(self) -> None:
-        self.db_instance.edit(mxid=self.mxid, name=self.name, photo_id=self.photo_id,
-                              encrypted=self.encrypted)
-
     async def delete(self) -> None:
         if self.mxid:
-            DBMessage.delete_all_by_mxid(self.mxid)
+            await DBMessage.delete_all_by_room(self.mxid)
         self.by_fbid.pop(self.fbid_full, None)
         self.by_mxid.pop(self.mxid, None)
-        if self._db_instance:
-            self._db_instance.delete()
+        await super().delete()
 
     # endregion
     # region Properties
 
     @property
-    def fbid_full(self) -> Tuple[str, str]:
+    def fbid_full(self) -> Tuple[int, int]:
         return self.fbid, self.fb_receiver
 
     @property
     def fbid_log(self) -> str:
         if self.is_direct:
             return f"{self.fbid}<->{self.fb_receiver}"
-        return self.fbid
+        return str(self.fbid)
 
-    def thread_for(self, user: 'u.User') -> Union[fbchat.User, fbchat.Group, fbchat.Page]:
+    def mqtt_key(self) -> MQTTThreadKey:
         if self.fb_type == ThreadType.USER:
-            return fbchat.User(session=user.session, id=self.fbid)
+            return MQTTThreadKey(other_user_id=self.fbid)
         elif self.fb_type == ThreadType.GROUP:
-            return fbchat.Group(session=user.session, id=self.fbid)
-        elif self.fb_type == ThreadType.PAGE:
-            return fbchat.Page(session=user.session, id=self.fbid)
+            return MQTTThreadKey(thread_fbid=self.fbid)
+        else:
+            raise ValueError("Unsupported thread type")
+
+    def graphql_key(self) -> GraphQLThreadKey:
+        if self.fb_type == ThreadType.USER:
+            return GraphQLThreadKey(other_user_id=str(self.fbid))
+        elif self.fb_type == ThreadType.GROUP:
+            return GraphQLThreadKey(thread_fbid=str(self.fbid))
         else:
             raise ValueError("Unsupported thread type")
 
@@ -200,6 +167,7 @@ class Portal(BasePortal):
     @property
     def main_intent(self) -> IntentAPI:
         if not self._main_intent:
+            # TODO move to async postinit
             self._main_intent = (p.Puppet.get_by_fbid(self.fbid).default_mxid_intent
                                  if self.is_direct else self.az.intent)
 
@@ -209,20 +177,17 @@ class Portal(BasePortal):
     # region Chat info updating
 
     async def update_info(self, source: Optional['u.User'] = None,
-                          info: Optional[ThreadClass] = None) -> Optional[ThreadClass]:
+                          info: Optional[Thread] = None) -> Optional[Thread]:
         if not info:
             self.log.debug("Called update_info with no info, fetching thread info...")
+            # FIXME
             info = await source.client.fetch_thread_info([self.fbid]).__anext__()
         self.log.trace("Thread info for %s: %s", self.fbid, info)
-        if not isinstance(info, (fbchat.UserData, fbchat.GroupData, fbchat.PageData)):
-            self.log.warning("Got weird info for %s of type %s, cancelling update",
-                             self.fbid, type(info))
-            return None
-        elif info.id != self.fbid:
+        if info.thread_key != self.graphql_key:
             self.log.warning("Got different ID (%s) than what asked for (%s) when fetching info",
                              info.id, self.fbid)
         changed = any(await asyncio.gather(self._update_name(info.name),
-                                           self._update_photo(source, info.photo),
+                                           self._update_photo(source, info.image),
                                            loop=self.loop))
         if changed:
             await self.update_bridge_info()
@@ -303,7 +268,7 @@ class Portal(BasePortal):
             return True
         return False
 
-    async def _update_photo(self, source: 'u.User', photo: fbchat.Image) -> bool:
+    async def _update_photo(self, source: 'u.User', photo: Picture) -> bool:
         if self.is_direct and not self.encrypted:
             return False
         photo_id = self.get_photo_id(photo)
@@ -320,7 +285,7 @@ class Portal(BasePortal):
             return True
         return False
 
-    async def _update_participants(self, source: 'u.User', info: ThreadClass) -> None:
+    async def _update_participants(self, source: 'u.User', info: Thread) -> None:
         if self.is_direct:
             await p.Puppet.get_by_fbid(info.id).update_info(source=source, info=info)
             return
@@ -347,15 +312,14 @@ class Portal(BasePortal):
     # endregion
     # region Matrix room creation
 
-    async def update_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
+    async def update_matrix_room(self, source: 'u.User', info: Optional[Thread] = None
                                  ) -> None:
         try:
             await self._update_matrix_room(source, info)
         except Exception:
             self.log.exception("Failed to update portal")
 
-    async def _update_matrix_room(self, source: 'u.User',
-                                  info: Optional[ThreadClass] = None) -> None:
+    async def _update_matrix_room(self, source: 'u.User', info: Optional[Thread] = None) -> None:
         await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=True)
         puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
         if puppet:
@@ -363,16 +327,17 @@ class Portal(BasePortal):
 
         await self.update_info(source, info)
 
-        up = DBUserPortal.get(source.fbid, self.fbid, self.fb_receiver)
+        up = await UserPortal.get(source.fbid, self.fbid, self.fb_receiver)
         if not up:
             in_community = await source._community_helper.add_room(source._community_id, self.mxid)
-            DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
-                         in_community=in_community).insert()
+            await UserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
+                             in_community=in_community).insert()
         elif not up.in_community:
-            in_community = await source._community_helper.add_room(source._community_id, self.mxid)
-            up.edit(in_community=in_community)
+            up.in_community = await source._community_helper.add_room(source._community_id,
+                                                                      self.mxid)
+            await up.save()
 
-    async def create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
+    async def create_matrix_room(self, source: 'u.User', info: Optional[Thread] = None
                                  ) -> Optional[RoomID]:
         if self.mxid:
             try:
@@ -422,7 +387,7 @@ class Portal(BasePortal):
         except Exception:
             self.log.warning("Failed to update bridge info", exc_info=True)
 
-    async def _create_matrix_room(self, source: 'u.User', info: Optional[ThreadClass] = None
+    async def _create_matrix_room(self, source: 'u.User', info: Optional[Thread] = None
                                   ) -> Optional[RoomID]:
         if self.mxid:
             await self._update_matrix_room(source, info)
@@ -475,8 +440,7 @@ class Portal(BasePortal):
                 try:
                     await self.az.intent.ensure_joined(self.mxid)
                 except Exception:
-                    self.log.warning("Failed to add bridge bot "
-                                     f"to new private chat {self.mxid}")
+                    self.log.warning(f"Failed to add bridge bot to new private chat {self.mxid}")
 
             await self.save()
             self.log.debug(f"Matrix room created: {self.mxid}")
@@ -495,8 +459,8 @@ class Portal(BasePortal):
                                        exc_info=True)
 
             in_community = await source._community_helper.add_room(source._community_id, self.mxid)
-            DBUserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
-                         in_community=in_community).upsert()
+            await UserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
+                             in_community=in_community).upsert()
 
             try:
                 await self.backfill(source, is_initial=True)
@@ -508,7 +472,7 @@ class Portal(BasePortal):
     # endregion
     # region Matrix event handling
 
-    def require_send_lock(self, user_id: str) -> asyncio.Lock:
+    def require_send_lock(self, user_id: int) -> asyncio.Lock:
         try:
             lock = self._send_locks[user_id]
         except KeyError:
@@ -516,7 +480,7 @@ class Portal(BasePortal):
             self._send_locks[user_id] = lock
         return lock
 
-    def optional_send_lock(self, user_id: str) -> Union[asyncio.Lock, FakeLock]:
+    def optional_send_lock(self, user_id: int) -> Union[asyncio.Lock, FakeLock]:
         try:
             return self._send_locks[user_id]
         except KeyError:
@@ -1083,74 +1047,76 @@ class Portal(BasePortal):
             await intent.leave_room(self.mxid)
         self.log.info("Backfilled %d messages through %s", len(messages), source.mxid)
 
-    # region Getters
+    # region Database getters
+
+    def _add_to_cache(self) -> None:
+        self.by_fbid[self.fbid_full] = self
+        if self.mxid:
+            self.by_mxid[self.mxid] = self
 
     @classmethod
-    def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
+    async def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
         try:
             return cls.by_mxid[mxid]
         except KeyError:
             pass
 
-        db_portal = DBPortal.get_by_mxid(mxid)
-        if db_portal:
-            return cls.from_db(db_portal)
+        portal = cast(cls, await super().get_by_mxid(mxid))
+        if portal:
+            portal._add_to_cache()
+            return portal
 
         return None
 
     @classmethod
-    def get_by_fbid(cls, fbid: str, fb_receiver: Optional[str] = None,
-                    fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
+    async def get_by_fbid(cls, fbid: int, fb_receiver: int = 0,
+                          fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
         if fb_type:
-            fb_receiver = fb_receiver if fb_type == ThreadType.USER else fbid
-        else:
-            fb_receiver = fb_receiver or fbid
+            fb_receiver = fb_receiver if fb_type == ThreadType.USER else 0
         fbid_full = (fbid, fb_receiver)
         try:
             return cls.by_fbid[fbid_full]
         except KeyError:
             pass
 
-        db_portal = DBPortal.get_by_fbid(fbid, fb_receiver)
-        if db_portal:
-            return cls.from_db(db_portal)
+        portal = cast(cls, await super().get_by_fbid(fbid, fb_receiver))
+        if portal:
+            portal._add_to_cache()
+            return portal
 
         if fb_type:
             portal = cls(fbid=fbid, fb_receiver=fb_receiver, fb_type=fb_type)
-            portal.db_instance.insert()
+            await portal.insert()
+            portal._add_to_cache()
             return portal
 
         return None
 
     @classmethod
-    def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
-        for db_portal in DBPortal.get_all_by_receiver(fb_receiver):
+    def get_all_by_receiver(cls, fb_receiver: int) -> Iterator['Portal']:
+        portals = await super().get_all_by_receiver(fb_receiver)
+        portal: Portal
+        for portal in portals:
             try:
-                yield cls.by_fbid[(db_portal.fbid, db_portal.fb_receiver)]
+                yield cls.by_fbid[(portal.fbid, portal.fb_receiver)]
             except KeyError:
-                yield cls.from_db(db_portal)
+                portal._add_to_cache()
+                yield portal
 
     @classmethod
     def all(cls) -> Iterator['Portal']:
-        for db_portal in DBPortal.all():
+        portals = await super().all()
+        portal: Portal
+        for portal in portals:
             try:
-                yield cls.by_fbid[(db_portal.fbid, db_portal.fb_receiver)]
+                yield cls.by_fbid[(portal.fbid, portal.fb_receiver)]
             except KeyError:
-                yield cls.from_db(db_portal)
+                portal._add_to_cache()
+                yield portal
 
     @classmethod
-    def get_by_thread(cls, thread: ThreadKey, fb_receiver: Optional[str] = None
-                      ) -> 'Portal':
-        return cls.get_by_fbid(thread.id, fb_receiver, ThreadType.from_thread(thread))
+    def get_by_thread(cls, key: Union[GraphQLThreadKey, MQTTThreadKey],
+                      fb_receiver: Optional[int] = None) -> Awaitable['Portal']:
+        return cls.get_by_fbid(key.id, fb_receiver, ThreadType.from_thread_key(key))
 
     # endregion
-
-
-def init(context: 'Context') -> None:
-    global config
-    Portal.az, config, Portal.loop = context.core
-    BasePortal.bridge = context.bridge
-    Portal.matrix = context.mx
-    Portal.invite_own_puppet_to_pm = config["bridge.invite_own_puppet_to_pm"]
-    NotificationDisabler.puppet_cls = p.Puppet
-    NotificationDisabler.config_enabled = config["bridge.backfill.disable_notifications"]

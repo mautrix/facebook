@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,14 +18,15 @@ import logging
 
 from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
+from mautrix.bridge.state_store.asyncpg import PgBridgeStateStore
+from mautrix.util.async_db import Database
 
 from .config import Config
-from .db import init as init_db
-from .user import User, init as init_user
-from .portal import Portal, init as init_portal
-from .puppet import Puppet, init as init_puppet
+from .db import upgrade_table, init as init_db
+from .user import User
+from .portal import Portal
+from .puppet import Puppet
 from .matrix import MatrixHandler
-from .context import Context
 from .version import version, linkified_version
 from .web import PublicBridgeWebsite
 
@@ -42,23 +43,24 @@ class MessengerBridge(Bridge):
     config_class = Config
     matrix_class = MatrixHandler
 
+    db: Database
     config: Config
+    matrix: MatrixHandler
     public_website: PublicBridgeWebsite
+    state_store: PgBridgeStateStore
 
     periodic_reconnect_task: asyncio.Task
 
-    def prepare_bridge(self) -> None:
-        init_db(self.db)
-        context = Context(az=self.az, config=self.config, loop=self.loop, bridge=self)
-        self.matrix = context.mx = MatrixHandler(context)
-        self.add_startup_actions(init_user(context))
-        init_portal(context)
-        self.add_startup_actions(init_puppet(context))
-        self._prepare_website()
-        if self.config["bridge.resend_bridge_info"]:
-            self.add_startup_actions(self.resend_bridge_info())
+    def make_state_store(self) -> None:
+        self.state_store = PgBridgeStateStore(self.db, self.get_puppet, self.get_double_puppet)
 
-    def _prepare_website(self) -> None:
+    def prepare_db(self) -> None:
+        self.db = Database(self.config["appservice.database"], upgrade_table=upgrade_table,
+                           loop=self.loop)
+        init_db(self.db)
+
+    def prepare_bridge(self) -> None:
+        super().prepare_bridge()
         self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
         self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
 
@@ -78,6 +80,13 @@ class MessengerBridge(Bridge):
             user.save()
 
     async def start(self) -> None:
+        await self.db.start()
+        await self.state_store.upgrade_table.upgrade(self.db.pool)
+        self.add_startup_actions(User.init_cls(self))
+        self.add_startup_actions(Puppet.init_cls(self))
+        Portal.init_cls(self)
+        if self.config["bridge.resend_bridge_info"]:
+            self.add_startup_actions(self.resend_bridge_info())
         await super().start()
         self.periodic_reconnect_task = self.loop.create_task(self._try_periodic_reconnect_loop())
 

@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,32 +13,54 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, ClassVar
 
-from sqlalchemy import Column, Text, UniqueConstraint, and_
+from asyncpg import Record
+from attr import dataclass
 
 from mautrix.types import RoomID, EventID
-from mautrix.util.db import Base
+from mautrix.util.async_db import Database
+
+fake_db = Database("") if TYPE_CHECKING else None
 
 
-class Reaction(Base):
-    __tablename__ = "reaction"
+@dataclass
+class Reaction:
+    db: ClassVar[Database] = fake_db
 
-    mxid: EventID = Column(Text, nullable=False)
-    mx_room: RoomID = Column(Text, nullable=False)
-    fb_msgid: str = Column(Text, primary_key=True)
-    fb_receiver: str = Column(Text, primary_key=True)
-    fb_sender: str = Column(Text, primary_key=True)
-    reaction: str = Column(Text, nullable=False)
-
-    __table_args__ = (UniqueConstraint("mxid", "mx_room", name="_mx_react_id_room"),)
-
-    @classmethod
-    def get_by_fbid(cls, fb_msgid: str, fb_receiver: str, fb_sender: str) -> Optional['Reaction']:
-        return cls._select_one_or_none(and_(cls.c.fb_msgid == fb_msgid,
-                                            cls.c.fb_receiver == fb_receiver,
-                                            cls.c.fb_sender == fb_sender))
+    mxid: EventID
+    mx_room: RoomID
+    fb_msgid: str
+    fb_receiver: int
+    fb_sender: int
+    reaction: str
 
     @classmethod
-    def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Optional['Reaction']:
-        return cls._select_one_or_none(and_(cls.c.mxid == mxid, cls.c.mx_room == mx_room))
+    def _from_row(cls, row: Optional[Record]) -> Optional['Reaction']:
+        if row is None:
+            return None
+        return cls(**row)
+
+    @classmethod
+    async def get_by_fbid(cls, fb_msgid: str, fb_receiver: int) -> Optional['Reaction']:
+        q = ("SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
+             "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2")
+        row = await cls.db.fetchrow(q, fb_msgid, fb_receiver)
+        return cls._from_row(row)
+
+    @classmethod
+    async def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Optional['Reaction']:
+        q = ("SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
+             "FROM reaction WHERE mxid=$1 AND mx_room=$2")
+        row = await cls.db.fetchrow(q, mxid, mx_room)
+        return cls._from_row(row)
+
+    async def insert(self) -> None:
+        q = ("INSERT INTO reaction (mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction) "
+             "VALUES ($1, $2, $3, $4, $5, $6)")
+        await self.db.execute(q, self.mxid, self.mx_room, self.fb_msgid, self.fb_receiver,
+                              self.fb_sender, self.reaction)
+
+    async def delete(self) -> None:
+        q = "DELETE FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2 AND fb_sender=$3"
+        await self.db.execute(q, self.fb_msgid, self.fb_receiver, self.fb_sender)

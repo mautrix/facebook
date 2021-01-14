@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,8 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import (Any, Dict, List, Iterator, Optional, Iterable, Type, Callable, Awaitable,
-                    Union, TYPE_CHECKING, cast)
+from typing import (Any, Dict, List, Optional, AsyncIterable, Type, Callable, Awaitable, Union,
+                    TypeVar, AsyncGenerator, TYPE_CHECKING, cast)
 from collections import defaultdict
 import asyncio
 import time
@@ -32,8 +32,7 @@ from maufbapi.types.graphql import Thread
 
 from .config import Config
 from .commands import enter_2fa_code
-from .db import (User as DBUser, UserPortal as DBUserPortal, Contact as DBContact, ThreadType,
-                 Portal as DBPortal)
+from .db import User as DBUser, UserPortal, UserContact, ThreadType
 from . import portal as po, puppet as pu
 
 METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
@@ -52,7 +51,7 @@ METRIC_LOGGED_IN = Gauge('bridge_logged_in', 'Users logged into the bridge')
 METRIC_CONNECTED = Gauge('bridge_connected', 'Bridge users connected to Facebook')
 
 if TYPE_CHECKING:
-    from .context import Context
+    from .__main__ import MessengerBridge
 
 try:
     from aiohttp_socks import ProxyError, ProxyConnectionError, ProxyTimeoutError
@@ -63,15 +62,16 @@ except ImportError:
 
     ProxyConnectionError = ProxyTimeoutError = ProxyError
 
-config: Config
+T = TypeVar('T')
 
 
-class User(BaseUser):
+class User(DBUser, BaseUser):
     temp_disconnect_notices: bool = True
     shutdown: bool = False
+    config: Config
 
     by_mxid: Dict[UserID, 'User'] = {}
-    by_fbid: Dict[str, 'User'] = {}
+    by_fbid: Dict[int, 'User'] = {}
 
     state: Optional[AndroidState]
     client: Optional[AndroidAPI]
@@ -81,8 +81,6 @@ class User(BaseUser):
     notice_room: RoomID
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
-    fb_domain: str
-    user_agent: Optional[str]
     is_admin: bool
     permission_level: str
     _is_logged_in: Optional[bool]
@@ -97,24 +95,23 @@ class User(BaseUser):
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
 
-    _handlers: Dict[Type[TODO], Callable[[Any], Awaitable[None]]]
+    _handlers: Dict[Type[T], Callable[[T], Awaitable[None]]]
 
-    def __init__(self, mxid: UserID, state: Optional[str] = None,
-                 notice_room: Optional[RoomID] = None,
-                 db_instance: Optional[DBUser] = None) -> None:
-        self.mxid = mxid
-        self.by_mxid[mxid] = self
+    def __init__(self, mxid: UserID, fbid: Optional[int] = None,
+                 state: Optional[AndroidState] = None,
+                 notice_room: Optional[RoomID] = None) -> None:
+        super().__init__(mxid=mxid, fbid=fbid, state=state, notice_room=notice_room)
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
         self.command_status = None
-        self.is_whitelisted, self.is_admin, self.permission_level = config.get_permissions(mxid)
+        self.is_whitelisted, self.is_admin, self.permission_level = self.config.get_permissions(
+            mxid)
         self._is_logged_in = None
         self._is_connected = None
         self._connection_time = time.monotonic()
         self._prev_thread_sync = -10
         self._prev_reconnect_fail_refresh = time.monotonic()
-        self._db_instance = db_instance
         self._community_id = None
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log)
@@ -124,27 +121,36 @@ class User(BaseUser):
 
         self.log = self.log.getChild(self.mxid)
 
-        self.state = AndroidState.parse_json(state) if state else None
         self.client = None
         self.mqtt = None
         self.listen_task = None
 
         self._handlers = {
-            fbchat.MessageEvent: self.on_message,
-            fbchat.MessageReplyEvent: self.on_message,
-            fbchat.TitleSet: self.on_title_change,
-            fbchat.UnsendEvent: self.on_message_unsent,
-            fbchat.ThreadsRead: self.on_message_seen,
-            fbchat.ReactionEvent: self.on_reaction,
-            fbchat.Presence: self.on_presence,
-            fbchat.Typing: self.on_typing,
-            fbchat.PeopleAdded: self.on_members_added,
-            fbchat.PersonRemoved: self.on_member_removed,
+            # fbchat.MessageEvent: self.on_message,
+            # fbchat.MessageReplyEvent: self.on_message,
+            # fbchat.TitleSet: self.on_title_change,
+            # fbchat.UnsendEvent: self.on_message_unsent,
+            # fbchat.ThreadsRead: self.on_message_seen,
+            # fbchat.ReactionEvent: self.on_reaction,
+            # fbchat.Presence: self.on_presence,
+            # fbchat.Typing: self.on_typing,
+            # fbchat.PeopleAdded: self.on_members_added,
+            # fbchat.PersonRemoved: self.on_member_removed,
             Connect: self.on_connect,
             Disconnect: self.on_disconnect,
-            fbchat.Resync: self.on_resync,
-            fbchat.UnknownEvent: self.on_unknown_event,
+            # fbchat.Resync: self.on_resync,
+            # fbchat.UnknownEvent: self.on_unknown_event,
         }
+
+    @classmethod
+    def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[bool]]:
+        cls.bridge = bridge
+        cls.config = bridge.config
+        cls.az = bridge.az
+        cls.loop = bridge.loop
+        cls._community_helper = CommunityHelper(cls.az)
+        cls.temp_disconnect_notices = bridge.config["bridge.temporary_disconnect_notices"]
+        return (user.try_connect() async for user in cls.all_logged_in())
 
     @property
     def is_connected(self) -> Optional[bool]:
@@ -156,68 +162,64 @@ class User(BaseUser):
             self._is_connected = val
             self._connection_time = time.monotonic()
 
-    # region Sessions
+    # region Database getters
 
-    @property
-    def fbid(self) -> Optional[str]:
-        return str(self.state.session.uid) if self.state and self.state.session.uid else None
-
-    @property
-    def db_instance(self) -> DBUser:
-        if not self._db_instance:
-            self._db_instance = DBUser(mxid=self.mxid, fbid=self.fbid,
-                                       state=self.state.json() if self.state else None,
-                                       notice_room=self.notice_room)
-        return self._db_instance
-
-    def save(self) -> None:
-        self.log.debug("Saving session")
-        self.db_instance.edit(session=self.state.json() if self.state else None, fbid=self.fbid,
-                              notice_room=self.notice_room, user_agent=self.user_agent)
+    def _add_to_cache(self) -> None:
+        self.by_mxid[self.mxid] = self
+        if self.fbid:
+            self.by_fbid[self.fbid] = self
 
     @classmethod
-    def from_db(cls, db_user: DBUser) -> 'User':
-        return User(mxid=db_user.mxid, state=db_user.state, notice_room=db_user.notice_room,
-                    db_instance=db_user)
+    async def all_logged_in(cls) -> AsyncGenerator['User', None]:
+        users = await super().all_logged_in()
+        user: cls
+        for user in users:
+            try:
+                yield cls.by_mxid[user.mxid]
+            except KeyError:
+                user._add_to_cache()
+                yield user
 
     @classmethod
-    def get_all(cls) -> Iterator['User']:
-        for db_user in DBUser.all():
-            yield cls.from_db(db_user)
-
-    @classmethod
-    def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['User']:
-        if pu.Puppet.get_id_from_mxid(mxid) is not None or mxid == cls.az.bot_mxid:
+    async def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['User']:
+        if pu.Puppet.get_id_from_mxid(mxid) or mxid == cls.az.bot_mxid:
             return None
         try:
             return cls.by_mxid[mxid]
         except KeyError:
             pass
 
-        db_user = DBUser.get_by_mxid(mxid)
-        if db_user:
-            return cls.from_db(db_user)
+        user = cast(cls, await super().get_by_mxid(mxid))
+        if user is not None:
+            user._add_to_cache()
+            return user
 
         if create:
+            cls.log.debug(f"Creating user instance for {mxid}")
             user = cls(mxid)
-            user.db_instance.insert()
+            await user.insert()
+            user._add_to_cache()
             return user
 
         return None
 
     @classmethod
-    def get_by_fbid(cls, fbid: str) -> Optional['User']:
+    async def get_by_fbid(cls, fbid: int) -> Optional['User']:
         try:
             return cls.by_fbid[fbid]
         except KeyError:
             pass
 
-        db_user = DBUser.get_by_fbid(fbid)
-        if db_user:
-            return cls.from_db(db_user)
+        user = cast(cls, await super().get_by_fbid(fbid))
+        if user is not None:
+            user._add_to_cache()
+            return user
 
         return None
 
+    # endregion
+
+    # FIXME this whole thing is broken
     async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
@@ -254,13 +256,11 @@ class User(BaseUser):
         return False
 
     async def is_logged_in(self, _override: bool = False) -> bool:
-        if not self.session:
+        if not self.state:
             return False
         if self._is_logged_in is None or _override:
-            self._is_logged_in = await self.session.is_logged_in()
+            self._is_logged_in = await self.client.is_logged_in()
         return self._is_logged_in
-
-    # endregion
 
     async def try_refresh(self) -> None:
         try:
@@ -270,6 +270,7 @@ class User(BaseUser):
             await self.send_bridge_notice("Fatal error while trying to refresh after connection "
                                           "error (see logs for more info)", important=True)
 
+    # FIXME this is broken too
     async def refresh(self, force_notice: bool = False) -> None:
         event_id = None
         self._is_refreshing = True
@@ -327,12 +328,12 @@ class User(BaseUser):
         self.is_connected = None
         self.client = None
         self.mqtt = None
-        self.save()
+        await self.save()
         return ok
 
     async def post_login(self) -> None:
         self.log.info("Running post-login actions")
-        self.by_fbid[self.fbid] = self
+        self._add_to_cache()
 
         try:
             puppet = pu.Puppet.get_by_fbid(self.fbid)
@@ -356,7 +357,7 @@ class User(BaseUser):
         await self.sync_threads()
 
     async def _create_community(self) -> None:
-        template = config["bridge.community_template"]
+        template = self.config["bridge.community_template"]
         if not template:
             return
         localpart, server = MxClient.parse_user_id(self.mxid)
@@ -365,42 +366,44 @@ class User(BaseUser):
         self._community_id, created = await self._community_helper.create(community_localpart)
         if created:
             await self._community_helper.update(self._community_id, name="Facebook Messenger",
-                                                avatar_url=config["appservice.bot_avatar"],
+                                                avatar_url=self.config["appservice.bot_avatar"],
                                                 short_desc="Your Facebook bridged chats")
             await self._community_helper.invite(self._community_id, self.mxid)
 
-    async def _add_community(self, up: Optional[DBUserPortal], contact: Optional[DBContact],
+    async def _add_community(self, up: Optional[UserPortal], contact: Optional[UserContact],
                              portal: 'po.Portal', puppet: Optional['pu.Puppet']) -> None:
         if portal.mxid:
             if not up or not up.in_community:
                 ic = await self._community_helper.add_room(self._community_id, portal.mxid)
                 if up and ic:
-                    up.edit(in_community=True)
+                    up.in_community = True
+                    await up.save()
                 elif not up:
-                    DBUserPortal(user=self.fbid, in_community=ic, portal=portal.fbid,
-                                 portal_receiver=portal.fb_receiver).insert()
+                    await UserPortal(user=self.fbid, in_community=ic, portal=portal.fbid,
+                                     portal_receiver=portal.fb_receiver).insert()
         if puppet:
             await self._add_community_puppet(contact, puppet)
 
-    async def _add_community_puppet(self, contact: Optional[DBContact],
+    async def _add_community_puppet(self, contact: Optional[UserContact],
                                     puppet: 'pu.Puppet') -> None:
         if not contact or not contact.in_community:
             await puppet.default_mxid_intent.ensure_registered()
             ic = await self._community_helper.join(self._community_id,
                                                    puppet.default_mxid_intent)
             if contact and ic:
-                contact.edit(in_community=True)
+                contact.in_community = True
+                await contact.save()
             elif not contact:
                 # This uses upsert instead of insert as a hacky fix for potential conflicts
-                DBContact(user=self.fbid, contact=puppet.fbid, in_community=ic).upsert()
+                await UserContact(user=self.fbid, contact=puppet.fbid, in_community=ic).upsert()
 
     async def sync_contacts(self):
         try:
             self.log.debug("Fetching contacts...")
             users = await self.client.fetch_users()
             self.log.debug(f"Fetched {len(users)} contacts")
-            contacts = DBContact.all(self.fbid)
-            update_avatars = config["bridge.update_avatar_initial_sync"]
+            contacts = UserContact.all(self.fbid)
+            update_avatars = self.config["bridge.update_avatar_initial_sync"]
             for user in users:
                 puppet = pu.Puppet.get_by_fbid(user.id, create=True)
                 await puppet.update_info(self, user, update_avatar=update_avatars)
@@ -411,7 +414,7 @@ class User(BaseUser):
     async def get_direct_chats(self) -> Dict[UserID, List[RoomID]]:
         return {
             pu.Puppet.get_mxid_from_id(portal.fbid): [portal.mxid]
-            for portal in DBPortal.get_all_by_receiver(self.fbid)
+            async for portal in po.Portal.get_all_by_receiver(self.fbid)
             if portal.mxid
         }
 
@@ -423,12 +426,12 @@ class User(BaseUser):
             return
         self._prev_thread_sync = time.monotonic()
         try:
-            sync_count = config["bridge.initial_chat_sync"]
+            sync_count = self.config["bridge.initial_chat_sync"]
             if sync_count <= 0:
                 return
             self.log.debug("Fetching threads...")
-            ups = DBUserPortal.all(self.fbid)
-            contacts = DBContact.all(self.fbid)
+            ups = await UserPortal.all(self.fbid)
+            contacts = await UserContact.all(self.fbid)
             resp = await self.client.fetch_threads(limit=sync_count)
             for thread in resp.nodes:
                 try:
@@ -440,8 +443,8 @@ class User(BaseUser):
         except Exception:
             self.log.exception("Failed to sync threads")
 
-    async def _sync_thread(self, thread: Thread, ups: Dict[str, DBUserPortal],
-                           contacts: Dict[str, DBContact]) -> None:
+    async def _sync_thread(self, thread: Thread, ups: Dict[str, UserPortal],
+                           contacts: Dict[str, UserContact]) -> None:
         self.log.debug(f"Syncing thread {thread.thread_key} {thread.name}")
         fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
         portal = po.Portal.get_by_thread(thread.thread_key, fb_receiver)
@@ -459,10 +462,10 @@ class User(BaseUser):
             await portal.create_matrix_room(self, thread)
         else:
             await portal.update_matrix_room(self, thread)
-            await portal.backfill(self, is_initial=False, last_active=thread.last_active)
+            await portal.backfill(self, is_initial=False, thread=thread)
 
     async def is_in_portal(self, portal: 'po.Portal') -> bool:
-        return DBUserPortal.get(self.fbid, portal.fbid, portal.fb_receiver) is not None
+        return await UserPortal.get(self.fbid, portal.fbid, portal.fb_receiver) is not None
 
     async def on_2fa_callback(self) -> str:
         if self.command_status and self.command_status.get("action", "") == "Login":
@@ -485,7 +488,7 @@ class User(BaseUser):
                 self.notice_room = await self.az.intent.create_room(
                     is_direct=True, invitees=[self.mxid],
                     topic="Facebook Messenger bridge notices")
-                self.save()
+                await self.save()
         return self.notice_room
 
     async def send_bridge_notice(self, text: str, edit: Optional[EventID] = None,
@@ -525,10 +528,10 @@ class User(BaseUser):
                 await self.send_bridge_notice("Facebook Messenger connection closed without error")
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
-            refresh = (config["bridge.refresh_on_reconnection_fail"]
+            refresh = (self.config["bridge.refresh_on_reconnection_fail"]
                        and self._prev_reconnect_fail_refresh + 120 < time.monotonic())
             next_action = ("Refreshing session..." if refresh else "Not retrying!")
-            event = ("Disconnected from" if isinstance(e, fbchat.NotLoggedIn)
+            event = ("Disconnected from" if isinstance(e, MQTTNotLoggedIn)
                      else "Failed to connect to")
             message = f"{event} Facebook Messenger: {e}. {next_action}"
             self.log.warning(message)
@@ -563,14 +566,14 @@ class User(BaseUser):
         except Exception:
             self.log.exception(f"Failed to handle {type(event)} event from Facebook")
 
-    @async_time(METRIC_UNKNOWN_EVENT)
-    async def on_unknown_event(self, evt: fbchat.UnknownEvent) -> None:
-        self.log.debug(f"Unknown event %s: %s", evt.source, evt.data)
+    # @async_time(METRIC_UNKNOWN_EVENT)
+    # async def on_unknown_event(self, evt: fbchat.UnknownEvent) -> None:
+    #     self.log.debug(f"Unknown event %s: %s", evt.source, evt.data)
 
-    async def on_connect(self, evt: fbchat.Connect) -> None:
+    async def on_connect(self, evt: Connect) -> None:
         now = time.monotonic()
         disconnected_at = self._connection_time
-        max_delay = config["bridge.resync_max_disconnected_time"]
+        max_delay = self.config["bridge.resync_max_disconnected_time"]
         first_connect = self.is_connected is None
         self.is_connected = True
         self._track_metric(METRIC_CONNECTED, True)
@@ -583,151 +586,141 @@ class User(BaseUser):
         elif self.temp_disconnect_notices:
             await self.send_bridge_notice("Connected to Facebook Messenger")
 
-    async def on_disconnect(self, evt: fbchat.Disconnect) -> None:
+    async def on_disconnect(self, evt: Disconnect) -> None:
         self.is_connected = False
         self._track_metric(METRIC_CONNECTED, False)
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
 
-    @async_time(METRIC_RESYNC)
-    async def on_resync(self, evt: fbchat.Resync) -> None:
-        self.log.info("sequence_id changed, resyncing threads...")
-        await self.sync_threads()
+    # @async_time(METRIC_RESYNC)
+    # async def on_resync(self, evt: fbchat.Resync) -> None:
+    #     self.log.info("sequence_id changed, resyncing threads...")
+    #     await self.sync_threads()
 
     def stop_listening(self) -> None:
-        if self.listener:
-            self.listener.disconnect()
+        if self.mqtt:
+            self.mqtt.disconnect()
         if self.listen_task:
             self.listen_task.cancel()
-        self.listener = None
-        if self.client:
-            self.client.sequence_id_callback = None
+        self.mqtt = None
+        # if self.client:
+        #     self.client.sequence_id_callback = None
         self.listen_task = None
 
-    async def on_logged_in(self, session: fbchat.Session) -> None:
-        self.session = session
-        self.fb_domain = session.domain
-        self.client = fbchat.Client(session=session)
-        self.save()
+    async def on_logged_in(self, state: AndroidState) -> None:
+        self.state = state
+        self.client = AndroidAPI(state)
+        await self.save()
         self.stop_listening()
         self.start_listen()
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
-    @async_time(METRIC_MESSAGE)
-    async def on_message(self, evt: Union[fbchat.MessageEvent, fbchat.MessageReplyEvent]) -> None:
-        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-        puppet = pu.Puppet.get_by_fbid(evt.author.id)
-        if not puppet.name:
-            await puppet.update_info(self)
-        await portal.backfill_lock.wait(evt.message.id)
-        await portal.handle_facebook_message(self, puppet, evt.message)
-
-    @async_time(METRIC_TITLE_CHANGE)
-    async def on_title_change(self, evt: fbchat.TitleSet) -> None:
-        assert isinstance(evt.thread, fbchat.Group)
-        portal = po.Portal.get_by_thread(evt.thread)
-        if not portal:
-            return
-        sender = pu.Puppet.get_by_fbid(evt.author.id)
-        if not sender:
-            return
-        await portal.backfill_lock.wait("title change")
-        # TODO find actual messageId for the event
-        await portal.handle_facebook_name(self, sender, evt.title, str(evt.at.timestamp()))
-
-    async def on_image_change(self, mid: str = None, author_id: str = None, new_image: str = None,
-                              thread_id: str = None, thread_type: ThreadType = ThreadType.GROUP,
-                              at: int = None, msg: Any = None) -> None:
-        # FIXME this method isn't called
-        #       It seems to be a maunually fetched event in fbchat.UnfetchedThreadEvent
-        #       But the Message.fetch() doesn't return the necessary info
-        fb_receiver = self.fbid if thread_type == ThreadType.USER else None
-        portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
-        if not portal:
-            return
-        sender = pu.Puppet.get_by_fbid(author_id)
-        if not sender:
-            return
-        await portal.backfill_lock.wait(mid)
-        await portal.handle_facebook_photo(self, sender, new_image, mid)
-
-    @async_time(METRIC_MESSAGE_SEEN)
-    async def on_message_seen(self, evt: fbchat.ThreadsRead) -> None:
-        puppet = pu.Puppet.get_by_fbid(evt.author.id)
-        for thread in evt.threads:
-            fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
-            portal = po.Portal.get_by_thread(thread, fb_receiver)
-            if portal.mxid:
-                await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
-                await portal.handle_facebook_seen(self, puppet)
-
-    @async_time(METRIC_MESSAGE_UNSENT)
-    async def on_message_unsent(self, evt: fbchat.UnsendEvent) -> None:
-        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-        if portal.mxid:
-            await portal.backfill_lock.wait(f"redaction of {evt.message.id}")
-            puppet = pu.Puppet.get_by_fbid(evt.author.id)
-            await portal.handle_facebook_unsend(self, puppet, evt.message.id)
-
-    @async_time(METRIC_REACTION)
-    async def on_reaction(self, evt: fbchat.ReactionEvent) -> None:
-        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-        if not portal.mxid:
-            return
-        puppet = pu.Puppet.get_by_fbid(evt.author.id)
-        await portal.backfill_lock.wait(f"reaction to {evt.message.id}")
-        if evt.reaction is None:
-            await portal.handle_facebook_reaction_remove(self, puppet, evt.message.id)
-        else:
-            await portal.handle_facebook_reaction_add(self, puppet, evt.message.id, evt.reaction)
-
-    @async_time(METRIC_PRESENCE)
-    async def on_presence(self, evt: fbchat.Presence) -> None:
-        for user, status in evt.statuses.items():
-            puppet = pu.Puppet.get_by_fbid(user, create=False)
-            if puppet:
-                await puppet.default_mxid_intent.set_presence(
-                    presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
-                    ignore_cache=True)
-
-    @async_time(METRIC_TYPING)
-    async def on_typing(self, evt: fbchat.Typing) -> None:
-        fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-        if portal.mxid and not portal.backfill_lock.locked:
-            puppet = pu.Puppet.get_by_fbid(evt.author.id)
-            await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
-
-    @async_time(METRIC_MEMBERS_ADDED)
-    async def on_members_added(self, evt: fbchat.PeopleAdded) -> None:
-        assert isinstance(evt.thread, fbchat.Group)
-        portal = po.Portal.get_by_thread(evt.thread)
-        if portal.mxid:
-            sender = pu.Puppet.get_by_fbid(evt.author.id)
-            users = [pu.Puppet.get_by_fbid(user.id) for user in evt.added]
-            await portal.backfill_lock.wait("member add")
-            await portal.handle_facebook_join(self, sender, users)
-
-    @async_time(METRIC_MEMBER_REMOVED)
-    async def on_member_removed(self, evt: fbchat.PersonRemoved) -> None:
-        assert isinstance(evt.thread, fbchat.Group)
-        portal = po.Portal.get_by_thread(evt.thread)
-        if portal.mxid:
-            sender = pu.Puppet.get_by_fbid(evt.author.id)
-            user = pu.Puppet.get_by_fbid(evt.removed.id)
-            await portal.backfill_lock.wait("member remove")
-            await portal.handle_facebook_leave(self, sender, user)
+    # @async_time(METRIC_MESSAGE)
+    # async def on_message(self, evt: Union[fbchat.MessageEvent, fbchat.MessageReplyEvent]) -> None:
+    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+    #     puppet = pu.Puppet.get_by_fbid(evt.author.id)
+    #     if not puppet.name:
+    #         await puppet.update_info(self)
+    #     await portal.backfill_lock.wait(evt.message.id)
+    #     await portal.handle_facebook_message(self, puppet, evt.message)
+    #
+    # @async_time(METRIC_TITLE_CHANGE)
+    # async def on_title_change(self, evt: fbchat.TitleSet) -> None:
+    #     assert isinstance(evt.thread, fbchat.Group)
+    #     portal = po.Portal.get_by_thread(evt.thread)
+    #     if not portal:
+    #         return
+    #     sender = pu.Puppet.get_by_fbid(evt.author.id)
+    #     if not sender:
+    #         return
+    #     await portal.backfill_lock.wait("title change")
+    #     # TODO find actual messageId for the event
+    #     await portal.handle_facebook_name(self, sender, evt.title, str(evt.at.timestamp()))
+    #
+    # async def on_image_change(self, mid: str = None, author_id: str = None, new_image: str = None,
+    #                           thread_id: str = None, thread_type: ThreadType = ThreadType.GROUP,
+    #                           at: int = None, msg: Any = None) -> None:
+    #     # FIXME this method isn't called
+    #     #       It seems to be a maunually fetched event in fbchat.UnfetchedThreadEvent
+    #     #       But the Message.fetch() doesn't return the necessary info
+    #     fb_receiver = self.fbid if thread_type == ThreadType.USER else None
+    #     portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
+    #     if not portal:
+    #         return
+    #     sender = pu.Puppet.get_by_fbid(author_id)
+    #     if not sender:
+    #         return
+    #     await portal.backfill_lock.wait(mid)
+    #     await portal.handle_facebook_photo(self, sender, new_image, mid)
+    #
+    # @async_time(METRIC_MESSAGE_SEEN)
+    # async def on_message_seen(self, evt: fbchat.ThreadsRead) -> None:
+    #     puppet = pu.Puppet.get_by_fbid(evt.author.id)
+    #     for thread in evt.threads:
+    #         fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
+    #         portal = po.Portal.get_by_thread(thread, fb_receiver)
+    #         if portal.mxid:
+    #             await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
+    #             await portal.handle_facebook_seen(self, puppet)
+    #
+    # @async_time(METRIC_MESSAGE_UNSENT)
+    # async def on_message_unsent(self, evt: fbchat.UnsendEvent) -> None:
+    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+    #     if portal.mxid:
+    #         await portal.backfill_lock.wait(f"redaction of {evt.message.id}")
+    #         puppet = pu.Puppet.get_by_fbid(evt.author.id)
+    #         await portal.handle_facebook_unsend(self, puppet, evt.message.id)
+    #
+    # @async_time(METRIC_REACTION)
+    # async def on_reaction(self, evt: fbchat.ReactionEvent) -> None:
+    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+    #     if not portal.mxid:
+    #         return
+    #     puppet = pu.Puppet.get_by_fbid(evt.author.id)
+    #     await portal.backfill_lock.wait(f"reaction to {evt.message.id}")
+    #     if evt.reaction is None:
+    #         await portal.handle_facebook_reaction_remove(self, puppet, evt.message.id)
+    #     else:
+    #         await portal.handle_facebook_reaction_add(self, puppet, evt.message.id, evt.reaction)
+    #
+    # @async_time(METRIC_PRESENCE)
+    # async def on_presence(self, evt: fbchat.Presence) -> None:
+    #     for user, status in evt.statuses.items():
+    #         puppet = pu.Puppet.get_by_fbid(user, create=False)
+    #         if puppet:
+    #             await puppet.default_mxid_intent.set_presence(
+    #                 presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
+    #                 ignore_cache=True)
+    #
+    # @async_time(METRIC_TYPING)
+    # async def on_typing(self, evt: fbchat.Typing) -> None:
+    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
+    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
+    #     if portal.mxid and not portal.backfill_lock.locked:
+    #         puppet = pu.Puppet.get_by_fbid(evt.author.id)
+    #         await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
+    #
+    # @async_time(METRIC_MEMBERS_ADDED)
+    # async def on_members_added(self, evt: fbchat.PeopleAdded) -> None:
+    #     assert isinstance(evt.thread, fbchat.Group)
+    #     portal = po.Portal.get_by_thread(evt.thread)
+    #     if portal.mxid:
+    #         sender = pu.Puppet.get_by_fbid(evt.author.id)
+    #         users = [pu.Puppet.get_by_fbid(user.id) for user in evt.added]
+    #         await portal.backfill_lock.wait("member add")
+    #         await portal.handle_facebook_join(self, sender, users)
+    #
+    # @async_time(METRIC_MEMBER_REMOVED)
+    # async def on_member_removed(self, evt: fbchat.PersonRemoved) -> None:
+    #     assert isinstance(evt.thread, fbchat.Group)
+    #     portal = po.Portal.get_by_thread(evt.thread)
+    #     if portal.mxid:
+    #         sender = pu.Puppet.get_by_fbid(evt.author.id)
+    #         user = pu.Puppet.get_by_fbid(evt.removed.id)
+    #         await portal.backfill_lock.wait("member remove")
+    #         await portal.handle_facebook_leave(self, sender, user)
 
     # endregion
-
-
-def init(context: 'Context') -> Iterable[Awaitable[bool]]:
-    global config
-    User.az, config, User.loop = context.core
-    User.bridge = context.bridge
-    User._community_helper = CommunityHelper(User.az)
-    User.temp_disconnect_notices = config["bridge.temporary_disconnect_notices"]
-    return (user.load_session() for user in User.get_all())
