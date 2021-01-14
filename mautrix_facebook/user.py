@@ -26,13 +26,16 @@ from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.opt_prometheus import Summary, Gauge, async_time
+
 from maufbapi import AndroidState, AndroidMQTT, AndroidAPI
 from maufbapi.mqtt import Disconnect, Connect, MQTTNotLoggedIn, MQTTNotConnected
 from maufbapi.types.graphql import Thread
+from maufbapi.types.mqtt import (Message, Reaction, UnsendMessage, ExtendedMessage, NameChange,
+                                 AvatarChange, ReadReceipt, OwnReadReceipt)
 
 from .config import Config
 from .commands import enter_2fa_code
-from .db import User as DBUser, UserPortal, UserContact, ThreadType
+from .db import User as DBUser, UserPortal, UserContact
 from . import portal as po, puppet as pu
 
 METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
@@ -46,6 +49,7 @@ METRIC_REACTION = Summary('bridge_on_reaction', 'calls to on_reaction')
 METRIC_MESSAGE_UNSENT = Summary('bridge_on_unsent', 'calls to on_unsent')
 METRIC_MESSAGE_SEEN = Summary('bridge_on_message_seen', 'calls to on_message_seen')
 METRIC_TITLE_CHANGE = Summary('bridge_on_title_change', 'calls to on_title_change')
+METRIC_AVATAR_CHANGE = Summary('bridge_on_avatar_change', 'calls to on_avatar_change')
 METRIC_MESSAGE = Summary('bridge_on_message', 'calls to on_message')
 METRIC_LOGGED_IN = Gauge('bridge_logged_in', 'Users logged into the bridge')
 METRIC_CONNECTED = Gauge('bridge_connected', 'Bridge users connected to Facebook')
@@ -73,12 +77,11 @@ class User(DBUser, BaseUser):
     by_mxid: Dict[UserID, 'User'] = {}
     by_fbid: Dict[int, 'User'] = {}
 
-    state: Optional[AndroidState]
     client: Optional[AndroidAPI]
     mqtt: Optional[AndroidMQTT]
     listen_task: Optional[asyncio.Task]
+    seq_id: int
 
-    notice_room: RoomID
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
     is_admin: bool
@@ -105,8 +108,8 @@ class User(DBUser, BaseUser):
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
         self.command_status = None
-        self.is_whitelisted, self.is_admin, self.permission_level = self.config.get_permissions(
-            mxid)
+        (self.is_whitelisted, self.is_admin,
+         self.permission_level) = self.config.get_permissions(mxid)
         self._is_logged_in = None
         self._is_connected = None
         self._connection_time = time.monotonic()
@@ -124,14 +127,17 @@ class User(DBUser, BaseUser):
         self.client = None
         self.mqtt = None
         self.listen_task = None
+        self.seq_id = None
 
         self._handlers = {
-            # fbchat.MessageEvent: self.on_message,
-            # fbchat.MessageReplyEvent: self.on_message,
-            # fbchat.TitleSet: self.on_title_change,
-            # fbchat.UnsendEvent: self.on_message_unsent,
-            # fbchat.ThreadsRead: self.on_message_seen,
-            # fbchat.ReactionEvent: self.on_reaction,
+            Message: self.on_message,
+            ExtendedMessage: self.on_message,
+            NameChange: self.on_title_change,
+            AvatarChange: self.on_avatar_change,
+            UnsendMessage: self.on_message_unsent,
+            ReadReceipt: self.on_message_seen,
+            OwnReadReceipt: self.on_message_seen_self,
+            Reaction: self.on_reaction,
             # fbchat.Presence: self.on_presence,
             # fbchat.Typing: self.on_typing,
             # fbchat.PeopleAdded: self.on_members_added,
@@ -249,8 +255,7 @@ class User(DBUser, BaseUser):
             self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
-            self.stop_listening()
-            self.start_listen()
+            self.stop_listen()
             asyncio.ensure_future(self.post_login(), loop=self.loop)
             return True
         return False
@@ -293,28 +298,27 @@ class User(DBUser, BaseUser):
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
-            self.log.debug("Re-loading session for refresh")
-            ok = await self.load_session(_override=True, _raise_errors=True)
-        except fbchat.FacebookError as e:
-            await self.send_bridge_notice("Failed to refresh Messenger session: "
-                                          f"{e.message}", edit=event_id)
+            await self.sync_threads()
+            self.start_listen()
         except Exception:
             await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
                                           "(see logs for more details)", edit=event_id)
-        else:
-            if not ok:
-                await self.send_bridge_notice("Failed to refresh Messenger session: "
-                                              "not logged in", edit=event_id)
-            elif self.temp_disconnect_notices or force_notice:
-                await self.send_bridge_notice("Successfully refreshed Messenger session",
-                                              edit=event_id)
         finally:
             self._is_refreshing = False
 
+    async def reconnect(self) -> None:
+        self._is_refreshing = True
+        self.mqtt.disconnect()
+        await self.listen_task
+        self.listen_task = None
+        self.mqtt = None
+        self.start_listen()
+        self._is_refreshing = False
+
     async def logout(self) -> bool:
         ok = True
-        self.stop_listening()
-        if self.session:
+        self.stop_listen()
+        if self.state:
             # TODO is there even a logout API for messenger mobile?
             pass
             # try:
@@ -336,7 +340,7 @@ class User(DBUser, BaseUser):
         self._add_to_cache()
 
         try:
-            puppet = pu.Puppet.get_by_fbid(self.fbid)
+            puppet = await pu.Puppet.get_by_fbid(self.fbid)
 
             if puppet.custom_mxid != self.mxid and puppet.can_auto_login(self.mxid):
                 self.log.info(f"Automatically enabling custom puppet")
@@ -353,8 +357,10 @@ class User(DBUser, BaseUser):
         #     own_info = await self.client.fetch_thread_info([self.fbid]).__anext__()
         # puppet = pu.Puppet.get_by_fbid(self.fbid, create=True)
         # await puppet.update_info(source=self, info=cast(fbchat.UserData, own_info))
-        await self.sync_contacts()
+        # FIXME
+        # await self.sync_contacts()
         await self.sync_threads()
+        self.start_listen()
 
     async def _create_community(self) -> None:
         template = self.config["bridge.community_template"]
@@ -397,19 +403,19 @@ class User(DBUser, BaseUser):
                 # This uses upsert instead of insert as a hacky fix for potential conflicts
                 await UserContact(user=self.fbid, contact=puppet.fbid, in_community=ic).upsert()
 
-    async def sync_contacts(self):
-        try:
-            self.log.debug("Fetching contacts...")
-            users = await self.client.fetch_users()
-            self.log.debug(f"Fetched {len(users)} contacts")
-            contacts = UserContact.all(self.fbid)
-            update_avatars = self.config["bridge.update_avatar_initial_sync"]
-            for user in users:
-                puppet = pu.Puppet.get_by_fbid(user.id, create=True)
-                await puppet.update_info(self, user, update_avatar=update_avatars)
-                await self._add_community_puppet(contacts.get(puppet.fbid, None), puppet)
-        except Exception:
-            self.log.exception("Failed to sync contacts")
+    # async def sync_contacts(self):
+    #     try:
+    #         self.log.debug("Fetching contacts...")
+    #         users = await self.client.fetch_users()
+    #         self.log.debug(f"Fetched {len(users)} contacts")
+    #         contacts = UserContact.all(self.fbid)
+    #         update_avatars = self.config["bridge.update_avatar_initial_sync"]
+    #         for user in users:
+    #             puppet = pu.Puppet.get_by_fbid(user.id, create=True)
+    #             await puppet.update_info(self, user, update_avatar=update_avatars)
+    #             await self._add_community_puppet(contacts.get(puppet.fbid, None), puppet)
+    #     except Exception:
+    #         self.log.exception("Failed to sync contacts")
 
     async def get_direct_chats(self) -> Dict[UserID, List[RoomID]]:
         return {
@@ -420,38 +426,42 @@ class User(DBUser, BaseUser):
 
     @async_time(METRIC_SYNC_THREADS)
     async def sync_threads(self) -> None:
-        if ((self._prev_thread_sync + 10 > time.monotonic()
-             and self.listener._sequence_id_wait is None)):
+        if self._prev_thread_sync + 10 > time.monotonic() and self.mqtt.seq_id is not None:
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
             return
         self._prev_thread_sync = time.monotonic()
         try:
-            sync_count = self.config["bridge.initial_chat_sync"]
-            if sync_count <= 0:
-                return
-            self.log.debug("Fetching threads...")
-            ups = await UserPortal.all(self.fbid)
-            contacts = await UserContact.all(self.fbid)
-            resp = await self.client.fetch_threads(limit=sync_count)
-            for thread in resp.nodes:
-                try:
-                    await self._sync_thread(thread, ups, contacts)
-                except Exception:
-                    self.log.exception("Failed to sync thread %s", thread.id)
-
-            await self.update_direct_chats()
+            await self._sync_threads()
         except Exception:
             self.log.exception("Failed to sync threads")
 
-    async def _sync_thread(self, thread: Thread, ups: Dict[str, UserPortal],
-                           contacts: Dict[str, UserContact]) -> None:
+    async def _sync_threads(self) -> None:
+        sync_count = self.config["bridge.initial_chat_sync"]
+        if sync_count <= 0:
+            return
+        self.log.debug("Fetching threads...")
+        ups = await UserPortal.all(self.fbid)
+        contacts = await UserContact.all(self.fbid)
+        # TODO paginate with 20 threads per request
+        resp = await self.client.fetch_threads(limit=sync_count)
+        self.seq_id = int(resp.sync_sequence_id)
+        for thread in resp.nodes:
+            try:
+                await self._sync_thread(thread, ups, contacts)
+            except Exception:
+                self.log.exception("Failed to sync thread %s", thread.id)
+
+        await self.update_direct_chats()
+
+    async def _sync_thread(self, thread: Thread, ups: Dict[int, UserPortal],
+                           contacts: Dict[int, UserContact]) -> None:
         self.log.debug(f"Syncing thread {thread.thread_key} {thread.name}")
-        fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
-        portal = po.Portal.get_by_thread(thread.thread_key, fb_receiver)
+        is_direct = bool(thread.thread_key.other_user_id)
+        portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
         puppet = None
 
-        if thread.thread_key.other_user_id:
-            puppet = pu.Puppet.get_by_fbid(thread.thread_key.other_user_id, create=True)
+        if is_direct:
+            puppet = await pu.Puppet.get_by_fbid(int(thread.thread_key.other_user_id), create=True)
             await puppet.update_info(self, thread)
 
         await self._add_community(ups.get(portal.fbid, None),
@@ -514,14 +524,14 @@ class User(DBUser, BaseUser):
 
     def _disconnect_listener_after_error(self) -> None:
         try:
-            self.listener.disconnect()
+            self.mqtt.disconnect()
         except Exception:
             self.log.debug("Error disconnecting listener after error", exc_info=True)
 
     async def _try_listen(self) -> None:
         try:
             if not self.mqtt:
-                self.mqtt = AndroidMQTT(self.state)
+                self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
             await self.mqtt.listen(self.seq_id)
             self.is_connected = False
             if not self._is_refreshing and not self.shutdown:
@@ -597,7 +607,7 @@ class User(DBUser, BaseUser):
     #     self.log.info("sequence_id changed, resyncing threads...")
     #     await self.sync_threads()
 
-    def stop_listening(self) -> None:
+    def stop_listen(self) -> None:
         if self.mqtt:
             self.mqtt.disconnect()
         if self.listen_task:
@@ -611,81 +621,77 @@ class User(DBUser, BaseUser):
         self.state = state
         self.client = AndroidAPI(state)
         await self.save()
-        self.stop_listening()
-        self.start_listen()
+        self.stop_listen()
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
-    # @async_time(METRIC_MESSAGE)
-    # async def on_message(self, evt: Union[fbchat.MessageEvent, fbchat.MessageReplyEvent]) -> None:
-    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-    #     puppet = pu.Puppet.get_by_fbid(evt.author.id)
-    #     if not puppet.name:
-    #         await puppet.update_info(self)
-    #     await portal.backfill_lock.wait(evt.message.id)
-    #     await portal.handle_facebook_message(self, puppet, evt.message)
-    #
-    # @async_time(METRIC_TITLE_CHANGE)
-    # async def on_title_change(self, evt: fbchat.TitleSet) -> None:
-    #     assert isinstance(evt.thread, fbchat.Group)
-    #     portal = po.Portal.get_by_thread(evt.thread)
-    #     if not portal:
-    #         return
-    #     sender = pu.Puppet.get_by_fbid(evt.author.id)
-    #     if not sender:
-    #         return
-    #     await portal.backfill_lock.wait("title change")
-    #     # TODO find actual messageId for the event
-    #     await portal.handle_facebook_name(self, sender, evt.title, str(evt.at.timestamp()))
-    #
-    # async def on_image_change(self, mid: str = None, author_id: str = None, new_image: str = None,
-    #                           thread_id: str = None, thread_type: ThreadType = ThreadType.GROUP,
-    #                           at: int = None, msg: Any = None) -> None:
-    #     # FIXME this method isn't called
-    #     #       It seems to be a maunually fetched event in fbchat.UnfetchedThreadEvent
-    #     #       But the Message.fetch() doesn't return the necessary info
-    #     fb_receiver = self.fbid if thread_type == ThreadType.USER else None
-    #     portal = po.Portal.get_by_fbid(thread_id, fb_receiver)
-    #     if not portal:
-    #         return
-    #     sender = pu.Puppet.get_by_fbid(author_id)
-    #     if not sender:
-    #         return
-    #     await portal.backfill_lock.wait(mid)
-    #     await portal.handle_facebook_photo(self, sender, new_image, mid)
-    #
-    # @async_time(METRIC_MESSAGE_SEEN)
-    # async def on_message_seen(self, evt: fbchat.ThreadsRead) -> None:
-    #     puppet = pu.Puppet.get_by_fbid(evt.author.id)
-    #     for thread in evt.threads:
-    #         fb_receiver = self.fbid if isinstance(thread, fbchat.User) else None
-    #         portal = po.Portal.get_by_thread(thread, fb_receiver)
-    #         if portal.mxid:
-    #             await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
-    #             await portal.handle_facebook_seen(self, puppet)
-    #
-    # @async_time(METRIC_MESSAGE_UNSENT)
-    # async def on_message_unsent(self, evt: fbchat.UnsendEvent) -> None:
-    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-    #     if portal.mxid:
-    #         await portal.backfill_lock.wait(f"redaction of {evt.message.id}")
-    #         puppet = pu.Puppet.get_by_fbid(evt.author.id)
-    #         await portal.handle_facebook_unsend(self, puppet, evt.message.id)
-    #
-    # @async_time(METRIC_REACTION)
-    # async def on_reaction(self, evt: fbchat.ReactionEvent) -> None:
-    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-    #     if not portal.mxid:
-    #         return
-    #     puppet = pu.Puppet.get_by_fbid(evt.author.id)
-    #     await portal.backfill_lock.wait(f"reaction to {evt.message.id}")
-    #     if evt.reaction is None:
-    #         await portal.handle_facebook_reaction_remove(self, puppet, evt.message.id)
-    #     else:
-    #         await portal.handle_facebook_reaction_add(self, puppet, evt.message.id, evt.reaction)
-    #
+    @async_time(METRIC_MESSAGE)
+    async def on_message(self, evt: Union[Message, ExtendedMessage]) -> None:
+        if isinstance(evt, ExtendedMessage):
+            reply_to = evt.reply_to_message
+            evt = evt.message
+        else:
+            reply_to = None
+        portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        puppet = await pu.Puppet.get_by_fbid(evt.author.id)
+        if not puppet.name:
+            await puppet.update_info(self)
+        await portal.backfill_lock.wait(evt.message.id)
+        await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
+
+    @async_time(METRIC_TITLE_CHANGE)
+    async def on_title_change(self, evt: NameChange) -> None:
+        portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+        await portal.backfill_lock.wait("title change")
+        await portal.handle_facebook_name(self, sender, evt.new_name, evt.metadata.id,
+                                          evt.metadata.timestamp)
+
+    @async_time(METRIC_AVATAR_CHANGE)
+    async def on_avatar_change(self, evt: AvatarChange) -> None:
+        portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+        await portal.backfill_lock.wait("avatar change")
+        await portal.handle_facebook_photo(self, sender, evt.new_avatar, evt.metadata.id,
+                                           evt.metadata.timestamp)
+
+    @async_time(METRIC_MESSAGE_SEEN)
+    async def on_message_seen(self, evt: ReadReceipt) -> None:
+        puppet = await pu.Puppet.get_by_fbid(evt.user_id)
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
+        if portal.mxid:
+            await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
+            # TODO pass through read_at/read_to?
+            await portal.handle_facebook_seen(self, puppet)
+
+    @async_time(METRIC_MESSAGE_SEEN)
+    async def on_message_seen_self(self, evt: OwnReadReceipt) -> None:
+        puppet = await pu.Puppet.get_by_fbid(self.fbid)
+        for thread in evt.threads:
+            portal = await po.Portal.get_by_thread(thread, self.fbid)
+            await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
+            # TODO pass through read_at/read_to?
+            await portal.handle_facebook_seen(self, puppet)
+
+    @async_time(METRIC_MESSAGE_UNSENT)
+    async def on_message_unsent(self, evt: UnsendMessage) -> None:
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
+        if portal.mxid:
+            await portal.backfill_lock.wait(f"redaction of {evt.message.id}")
+            puppet = await pu.Puppet.get_by_fbid(evt.user_id)
+            await portal.handle_facebook_unsend(puppet, evt.message_id, timestamp=evt.timestamp)
+
+    @async_time(METRIC_REACTION)
+    async def on_reaction(self, evt: Reaction) -> None:
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
+        if not portal.mxid:
+            return
+        puppet = await pu.Puppet.get_by_fbid(evt.reaction_sender_id)
+        await portal.backfill_lock.wait(f"reaction to {evt.message_id}")
+        if evt.reaction is None:
+            await portal.handle_facebook_reaction_remove(self, puppet, evt.message_id)
+        else:
+            await portal.handle_facebook_reaction_add(self, puppet, evt.message_id, evt.reaction)
+
     # @async_time(METRIC_PRESENCE)
     # async def on_presence(self, evt: fbchat.Presence) -> None:
     #     for user, status in evt.statuses.items():

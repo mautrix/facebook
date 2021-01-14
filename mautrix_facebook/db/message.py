@@ -75,7 +75,7 @@ class Message:
         return cls._from_row(row)
 
     @classmethod
-    async def bulk_create(cls, fbid: str, fb_chat: str, fb_receiver: str, event_ids: List[EventID],
+    async def bulk_create(cls, fbid: str, fb_chat: int, fb_receiver: int, event_ids: List[EventID],
                           timestamp: int, mx_room: RoomID) -> None:
         if not event_ids:
             return

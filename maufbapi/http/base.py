@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, TypeVar, Type, List
+from typing import Optional, Dict, TypeVar, Type, List, Union
 from urllib.parse import quote
 import hashlib
 import logging
@@ -24,6 +24,7 @@ import time
 
 from mautrix.types import JSON
 from aiohttp import ClientSession, ClientResponse
+from aiohttp.client import _RequestContextManager
 from mautrix.util.logging import TraceLogger
 from yarl import URL
 
@@ -39,7 +40,6 @@ class BaseAndroidAPI:
     graph_url = URL("https://graph.facebook.com")
     b_graph_url = URL("https://b-graph.facebook.com")
     rupload_url = URL("https://rupload.facebook.com")
-    graphql_url = graph_url / "graphql"
     http: ClientSession
     log: TraceLogger
 
@@ -116,9 +116,20 @@ class BaseAndroidAPI:
             "client_country_code": self.state.device.country_code,
         }
 
+    def get(self, url: Union[str, URL], headers: Optional[Dict[str, str]] = None
+            ) -> _RequestContextManager:
+        headers = {
+            **self._headers,
+            **(headers or {}),
+        }
+        url = URL(url)
+        if not url.host.endswith(".facebook.com"):
+            headers.pop("authorization")
+        return self.http.get(url, headers=headers)
+
     async def graphql(self, req: GraphQLQuery, headers: Optional[Dict[str, str]] = None,
-                      response_type: Optional[Type[T]] = JSON, path: Optional[List[str]] = None
-                      ) -> T:
+                      response_type: Optional[Type[T]] = JSON, path: Optional[List[str]] = None,
+                      b: bool = True) -> T:
         headers = {
             **self._headers,
             **(headers or {}),
@@ -139,9 +150,10 @@ class BaseAndroidAPI:
             "strip_defaults": "false",
             "strip_nulls": "false",
             "fb_api_req_friendly_name": req.__class__.__name__,
-            "fb_api_caller_class": "graphservice",
+            "fb_api_caller_class": req.caller_class,
         }
-        resp = await self.http.post(url=self.graphql_url, data=params, headers=headers)
+        resp = await self.http.post(url=(self.b_graph_url if b else self.graph_url) / "graphql",
+                                    data=params, headers=headers)
         self.log.trace(f"GraphQL {req} response: {await resp.text()}")
         if response_type is None:
             self._handle_response_headers(resp)

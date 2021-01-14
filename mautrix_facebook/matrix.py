@@ -182,10 +182,10 @@ class MatrixHandler(BaseMatrixHandler):
     async def handle_presence(self, user_id: UserID, info: PresenceEventContent) -> None:
         if not self.config["bridge.presence"]:
             return
-        user = await u.User.get_by_mxid(user_id, create=False)
-        if user and user.listener:
-            user.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
-            user.listener.set_foreground(info.presence == PresenceState.ONLINE)
+        # user = await u.User.get_by_mxid(user_id, create=False)
+        # if user and user.mqtt:
+        #     user.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
+        #     user.mqtt.set_foreground(info.presence == PresenceState.ONLINE)
 
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: List[UserID]) -> None:
@@ -200,7 +200,7 @@ class MatrixHandler(BaseMatrixHandler):
     async def handle_read_receipt(self, user: 'u.User', portal: 'po.Portal', event_id: EventID,
                                   data: SingleReceiptEventContent) -> None:
         timestamp = datetime.fromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
-        await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
+        # await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
 
     def filter_matrix_event(self, evt: Event) -> bool:
         if isinstance(evt, (ReceiptEvent, TypingEvent, PresenceEvent)):

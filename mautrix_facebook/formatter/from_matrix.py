@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, cast, TYPE_CHECKING
+from typing import Optional, cast, NamedTuple, List
 
 from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
@@ -24,13 +24,10 @@ from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
 
 
-if TYPE_CHECKING:
-    from typing import TypedDict, List
-
-    class SendParams(TypedDict):
-        text: str
-        mentions: List[Mention]
-        reply_to_id: str
+class SendParams(NamedTuple):
+    text: str
+    mentions: List[Mention]
+    reply_to: str
 
 
 class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownString):
@@ -90,14 +87,14 @@ class MatrixParser(BaseMatrixParser[FacebookFormatString]):
         return cast(FacebookFormatString, super().parse(data))
 
 
-def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> 'SendParams':
+async def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> SendParams:
     mentions = []
-    reply_to_id = None
+    reply_to = None
     if content.relates_to.rel_type == RelationType.REPLY:
-        message = DBMessage.get_by_mxid(content.relates_to.event_id, room_id)
+        message = await DBMessage.get_by_mxid(content.relates_to.event_id, room_id)
         if message:
             content.trim_reply_fallback()
-            reply_to_id = message.fbid
+            reply_to = message.fbid
     if content.format == Format.HTML and content.formatted_body:
         parsed = MatrixParser.parse(content.formatted_body)
         text = parsed.text
@@ -106,4 +103,4 @@ def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> 'Se
                     for mention in parsed.entities]
     else:
         text = content.body
-    return {"text": text, "mentions": mentions, "reply_to_id": reply_to_id}
+    return SendParams(text=text, mentions=mentions, reply_to=reply_to)

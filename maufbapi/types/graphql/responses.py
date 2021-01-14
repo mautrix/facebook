@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from attr import dataclass
 import attr
@@ -32,6 +32,14 @@ class ReadReceipt(SerializableAttrs['ReadReceipt']):
     action_timestamp_precise: str
     timestamp_precise: str
     actor: ParticipantID
+
+    @property
+    def timestamp(self) -> int:
+        return int(self.timestamp_precise)
+
+    @property
+    def action_timestamp(self) -> int:
+        return int(self.action_timestamp_precise)
 
 
 @dataclass
@@ -58,6 +66,12 @@ class StructuredName(SerializableAttrs['StructuredName']):
     parts: List[StructuredNameChunk]
     phonetic_name: Optional[str]
     text: str
+
+    def to_dict(self) -> Dict[str, str]:
+        return {
+            f"{part.part}_name": self.text[part.offset:part.offset + part.length]
+            for part in self.parts
+        }
 
 
 @dataclass
@@ -179,9 +193,32 @@ class Attachment(SerializableAttrs['Attachment']):
 
 
 @dataclass
-class Sticker(SerializableAttrs['Sticker']):
+class MinimalSticker(SerializableAttrs['MinimalSticker']):
     # 369239263222822 = "like"
     id: str
+
+
+@dataclass
+class StickerPackMeta(SerializableAttrs['StickerPackMeta']):
+    id: str
+    is_comments_capable: bool
+    is_composer_capable: bool
+    is_messenger_capable: bool
+    is_messenger_kids_capable: bool
+    is_montage_capable: bool
+    is_posts_capable: bool
+    is_sms_capable: bool
+
+
+@dataclass
+class Sticker(MinimalSticker, SerializableAttrs['Sticker']):
+    pack: StickerPackMeta
+    animated_image: Picture
+    preview_image: Picture
+    thread_image: Picture
+    # TODO enum? REGULAR
+    sticker_type: str
+    label: Optional[str] = None
 
 
 @dataclass(kw_only=True)
@@ -191,7 +228,7 @@ class MinimalMessage(SerializableAttrs['MinimalMessage']):
     message_id: Optional[str] = None
     message: Optional[MessageText] = None
     message_sender: MessageSender
-    sticker: Optional[Sticker] = None
+    sticker: Optional[MinimalSticker] = None
     blob_attachments: List[Attachment] = attr.ib(factory=lambda: [])
 
 
@@ -220,6 +257,14 @@ class Message(MinimalMessage, SerializableAttrs['Message']):
     is_user_generated: bool = True
     unread: bool = False
     ttl: Optional[int] = None
+
+    @property
+    def timestamp(self) -> int:
+        return int(self.timestamp_precise)
+
+    @property
+    def unsent_timestamp(self) -> Optional[int]:
+        return int(self.unsent_timestamp_precise) if self.unsent_timestamp_precise else None
 
 
 @dataclass
@@ -296,3 +341,15 @@ class ThreadListResponse(SerializableAttrs['ThreadListResponse']):
     nodes: List[Thread]
     page_info: PageInfo
     sync_sequence_id: str
+
+
+@dataclass
+class StickerPreviewResponse(SerializableAttrs['StickerPreviewResponse']):
+    nodes: List[Sticker]
+
+
+@dataclass
+class MessageUnsendResponse(SerializableAttrs['MessageUnsendResponse']):
+    did_succeed: bool
+    error_code: str
+    error_message: str

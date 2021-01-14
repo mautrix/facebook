@@ -39,7 +39,7 @@ class UserPortal:
         return cls(**row)
 
     @classmethod
-    def all(cls, user: int) -> Dict[int, 'UserPortal']:
+    async def all(cls, user: int) -> Dict[int, 'UserPortal']:
         q = ('SELECT "user", portal, portal_receiver, in_community FROM user_portal '
              'WHERE "user"=$1')
         rows = await cls.db.fetchrow(q, user)

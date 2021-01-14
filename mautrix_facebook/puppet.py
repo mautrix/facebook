@@ -13,7 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, AsyncGenerator, AsyncIterable, Awaitable, TYPE_CHECKING, cast
+from typing import (Optional, Dict, AsyncGenerator, AsyncIterable, Awaitable, Union, TYPE_CHECKING,
+                    cast)
 from datetime import datetime, timedelta
 import asyncio
 
@@ -25,6 +26,7 @@ from mautrix.types import UserID, RoomID, SyncToken, ContentURI
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet
 from mautrix.util.simple_template import SimpleTemplate
+from maufbapi.types.graphql import Thread, Participant, Picture
 
 from .config import Config
 from .db import Puppet as DBPuppet
@@ -69,19 +71,19 @@ class Puppet(DBPuppet, BasePuppet):
         return False
 
     async def default_puppet_should_leave_room(self, room_id: RoomID) -> bool:
-        portal = p.Portal.get_by_mxid(room_id)
+        portal = await p.Portal.get_by_mxid(room_id)
         return portal and portal.fbid != self.fbid
 
     async def _leave_rooms_with_default_user(self) -> None:
         await super()._leave_rooms_with_default_user()
         # Make the user join all private chat portals.
         await asyncio.gather(*[self.intent.ensure_joined(portal.mxid)
-                               for portal in p.Portal.get_all_by_receiver(self.fbid)
+                               async for portal in p.Portal.get_all_by_receiver(self.fbid)
                                if portal.mxid], loop=self.loop)
 
     def intent_for(self, portal: 'p.Portal') -> IntentAPI:
         if portal.fbid == self.fbid or (portal.backfill_lock.locked
-                                        and config["bridge.backfill.invite_own_puppet"]):
+                                        and self.config["bridge.backfill.invite_own_puppet"]):
             return self.default_mxid_intent
         return self.intent
 
@@ -92,33 +94,32 @@ class Puppet(DBPuppet, BasePuppet):
         cls.mx = bridge.matrix
         cls.az = bridge.az
         cls.hs_domain = cls.config["homeserver.domain"]
-        cls.mxid_template = SimpleTemplate(config["bridge.username_template"], "userid",
+        cls.mxid_template = SimpleTemplate(cls.config["bridge.username_template"], "userid",
                                            prefix="@", suffix=f":{Puppet.hs_domain}", type=int)
-        cls.sync_with_custom_puppets = config["bridge.sync_with_custom_puppets"]
+        cls.sync_with_custom_puppets = cls.config["bridge.sync_with_custom_puppets"]
         cls.homeserver_url_map = {server: URL(url) for server, url
-                                  in config["bridge.double_puppet_server_map"].items()}
-        cls.allow_discover_url = config["bridge.double_puppet_allow_discovery"]
+                                  in cls.config["bridge.double_puppet_server_map"].items()}
+        cls.allow_discover_url = cls.config["bridge.double_puppet_allow_discovery"]
         cls.login_shared_secret_map = {server: secret.encode("utf-8") for server, secret
-                                       in config["bridge.login_shared_secret_map"].items()}
+                                       in cls.config["bridge.login_shared_secret_map"].items()}
         cls.login_device_name = "Facebook Messenger Bridge"
 
         return (puppet.try_start() for puppet in Puppet.get_all_with_custom_mxid())
 
     # region User info updating
 
-    async def update_info(self, source: Optional['u.User'] = None,
-                          info: Optional[fbchat.UserData] = None,
+    async def update_info(self, source: Optional['u.User'] = None, info: Participant = None,
                           update_avatar: bool = True) -> 'Puppet':
         if not info:
             if not self.should_sync:
                 return self
+            # FIXME
             info = await source.client.fetch_thread_info([self.fbid]).__anext__()
-            # TODO validate that we got some sane info?
         self._last_info_sync = datetime.now()
         try:
             changed = await self._update_name(info)
             if update_avatar:
-                changed = await self._update_photo(source, info.photo) or changed
+                changed = await self._update_photo(source, info.profile_pic_large) or changed
             if changed:
                 await self.save()
         except Exception:
@@ -126,16 +127,22 @@ class Puppet(DBPuppet, BasePuppet):
         return self
 
     @classmethod
-    def _get_displayname(cls, info: fbchat.UserData) -> str:
-        displayname = None
-        for preference in config["bridge.displayname_preference"]:
-            if getattr(info, preference, None):
-                displayname = getattr(info, preference)
+    def _get_displayname(cls, info: Participant) -> str:
+        info = {
+            "displayname": None,
+            "id": info.id,
+            "name": info.name,
+            "phonetic_name": info.structured_name.phonetic_name,
+            "own_nickname": info.nickname_for_viewer,
+            **info.structured_name.to_dict(),
+        }
+        for preference in cls.config["bridge.displayname_preference"]:
+            if info.get(preference):
+                info["displayname"] = info.get(preference)
                 break
-        return config["bridge.displayname_template"].format(displayname=displayname,
-                                                            **attr.asdict(info))
+        return cls.config["bridge.displayname_template"].format(**info)
 
-    async def _update_name(self, info: fbchat.UserData) -> bool:
+    async def _update_name(self, info: Participant) -> bool:
         name = self._get_displayname(info)
         if name != self.name or not self.name_set:
             self.name = name
@@ -150,20 +157,27 @@ class Puppet(DBPuppet, BasePuppet):
 
     @staticmethod
     async def reupload_avatar(source: Optional['u.User'], intent: IntentAPI, url: str,
-                              fbid: Optional[str]) -> ContentURI:
-        http_client = source.client.session._session
-        async with http_client.get(url) as resp:
-            data = await resp.read()
+                              fbid: Optional[int]) -> ContentURI:
+        data = None
+        if fbid and source and source.state and source.state.session.access_token:
+            graph_url = ((source.client.graph_url / str(fbid) / "picture")
+                         .with_query({"width": "1000", "height": "1000"}))
+            async with source.client.get(graph_url) as resp:
+                if resp.status < 400:
+                    data = await resp.read()
+        if data is None:
+            async with source.client.get(url) as resp:
+                data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
         return await intent.upload_media(data, mime_type=mime)
 
-    async def _update_photo(self, source: 'u.User', photo: fbchat.Image) -> bool:
+    async def _update_photo(self, source: 'u.User', photo: Picture) -> bool:
         photo_id = p.Portal.get_photo_id(photo)
         if photo_id != self.photo_id or not self.avatar_set:
             self.photo_id = photo_id
             if photo:
                 avatar_uri = await self.reupload_avatar(source, self.default_mxid_intent,
-                                                        photo.url, self.fbid)
+                                                        photo.uri, self.fbid)
             else:
                 avatar_uri = ""
             try:
@@ -184,7 +198,9 @@ class Puppet(DBPuppet, BasePuppet):
             self.by_custom_mxid[self.custom_mxid] = self
 
     @classmethod
-    async def get_by_fbid(cls, fbid: int, create: bool = True) -> Optional['Puppet']:
+    async def get_by_fbid(cls, fbid: Union[str, int], create: bool = True) -> Optional['Puppet']:
+        if isinstance(fbid, str):
+            fbid = int(fbid)
         try:
             return cls.by_fbid[fbid]
         except KeyError:

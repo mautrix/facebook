@@ -48,3 +48,5 @@ class SendMessageRequest(ThriftObject):
     unknown_bool: bool = field(TType.BOOL, index=23, default=False)
     # this is weird int64 that looks like offline_threading_id, but isn't quite the same
     tid2: int = field(TType.I64, index=24)
+    # indices 25-27: ???
+    reply_to: str = field(index=28)

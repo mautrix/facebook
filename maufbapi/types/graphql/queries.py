@@ -24,6 +24,7 @@ from ..common import ThreadFolder
 
 
 class GraphQLQuery(ABC, Serializable):
+    caller_class: ClassVar[str] = "graphservice"
     doc_id: ClassVar[int]
 
 
@@ -88,7 +89,7 @@ class ThreadNameMutationSource(SerializableEnum):
 
 
 @dataclass
-class ThreadNameMutation(GraphQLQuery, SerializableAttrs['ThreadNameMutation']):
+class ThreadNameMutation(GraphQLMutation, SerializableAttrs['ThreadNameMutation']):
     doc_id: ClassVar[int] = 3090707060965997
 
     new_thread_name: str
@@ -96,3 +97,43 @@ class ThreadNameMutation(GraphQLQuery, SerializableAttrs['ThreadNameMutation']):
     client_mutation_id: str
     actor_id: str
     source: ThreadNameMutationSource = ThreadNameMutationSource.SETTINGS
+
+
+@dataclass
+class FetchStickersWithPreviewsQuery(GraphQLQuery,
+                                     SerializableAttrs['FetchStickersWithPreviewsQuery']):
+    doc_id: ClassVar[int] = 3154119451330002
+    caller_class: ClassVar[str] = "com.facebook.messaging.sync.delta.NewMessageHandlerHelper"
+
+    sticker_ids: List[str]
+    preview_size: int = 165
+    animated_media_type: str = "image/webp"
+    media_type: str = "image/webp"
+    scaling_factor: str = "2.75"
+    sticker_labels_enabled: bool = False
+    sticker_state_enabled: bool = False
+
+
+@dataclass
+class MessageUndoSend(GraphQLMutation, SerializableAttrs['MessageUndoSend']):
+    doc_id: ClassVar[int] = 1015037405287590
+
+    message_id: str
+    client_mutation_id: str
+    actor_id: str
+
+
+class ReactionAction(SerializableEnum):
+    ADD = "ADD_REACTION"
+    REMOVE = "REMOVE_REACTION"
+
+
+@dataclass
+class MessageReactionMutation(GraphQLMutation, SerializableAttrs['MessageReactionMutation']):
+    doc_id: ClassVar[int] = 1415891828475683
+
+    message_id: str
+    client_mutation_id: str
+    actor_id: str
+    action: ReactionAction
+    reaction: Optional[str] = None

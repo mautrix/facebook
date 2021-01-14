@@ -72,7 +72,7 @@ class MessengerBridge(Bridge):
         self.log.debug("Stopping facebook listeners")
         User.shutdown = True
         for user in User.by_fbid.values():
-            user.stop_listening()
+            user.stop_listen()
 
     def prepare_shutdown(self) -> None:
         self.log.debug("Saving user sessions")
@@ -94,7 +94,7 @@ class MessengerBridge(Bridge):
         self.config["bridge.resend_bridge_info"] = False
         self.config.save()
         self.log.info("Re-sending bridge info state event to all portals")
-        for portal in Portal.all():
+        async for portal in Portal.all():
             await portal.update_bridge_info()
         self.log.info("Finished re-sending bridge info state events")
 
@@ -134,9 +134,7 @@ class MessengerBridge(Bridge):
                     if mode == "refresh":
                         await user.refresh()
                     elif mode == "reconnect":
-                        user.listener.disconnect()
-                        await user.listen_task
-                        user.start_listen()
+                        await user.reconnect()
                 except asyncio.CancelledError:
                     log.debug("Periodic reconnect loop stopped")
                     return
@@ -144,7 +142,7 @@ class MessengerBridge(Bridge):
                     log.exception("Error while reconnecting", user.mxid)
 
     async def get_portal(self, room_id: RoomID) -> Portal:
-        return Portal.get_by_mxid(room_id)
+        return await Portal.get_by_mxid(room_id)
 
     async def get_puppet(self, user_id: UserID, create: bool = False) -> Puppet:
         return await Puppet.get_by_mxid(user_id, create=create)
@@ -153,7 +151,7 @@ class MessengerBridge(Bridge):
         return await Puppet.get_by_custom_mxid(user_id)
 
     async def get_user(self, user_id: UserID, create: bool = True) -> User:
-        return User.get_by_mxid(user_id, create=create)
+        return await User.get_by_mxid(user_id, create=create)
 
     def is_bridge_ghost(self, user_id: UserID) -> bool:
         return bool(Puppet.get_id_from_mxid(user_id))

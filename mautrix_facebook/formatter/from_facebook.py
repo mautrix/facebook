@@ -18,8 +18,7 @@ from html import escape
 import re
 
 from mautrix.types import TextMessageEventContent, Format, MessageType
-from maufbapi.types.mqtt import Message as MQTTMessage
-from maufbapi.types.graphql import Message as GraphQLMessage
+from maufbapi.types import graphql, mqtt
 
 from .. import puppet as pu, user as u
 
@@ -138,13 +137,13 @@ def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptSt
             output.append(_convert_formatting(post_cb_content))
 
 
-def facebook_to_matrix(msg: Union[GraphQLMessage, MQTTMessage]) -> TextMessageEventContent:
-    if isinstance(msg, MQTTMessage):
+def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMessageEventContent:
+    if isinstance(msg, mqtt.Message):
         text = msg.text
         mentions = msg.mentions
-    elif isinstance(msg, GraphQLMessage):
-        text = msg.message.text
-        mentions = msg.message.ranges
+    elif isinstance(msg, graphql.MessageText):
+        text = msg.text
+        mentions = msg.ranges
     else:
         raise ValueError(f"Unsupported Facebook message type {type(msg).__name__}")
     text = text or ""

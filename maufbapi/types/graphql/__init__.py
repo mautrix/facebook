@@ -1,8 +1,10 @@
 from .queries import (GraphQLQuery, GraphQLMutation, MoreMessagesQuery, ThreadListQuery,
-                      ThreadNameMutation, ThreadNameMutationSource)
+                      ThreadNameMutation, ThreadNameMutationSource, FetchStickersWithPreviewsQuery,
+                      MessageUndoSend, ReactionAction, MessageReactionMutation)
 from .responses import (ParticipantID, ReadReceipt, ReadReceiptList, Picture, StructuredNameChunk,
                         StructuredName, FriendCount, MinimalParticipant, ParticipantNode,
                         Participant, ParticipantList, MessageSender, MessageRange, MessagePowerUp,
                         MessageText, Reaction, Dimensions, Attachment, Sticker, MinimalMessage,
                         ReplyStatus, Reply, Message, PageInfo, MessageList, ThreadKey, Thread,
-                        ThreadListResponse)
+                        ThreadListResponse, StickerPreviewResponse, MinimalSticker,
+                        StickerPackMeta, MessageUnsendResponse)

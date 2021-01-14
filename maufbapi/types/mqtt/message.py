@@ -13,13 +13,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
+from enum import Enum
 import json
 
 from attr import dataclass
 import attr
 
-from mautrix.types import SerializableAttrs, SerializableEnum
+from mautrix.types import SerializableAttrs
 from maufbapi.thrift import TType, RecursiveType, ThriftObject, field, autospec
 from ..common import MessageUnsendability as Unsendability
 
@@ -49,8 +50,8 @@ class MessageMetadata(ThriftObject):
     sender: int = field(TType.I64)
     timestamp: int = field(TType.I64)
     # index 6: unknown bool (ex: true)
-    action_summary: str = field(default=None)
-    tags: List[str] = field(index=8, factory=lambda: [])
+    action_summary: str = field(index=7, default=None)
+    tags: List[str] = field(factory=lambda: [])
     # index 9: unknown int32 (ex: 3)
     # index 10: unknown bool (ex: false)
     message_unsendability: Unsendability = field(TType.BINARY, index=12,
@@ -121,7 +122,7 @@ class Reaction(ThriftObject):
     # index 7: unknown number as string, similar to MessageMetadata's index 3
 
 
-class MentionType(SerializableEnum):
+class MentionType(Enum):
     PERSON = "p"
 
 
@@ -225,7 +226,7 @@ class ReadReceipt(ThriftObject):
 @autospec
 @dataclass
 class OwnReadReceipt(ThriftObject):
-    thread: List[ThreadKey]
+    threads: List[ThreadKey]
     # index 2: ???
     read_to: int = field(TType.I64, index=3)
     read_at: int = field(TType.I64)
@@ -246,7 +247,7 @@ class AvatarChange(ThriftObject):
 
 
 # TODO are there others?
-class EmojiChangeAction(SerializableEnum):
+class EmojiChangeAction(Enum):
     CHANGE_THREAD_ICON = "change_thread_icon"
 
 
@@ -261,7 +262,7 @@ class EmojiChange(ThriftObject):
 @autospec
 @dataclass(kw_only=True)
 class MessageSyncEvent(ThriftObject):
-    data: Message = field(index=2, default=None)
+    message: Message = field(index=2, default=None)
     own_read_receipt: OwnReadReceipt = field(index=4, default=None)
     name_change: NameChange = field(index=10, default=None)
     avatar_change: AvatarChange = field(index=11, default=None)
@@ -274,6 +275,20 @@ class MessageSyncEvent(ThriftObject):
     #   index 7: timestamp
     binary: BinaryData = field(index=42, default=None)
 
+    def get_parts(self) -> List[Any]:
+        parts = [self.message, self.own_read_receipt, self.name_change, self.avatar_change,
+                 self.emoji_change, self.read_receipt]
+        if self.binary:
+            for inner_item in self.binary.parse().items:
+                parts += [inner_item.reaction, inner_item.extended_message,
+                          inner_item.unsend_message]
+        return [part for part in parts if part is not None]
+
+
+class MessageSyncError(Enum):
+    QUEUE_OVERFLOW = "ERROR_QUEUE_OVERFLOW"
+    QUEUE_UNDERFLOW = "ERROR_QUEUE_UNDERFLOW"
+
 
 @autospec
 @dataclass(kw_only=True)
@@ -282,5 +297,5 @@ class MessageSyncPayload(ThriftObject):
     first_seq_id: int = field(TType.I64, default=None)
     last_seq_id: int = field(TType.I64, default=None)
     viewer: int = field(TType.I64, default=None)
-    # index 11: unknown string, contains "1"
-    error: str = field(index=12, default=None)
+    subscribe_ok: str = field(index=11, default=None)
+    error: MessageSyncError = field(TType.BINARY, index=12, default=None)

@@ -59,7 +59,7 @@ class AndroidMQTT:
     _client: MQTToTClient
     log: TraceLogger
     state: AndroidState
-    _seq_id: Optional[int]
+    seq_id: Optional[int]
     _publish_waiters: Dict[int, asyncio.Future]
     _response_waiters: Dict[RealtimeTopic, asyncio.Future]
     _response_waiter_locks: Dict[RealtimeTopic, asyncio.Lock]
@@ -70,7 +70,7 @@ class AndroidMQTT:
 
     def __init__(self, state: AndroidState, loop: Optional[asyncio.AbstractEventLoop] = None,
                  log: Optional[TraceLogger] = None) -> None:
-        self._seq_id = None
+        self.seq_id = None
         self._publish_waiters = {}
         self._response_waiters = {}
         self._disconnect_error = None
@@ -130,7 +130,6 @@ class AndroidMQTT:
                             RealtimeTopic.SEND_MESSAGE_RESP]
         topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
                      for topic in subscribe_topics]
-        print(topic_ids)
         cfg = RealtimeConfig(
             client_identifier=self.state.device.uuid[:20],
             client_info=RealtimeClientInfo(
@@ -201,8 +200,7 @@ class AndroidMQTT:
             "version": str(self.state.application.version_id),
         })
         await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, {
-            # TODO un-hardcode
-            "initial_titan_sequence_id": self._seq_id,
+            "initial_titan_sequence_id": self.seq_id,
             "delta_batch_size": 125,
             "device_params": {
                 "image_sizes": {
@@ -270,28 +268,22 @@ class AndroidMQTT:
 
     def _on_message_sync(self, payload: bytes) -> None:
         parsed = MessageSyncPayload.from_thrift(payload)
-        print(f"Parsed message sync: {parsed}")
+        # TODO handle errors
+        if parsed.last_seq_id and parsed.last_seq_id > self.seq_id:
+            self.seq_id = parsed.last_seq_id
         for item in parsed.items:
-            if item.binary:
-                try:
-                    print("Binary data:")
-                    ThriftReader(item.binary.data).pretty_print()
-                except Exception as e:
-                    print("oh noes", e)
-        if parsed.last_seq_id and parsed.last_seq_id > self._seq_id:
-            self._seq_id = parsed.last_seq_id
+            for event in item.get_parts():
+                self._loop.create_task(self._dispatch(event))
 
     def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
         try:
             is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
                 message.payload = zlib.decompress(message.payload)
-                print(f"Message in {message.topic} (zlib): {message.payload}")
-            else:
-                print(f"Message in {message.topic} (plain): {message.payload}")
             topic = RealtimeTopic.decode(message.topic)
             if message.payload[0] == 0:
                 message.payload = message.payload[1:]
+            print(f"Message in {topic} (zlib: {is_compressed}): {message.payload}")
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
             else:
@@ -333,7 +325,7 @@ class AndroidMQTT:
         self._client.disconnect()
 
     async def listen(self, seq_id: int = None, retry_limit: int = 5) -> None:
-        self._seq_id = seq_id
+        self.seq_id = seq_id
 
         self.log.debug("Connecting to Messenger MQTT")
         await self._reconnect()
@@ -419,12 +411,13 @@ class AndroidMQTT:
 
     async def send_message(self, target: int, is_group: bool, message: str,
                            offline_threading_id: Optional[int] = None,
-                           mentions: Optional[List[Mention]] = None) -> Any:
+                           mentions: Optional[List[Mention]] = None,
+                           reply_to: Optional[str] = None) -> Any:
         if not offline_threading_id:
             offline_threading_id = self.generate_offline_threading_id()
         req = SendMessageRequest(chat_id=f"tfbid_{target}" if is_group else str(target),
                                  message=message, offline_threading_id=offline_threading_id,
-                                 sender_id=self.state.session.uid,
+                                 sender_id=self.state.session.uid, reply_to=reply_to,
                                  flags={"is_in_chatheads": "false",
                                         "trigger": "2:thread_list:thread"},
                                  tid2=self.generate_offline_threading_id())

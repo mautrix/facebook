@@ -42,10 +42,11 @@ class Reaction:
         return cls(**row)
 
     @classmethod
-    async def get_by_fbid(cls, fb_msgid: str, fb_receiver: int) -> Optional['Reaction']:
+    async def get_by_fbid(cls, fb_msgid: str, fb_receiver: int, fb_sender: int
+                          ) -> Optional['Reaction']:
         q = ("SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
-             "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2")
-        row = await cls.db.fetchrow(q, fb_msgid, fb_receiver)
+             "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2 AND fb_sender=$3")
+        row = await cls.db.fetchrow(q, fb_msgid, fb_receiver, fb_sender)
         return cls._from_row(row)
 
     @classmethod
@@ -64,3 +65,9 @@ class Reaction:
     async def delete(self) -> None:
         q = "DELETE FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2 AND fb_sender=$3"
         await self.db.execute(q, self.fb_msgid, self.fb_receiver, self.fb_sender)
+
+    async def save(self) -> None:
+        q = ("UPDATE reaction SET mxid=$1, mx_room=$2, reaction=$3 "
+             "WHERE fb_msgid=$4 AND fb_receiver=$5 AND fb_sender=$6")
+        await self.db.execute(q, self.mxid, self.mx_room, self.reaction,
+                              self.fb_msgid, self.fb_receiver, self.fb_sender)
