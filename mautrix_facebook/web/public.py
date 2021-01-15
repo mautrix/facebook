@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, cast
+from typing import Optional, Dict
 import logging
 import random
 import string
@@ -21,13 +21,11 @@ import time
 import json
 
 from aiohttp import web
-import pkg_resources
-import attr
-
-import fbchat
 
 from mautrix.types import UserID
 from mautrix.util.signed_token import verify_token
+from maufbapi import AndroidState, AndroidAPI
+from maufbapi.http import TwoFactorRequired, OAuthException, IncorrectPassword
 
 from .. import user as u, puppet as pu
 
@@ -42,15 +40,20 @@ class PublicBridgeWebsite:
         self.app = web.Application()
         self.secret_key = "".join(random.choices(string.ascii_lowercase + string.digits, k=64))
         self.shared_secret = shared_secret
-        self.app.router.add_get("/api/whoami", self.status)
+        self.app.router.add_options("/api/whoami", self.login_options)
         self.app.router.add_options("/api/login", self.login_options)
+        self.app.router.add_options("/api/login/2fa", self.login_options)
+        self.app.router.add_options("/api/logout", self.login_options)
+        self.app.router.add_options("/api/disconnect", self.login_options)
+        self.app.router.add_options("/api/reconnect", self.login_options)
+        self.app.router.add_options("/api/refresh", self.login_options)
+        self.app.router.add_get("/api/whoami", self.status)
         self.app.router.add_post("/api/login", self.login)
+        self.app.router.add_post("/api/login/2fa", self.login)
         self.app.router.add_post("/api/logout", self.logout)
         self.app.router.add_post("/api/disconnect", self.disconnect)
         self.app.router.add_post("/api/reconnect", self.reconnect)
         self.app.router.add_post("/api/refresh", self.refresh)
-        self.app.router.add_static("/", pkg_resources.resource_filename("mautrix_facebook",
-                                                                        "web/static/"))
 
     def verify_token(self, token: str) -> Optional[UserID]:
         token = verify_token(self.secret_key, token)
@@ -63,7 +66,7 @@ class PublicBridgeWebsite:
         return {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Authorization, Content-Type",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         }
 
     @property
@@ -76,7 +79,7 @@ class PublicBridgeWebsite:
     async def login_options(self, _: web.Request) -> web.Response:
         return web.Response(status=200, headers=self._headers)
 
-    def check_token(self, request: web.Request) -> Optional['u.User']:
+    async def check_token(self, request: web.Request) -> Optional['u.User']:
         try:
             token = request.headers["Authorization"]
             token = token[len("Bearer "):]
@@ -97,89 +100,122 @@ class PublicBridgeWebsite:
             if not user_id:
                 raise web.HTTPForbidden(body='{"error": "Invalid token"}', headers=self._headers)
 
-        user = u.User.get_by_mxid(user_id)
+        user = await u.User.get_by_mxid(user_id)
         return user
 
     async def status(self, request: web.Request) -> web.Response:
-        user = self.check_token(request)
+        user = await self.check_token(request)
         data = {
             "permissions": user.permission_level,
             "mxid": user.mxid,
-            "user_agent": user.user_agent,
             "facebook": None,
         }
-        if await user.is_logged_in():
+        if user.client:
             try:
-                info = cast(fbchat.UserData,
-                            await user.client.fetch_thread_info([user.fbid]).__anext__())
-                data["facebook"] = attr.asdict(info)
-                del data["facebook"]["session"]
-            except fbchat._exception.ServerRedirect:
-                data["facebook"] = {
-                    "id": "unknown",
-                    "name": "Unknown user",
-                    "server_redirect": True,
-                }
-            data["facebook"]["connected"] = user.is_connected
+                info = await user.client.get_self()
+            except Exception:
+                # TODO do something?
+                self.log.warning("Exception while getting self from status endpoint",
+                                 exc_info=True)
+            else:
+                data["facebook"] = info.serialize()
+                data["facebook"]["connected"] = user.is_connected
+                data["facebook"]["device_model"] = (f"{user.state.device.manufacturer} "
+                                                    f"{user.state.device.name}")
         return web.json_response(data, headers=self._acao_headers)
 
     async def login(self, request: web.Request) -> web.Response:
-        user = self.check_token(request)
-        if not user.user_agent:
-            user.user_agent = request.headers.get("User-Agent", None)
+        user = await self.check_token(request)
 
         try:
             data = await request.json()
         except json.JSONDecodeError:
-            raise web.HTTPBadRequest(body='{"error": "Malformed JSON"}', headers=self._headers)
+            raise web.HTTPBadRequest(text='{"error": "Malformed JSON"}', headers=self._headers)
 
         try:
-            domain = data.pop("domain")
+            email = data["email"]
+            password = data["password"]
         except KeyError:
-            domain = "messenger.com"
+            raise web.HTTPBadRequest(text='{"error": "Missing keys"}', headers=self._headers)
+
+        state = AndroidState()
+        state.generate(user.mxid)
+        api = AndroidAPI(state, log=user.log.getChild("login-api"))
+        try:
+            await api.mobile_config_sessionless()
+            await api.login(email, password)
+            await user.on_logged_in(state)
+            return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
+        except TwoFactorRequired as e:
+            user.command_status = {
+                "action": "Login",
+                "state": state,
+                "api": api,
+            }
+            return web.json_response({
+                "status": "two-factor",
+                "error": e.data,
+            }, headers=self._acao_headers)
+        except OAuthException as e:
+            return web.json_response({"error": str(e)}, headers=self._acao_headers)
+
+    async def login_2fa(self, request: web.Request) -> web.Response:
+        user = await self.check_token(request)
+
+        if not user.command_status or user.command_status["action"] != "Login":
+            raise web.HTTPBadRequest(text='{"error": "No login in progress"}',
+                                     headers=self._headers)
 
         try:
-            session = await fbchat.Session.from_cookies(data, user_agent=user.user_agent,
-                                                        domain=domain)
-        except fbchat.FacebookError:
-            self.log.debug("Failed to log in", exc_info=True)
-            raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
-                                       headers=self._headers)
-        if not await session.is_logged_in():
-            raise web.HTTPUnauthorized(body='{"error": "Facebook authorization failed"}',
-                                       headers=self._headers)
-        await user.on_logged_in(session)
-        if user.command_status and user.command_status.get("action") == "Login":
-            user.command_status = None
-        return web.Response(body='{}', status=200, headers=self._headers)
+            data = await request.json()
+        except json.JSONDecodeError:
+            raise web.HTTPBadRequest(text='{"error": "Malformed JSON"}', headers=self._headers)
+
+        try:
+            email = data["email"]
+            code = data["code"]
+        except KeyError:
+            raise web.HTTPBadRequest(text='{"error": "Missing keys"}', headers=self._headers)
+
+        state: AndroidState = user.command_status["state"]
+        api: AndroidAPI = user.command_status["api"]
+        try:
+            await api.login_2fa(email, code)
+            await user.on_logged_in(state)
+            return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
+        except IncorrectPassword:
+            return web.json_response({"error": "Incorrect two-factor authentication code",
+                                      "status": "incorrect-code"}, headers=self._acao_headers)
+        except OAuthException as e:
+            return web.json_response({"error": str(e)}, headers=self._acao_headers)
 
     async def logout(self, request: web.Request) -> web.Response:
-        user = self.check_token(request)
+        user = await self.check_token(request)
 
-        puppet = pu.Puppet.get_by_fbid(user.fbid)
+        puppet = await pu.Puppet.get_by_fbid(user.fbid)
         await user.logout()
         if puppet.is_real_user:
             await puppet.switch_mxid(None, None)
         return web.json_response({}, headers=self._acao_headers)
 
     async def disconnect(self, request: web.Request) -> web.Response:
-        user = self.check_token(request)
+        user = await self.check_token(request)
         if not user.is_connected:
-            raise web.HTTPBadRequest(body='{"error": "User is not connected"}',
+            raise web.HTTPBadRequest(text='{"error": "User is not connected"}',
                                      headers=self._headers)
-        user.listener.disconnect()
+        user.mqtt.disconnect()
         await user.listen_task
         return web.json_response({}, headers=self._acao_headers)
 
     async def reconnect(self, request: web.Request) -> web.Response:
-        user = self.check_token(request)
+        user = await self.check_token(request)
         if user.is_connected:
-            raise web.HTTPConflict(body='{"error": "User is already connected"}',
+            raise web.HTTPConflict(text='{"error": "User is already connected"}',
                                    headers=self._headers)
         user.start_listen()
         return web.json_response({}, headers=self._acao_headers)
 
     async def refresh(self, request: web.Request) -> web.Response:
-        user = self.check_token(request)
+        user = await self.check_token(request)
         await user.try_refresh()
         return web.json_response({}, headers=self._acao_headers)

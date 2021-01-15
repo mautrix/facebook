@@ -13,13 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-import asyncio
-import time
-
-from yarl import URL
-
 from mautrix.client import Client
-from mautrix.util.signed_token import sign_token
 from mautrix.bridge.commands import HelpSection, command_handler
 from mautrix.bridge import custom_puppet as cpu
 
@@ -88,29 +82,6 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
         evt.log.exception("Failed to log in")
-
-
-# TODO uncomment after fixing web login
-# @command_handler(needs_auth=False, management_only=True,
-#                  help_section=SECTION_AUTH, help_text="Log in to Facebook with Cookie Monster")
-# async def login_web(evt: CommandEvent) -> None:
-#     if evt.sender.client:
-#         await evt.reply("You're already logged in")
-#         return
-#     external_url = URL(evt.config["appservice.public.external"])
-#     token = sign_token(evt.processor.bridge.public_website.secret_key, {
-#         "mxid": evt.sender.mxid,
-#         "bridge_type": "net.maunium.facebook",
-#         "login_api": str(external_url / "api" / "login"),
-#         "homeserver": evt.az.domain,
-#         "expiry": int(time.time()) + 30 * 60,
-#     })
-#     url = (external_url / "login.html").with_fragment(token)
-#     await evt.reply(f"Visit [the login page]({url}) and follow the instructions")
-#     evt.sender.command_status = {
-#         "action": "Login",
-#         "room_id": evt.room_id,
-#     }
 
 
 @command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
