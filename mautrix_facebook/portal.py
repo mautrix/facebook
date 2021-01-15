@@ -670,7 +670,9 @@ class Portal(DBPortal, BasePortal):
         try:
             await self._handle_facebook_message(source, sender, message, reply_to)
         except Exception:
-            self.log.exception("Error handling Facebook message %s", message.id)
+            self.log.exception("Error handling Facebook message %s",
+                               message.message_id if isinstance(message, graphql.Message)
+                               else message.metadata.id)
 
     async def _handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                        message: Union[graphql.Message, mqtt.Message],
@@ -722,7 +724,7 @@ class Portal(DBPortal, BasePortal):
             self.log.trace("Message %s content: %s", msg_id, message)
             return
         await DBMessage.bulk_create(fbid=msg_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
-                                    mx_room=self.mxid, timestamp=message.timestamp,
+                                    mx_room=self.mxid, timestamp=timestamp,
                                     event_ids=[event_id for event_id in event_ids if event_id])
         await self._send_delivery_receipt(event_ids[-1])
 
@@ -750,8 +752,8 @@ class Portal(DBPortal, BasePortal):
     async def _convert_mqtt_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
                                        attachment: mqtt.Attachment) -> MessageEventContent:
         filename = attachment.file_name
-        if attachment.mimetype and "." not in filename:
-            filename += mimetypes.guess_extension(attachment.mimetype)
+        if attachment.mime_type and "." not in filename:
+            filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
         if attachment.extensible_media:
             # TODO
@@ -775,14 +777,15 @@ class Portal(DBPortal, BasePortal):
                 url = list(attachment.image_info.alt_previews.values())[-1]
             else:
                 url = list(attachment.image_info.previews.values())[-1]
-        else:
+        elif attachment.media_id:
             # TODO what if it's not a file?
             msgtype = MessageType.FILE
-            url = await source.client.get_file_url(self.fbid, msg_id, attachment.attachment_fbid)
+            url = await source.client.get_file_url(self.fbid, msg_id, attachment.media_id)
             info = FileInfo()
-            # msg = f"Unsupported attachment"
-            # self.log.warning(msg)
-            # return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
+        else:
+            msg = f"Unsupported attachment"
+            self.log.warning(msg)
+            return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
             url, source, intent, filename=filename, encrypt=self.encrypted,
             find_size=False, referer=referer)
@@ -929,8 +932,8 @@ class Portal(DBPortal, BasePortal):
         #     content["formatted_body"] = f"<p>{location.address}</p>{content['formatted_body']}"
         return content
 
-    async def handle_facebook_unsend(self, source: 'u.User', sender: 'p.Puppet', message_id: str,
-                                     timestamp: int) -> None:
+    async def handle_facebook_unsend(self, sender: 'p.Puppet', message_id: str, timestamp: int
+                                     ) -> None:
         if not self.mxid:
             return
         for message in await DBMessage.get_all_by_fbid(message_id, self.fb_receiver):

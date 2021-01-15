@@ -97,8 +97,6 @@ class User(DBUser, BaseUser):
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
 
-    _handlers: Dict[Type[T], Callable[[T], Awaitable[None]]]
-
     def __init__(self, mxid: UserID, fbid: Optional[int] = None,
                  state: Optional[AndroidState] = None,
                  notice_room: Optional[RoomID] = None) -> None:
@@ -127,25 +125,6 @@ class User(DBUser, BaseUser):
         self.mqtt = None
         self.listen_task = None
         self.seq_id = None
-
-        self._handlers = {
-            Message: self.on_message,
-            ExtendedMessage: self.on_message,
-            NameChange: self.on_title_change,
-            AvatarChange: self.on_avatar_change,
-            UnsendMessage: self.on_message_unsent,
-            ReadReceipt: self.on_message_seen,
-            OwnReadReceipt: self.on_message_seen_self,
-            Reaction: self.on_reaction,
-            # fbchat.Presence: self.on_presence,
-            # fbchat.Typing: self.on_typing,
-            # fbchat.PeopleAdded: self.on_members_added,
-            # fbchat.PersonRemoved: self.on_member_removed,
-            Connect: self.on_connect,
-            Disconnect: self.on_disconnect,
-            # fbchat.Resync: self.on_resync,
-            # fbchat.UnknownEvent: self.on_unknown_event,
-        }
 
     @classmethod
     def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[bool]]:
@@ -532,6 +511,16 @@ class User(DBUser, BaseUser):
             if not self.mqtt:
                 self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
                 self.mqtt.seq_id_update_callback = self._update_seq_id
+                self.mqtt.add_event_handler(Message, self.on_message)
+                self.mqtt.add_event_handler(ExtendedMessage, self.on_message)
+                self.mqtt.add_event_handler(NameChange, self.on_title_change)
+                self.mqtt.add_event_handler(AvatarChange, self.on_avatar_change)
+                self.mqtt.add_event_handler(UnsendMessage, self.on_message_unsent)
+                self.mqtt.add_event_handler(ReadReceipt, self.on_message_seen)
+                self.mqtt.add_event_handler(OwnReadReceipt, self.on_message_seen_self)
+                self.mqtt.add_event_handler(Reaction, self.on_reaction)
+                self.mqtt.add_event_handler(Connect, self.on_connect)
+                self.mqtt.add_event_handler(Disconnect, self.on_disconnect)
             await self.mqtt.listen(self.seq_id)
             self.is_connected = False
             if not self._is_refreshing and not self.shutdown:
@@ -558,23 +547,6 @@ class User(DBUser, BaseUser):
             await self.send_bridge_notice("Fatal error in listener (see logs for more info)",
                                           important=True)
             self._disconnect_listener_after_error()
-
-    async def _handle_event(self, event: Any) -> None:
-        self.log.debug("Handling facebook event of type %s", type(event))
-        self.log.trace("Facebook event content: %s", event)
-        try:
-            handler = self._handlers[type(event)]
-        except KeyError:
-            self.log.debug(f"Received unknown event type {type(event)}")
-        else:
-            self.loop.create_task(self._call_handler(handler, event))
-
-    async def _call_handler(self, handler: Callable[[Any], Awaitable[None]], event: Any) -> None:
-        await self._sync_lock.wait("event")
-        try:
-            await handler(event)
-        except Exception:
-            self.log.exception(f"Failed to handle {type(event)} event from Facebook")
 
     # @async_time(METRIC_UNKNOWN_EVENT)
     # async def on_unknown_event(self, evt: fbchat.UnknownEvent) -> None:
@@ -632,10 +604,10 @@ class User(DBUser, BaseUser):
         else:
             reply_to = None
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
-        puppet = await pu.Puppet.get_by_fbid(evt.author.id)
+        puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
         if not puppet.name:
             await puppet.update_info(self)
-        await portal.backfill_lock.wait(evt.message.id)
+        await portal.backfill_lock.wait(evt.metadata.id)
         await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
 
     @async_time(METRIC_TITLE_CHANGE)
@@ -674,7 +646,7 @@ class User(DBUser, BaseUser):
     async def on_message_unsent(self, evt: UnsendMessage) -> None:
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
         if portal.mxid:
-            await portal.backfill_lock.wait(f"redaction of {evt.message.id}")
+            await portal.backfill_lock.wait(f"redaction of {evt.message_id}")
             puppet = await pu.Puppet.get_by_fbid(evt.user_id)
             await portal.handle_facebook_unsend(puppet, evt.message_id, timestamp=evt.timestamp)
 
