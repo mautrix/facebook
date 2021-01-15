@@ -15,8 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import paho.mqtt.client
 import struct
-from hyperframe.frame import SettingsFrame, HeadersFrame, DataFrame
-import hpack
+# from hyperframe.frame import SettingsFrame, HeadersFrame, DataFrame
+# import hpack
 
 http2_header = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
