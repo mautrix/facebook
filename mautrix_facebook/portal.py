@@ -775,11 +775,11 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.IMAGE
             info = ImageInfo(width=attachment.image_info.original_width,
                              height=attachment.image_info.original_height)
-            previews = attachment.image_info.alt_previews or attachment.image_info.previews
-            if previews:
-                url = list(previews.values())[-1]
-            else:
-                url = await source.client.get_image_url(msg_id, attachment.media_id)
+            # previews = attachment.image_info.alt_previews or attachment.image_info.previews
+            # if previews:
+            #     url = list(previews.values())[-1]
+            # else:
+            url = await source.client.get_image_url(msg_id, attachment.media_id)
         elif attachment.media_id:
             # TODO what if it's not a file?
             msgtype = MessageType.FILE
