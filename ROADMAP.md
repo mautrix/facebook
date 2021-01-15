@@ -9,15 +9,15 @@
       * [x] Voice messages
       * [x] Videos
       * [x] Images
-      * [x] Locations
+      * [ ] Locations
     * [x] Formatting
     * [x] Replies
     * [x] Mentions
   * [x] Message redactions
   * [x] Message reactions
-  * [x] Presence
-  * [x] Typing notifications
-  * [x] Read receipts
+  * [ ] Presence
+  * [ ] Typing notifications
+  * [ ] Read receipts
   * [ ] Power level
   * [ ] Membership actions
     * [ ] Invite
@@ -35,7 +35,7 @@
       * [x] Voice messages
       * [x] Videos
       * [x] Images
-      * [x] Locations
+      * [ ] Locations
     * [x] Formatting
     * [x] Replies
     * [x] Mentions
@@ -44,16 +44,16 @@
   * [x] Message reactions
   * [x] Message history
   * [x] Presence
-  * [x] Typing notifications
+  * [ ] Typing notifications
   * [x] Read receipts
   * [ ] Admin status
   * [ ] Membership actions
     * [x] Add member
     * [x] Remove member
     * [ ] Leave
-  * [ ] Chat metadata changes
+  * [x] Chat metadata changes
     * [x] Title
-    * [ ] Avatar
+    * [x] Avatar
   * [x] Initial chat metadata
   * [ ] User metadata
     * [x] Name
