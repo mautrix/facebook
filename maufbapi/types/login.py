@@ -28,8 +28,8 @@ class LoginResponse(SerializableAttrs['LoginResponse']):
     machine_id: str
     session_cookies: List[Dict[str, Any]]
     analytics_claim: str
-    identifier: str
     user_storage_key: str
+    identifier: Optional[str] = None
 
 
 @dataclass

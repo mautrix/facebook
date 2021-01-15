@@ -30,7 +30,7 @@ from yarl import URL
 
 from ..state import AndroidState
 from ..types import GraphQLQuery, GraphQLMutation
-from .errors import ResponseError, error_class_map
+from .errors import ResponseError, error_class_map, error_code_map
 
 T = TypeVar('T')
 
@@ -47,6 +47,7 @@ class BaseAndroidAPI:
     # Seems to be a per-minute request identifier
     _cid: str
     _cid_ts: int
+    freeze_cid: bool
     # Seems to be a per-session request identifier
     nid: str
     # Seems to be a per-request incrementing integer
@@ -56,7 +57,9 @@ class BaseAndroidAPI:
         self.http = ClientSession()
         self.state = state
         self.log = log or logging.getLogger("mauigpapi.http")
+        self._cid = None
         self._cid_ts = 0
+        self.freeze_cid = False
         self.nid = base64.b64encode(bytes([random.getrandbits(8) for _ in range(9)])
                                     ).decode("utf-8")
         self._tid = 0
@@ -70,7 +73,7 @@ class BaseAndroidAPI:
     @property
     def cid(self) -> str:
         new_ts = int(time.time() / 60)
-        if self._cid_ts != new_ts:
+        if not self._cid or (self._cid_ts != new_ts and not self.freeze_cid):
             self._cid_ts = new_ts
             rand = random.Random(f"{self.state.device.uuid}{new_ts}")
             self._cid = bytes([rand.getrandbits(8) for _ in range(16)]).hex()
@@ -172,9 +175,10 @@ class BaseAndroidAPI:
         error = body.get("error", None)
         if not error:
             return body
-        error_class = error_class_map.get(error["type"], ResponseError)
-        raise error_class(error["message"], error.get("code", -1),
-                          error.get("error_subcode", None))
+        error_class = (error_code_map.get(error["code"])
+                       or error_class_map.get(error["type"])
+                       or ResponseError)
+        raise error_class(error)
 
     async def _raise_response_error(self, resp: ClientResponse) -> None:
         try:

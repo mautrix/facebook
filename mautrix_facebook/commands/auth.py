@@ -24,6 +24,7 @@ from mautrix.bridge.commands import HelpSection, command_handler
 from mautrix.bridge import custom_puppet as cpu
 
 from maufbapi import AndroidState, AndroidAPI
+from maufbapi.http import TwoFactorRequired, OAuthException, IncorrectPassword
 
 from .. import puppet as pu
 from .typehint import CommandEvent
@@ -41,10 +42,6 @@ async def login(evt: CommandEvent) -> None:
     elif evt.sender.client:
         await evt.reply("You're already logged in")
         return
-    evt.sender.command_status = {
-        "action": "Login",
-        "room_id": evt.room_id,
-    }
     state = AndroidState()
     state.generate(evt.sender.mxid)
     api = AndroidAPI(state, log=evt.sender.log.getChild("login-api"))
@@ -53,9 +50,20 @@ async def login(evt: CommandEvent) -> None:
         await api.mobile_config_sessionless()
         await api.login(evt.args[0], " ".join(evt.args[1:]))
         await evt.sender.on_logged_in(state)
-        evt.sender.command_status = None
         await evt.reply("Successfully logged in")
-    # TODO more granular catching?
+    except TwoFactorRequired:
+        await evt.reply("You have two-factor authentication turned on. Please send the code from "
+                        "SMS or your authenticator app here.")
+        evt.sender.command_status = {
+            "action": "Login",
+            "room_id": evt.room_id,
+            "next": enter_2fa_code,
+            "state": state,
+            "api": api,
+            "email": evt.args[0],
+        }
+    except OAuthException as e:
+        await evt.reply(f"Error from Messenger:\n\n> {e}")
     except Exception as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
@@ -63,11 +71,23 @@ async def login(evt: CommandEvent) -> None:
 
 
 async def enter_2fa_code(evt: CommandEvent) -> None:
-    code = " ".join(evt.args)
-    future: asyncio.Future = evt.sender.command_status["future"]
-    future.set_result(code)
-    del evt.sender.command_status["future"]
-    del evt.sender.command_status["next"]
+    state: AndroidState = evt.sender.command_status["state"]
+    api: AndroidAPI = evt.sender.command_status["api"]
+    email: str = evt.sender.command_status["email"]
+    try:
+        await api.login_2fa(email, "".join(evt.args).strip())
+        await evt.sender.on_logged_in(state)
+        await evt.reply("Successfully logged in")
+        evt.sender.command_status = None
+    except IncorrectPassword:
+        await evt.reply("Incorrect two-factor authentication code. Pleaase try again.")
+    except OAuthException as e:
+        await evt.reply(f"Error from Messenger:\n\n> {e}")
+        evt.sender.command_status = None
+    except Exception as e:
+        evt.sender.command_status = None
+        await evt.reply(f"Failed to log in: {e}")
+        evt.log.exception("Failed to log in")
 
 
 # TODO uncomment after fixing web login

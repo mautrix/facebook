@@ -13,19 +13,50 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional
+from typing import Dict, Any
 
 
 class ResponseError(Exception):
-    def __init__(self, message: str, code: int, subcode: Optional[int]) -> None:
-        self.message = message
-        self.code = code
-        self.subcode = subcode
-        code_str = f"{code}.{subcode}" if subcode else str(code)
-        super().__init__(f"{code_str}: {message}")
+    def __init__(self, data: Dict[str, Any]) -> None:
+        self.data = data
+        user_message = data.get("error_user_msg")
+        if user_message:
+            super().__init__(user_message)
+        else:
+            message = data["message"]
+            code = data["code"]
+            subcode = data.get("subcode")
+            code_str = f"{code}.{subcode}" if subcode else str(code)
+            super().__init__(f"{code_str}: {message}")
 
 
 class OAuthException(ResponseError):
+    pass
+
+
+class InvalidAccessToken(OAuthException):
+    pass
+
+
+class TwoFactorRequired(OAuthException):
+    user_message: str
+    login_first_factor: str
+    machine_id: str
+    uid: int
+
+    def __init__(self, data: Dict[str, Any]) -> None:
+        super().__init__(data)
+        tfa_data = data["error_data"]
+        self.login_first_factor = tfa_data["login_first_factor"]
+        self.machine_id = tfa_data["machine_id"]
+        self.uid = tfa_data["uid"]
+
+
+class InvalidEmail(OAuthException):
+    pass
+
+
+class IncorrectPassword(OAuthException):
     pass
 
 
@@ -33,5 +64,11 @@ class GraphMethodException(ResponseError):
     pass
 
 
-error_classes = [OAuthException, GraphMethodException]
-error_class_map = {clazz.__name__: clazz for clazz in error_classes}
+error_code_map = {
+    190: InvalidAccessToken,
+    400: InvalidEmail,
+    401: IncorrectPassword,
+    406: TwoFactorRequired,
+}
+_error_classes = (OAuthException, GraphMethodException)
+error_class_map = {clazz.__name__: clazz for clazz in _error_classes}

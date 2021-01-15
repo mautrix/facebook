@@ -24,6 +24,7 @@ from Crypto.Cipher import PKCS1_v1_5, AES
 from Crypto.Random import get_random_bytes
 
 from .base import BaseAndroidAPI
+from .errors import TwoFactorRequired
 from ..types import LoginResponse, PasswordKeyResponse, MobileConfig
 
 
@@ -74,16 +75,28 @@ class LoginAPI(BaseAndroidAPI):
             encrypted_password = self._encrypt_password(password)
         elif not encrypted_password:
             raise ValueError("One of password or encrypted_password is required")
+        return await self._login(email=email, password=encrypted_password,
+                                 credentials_type="password")
+
+    async def login_2fa(self, email: str, code: str) -> LoginResponse:
+        if not self.state.session.login_first_factor:
+            raise ValueError("No two-factor login in progress")
+        return await self._login(email=email, password=code, twofactor_code=code,
+                                 encrypted_msisdn="", currently_logged_in_userid="0",
+                                 userid=str(self.state.session.uid),
+                                 machine_id=self.state.session.machine_id,
+                                 first_factor=self.state.session.login_first_factor,
+                                 credentials_type="two_factor")
+
+    async def _login(self, **kwargs) -> LoginResponse:
         req: Dict[str, str] = {
             **self._params,
             "adid": self.state.device.adid,
             "api_key": self.state.application.client_id,
             "community_id": "",
             "cpl": "true",
-            "credentials_type": "password",
             "currently_logged_in_userid": "0",
             "device_id": self.state.device.uuid,
-            "email": email,
             "fb_api_caller_class": "com.facebook.auth.login.AuthOperations$PasswordAuthOperation",
             "fb_api_req_friendly_name": "authenticate",
             "format": "json",
@@ -92,9 +105,9 @@ class LoginAPI(BaseAndroidAPI):
             "generate_session_cookies": "1",
             "jazoest": self._jazoest,
             "meta_inf_fbmeta": "NO_FILE",
-            "password": encrypted_password,
             "source": "login",
             "try_num": "1",  # TODO maybe cache this somewhere?
+            **kwargs,
         }
         req_data = self.format(req, sign=True, access_token=self.state.application.access_token)
         headers = {
@@ -107,10 +120,18 @@ class LoginAPI(BaseAndroidAPI):
         resp = await self.http.post(url=self.b_graph_url / "auth" / "login",
                                     headers=headers, data=req_data)
         self.log.trace(f"Login response: {resp.status} {await resp.text()}")
-        json_data = await self._handle_response(resp)
+        try:
+            json_data = await self._handle_response(resp)
+        except TwoFactorRequired as e:
+            self.state.session.machine_id = e.machine_id
+            self.state.session.uid = e.uid
+            self.state.session.login_first_factor = e.login_first_factor
+            raise
         parsed = LoginResponse.deserialize(json_data)
         self.state.session.access_token = parsed.access_token
         self.state.session.uid = parsed.uid
+        self.state.session.machine_id = parsed.machine_id
+        self.state.session.login_first_factor = None
         # TODO maybe store the cookies and other data too?
         return parsed
 
