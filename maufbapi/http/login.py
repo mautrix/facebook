@@ -106,9 +106,7 @@ class LoginAPI(BaseAndroidAPI):
         pprint.pprint(headers)
         resp = await self.http.post(url=self.b_graph_url / "auth" / "login",
                                     headers=headers, data=req_data)
-        print(resp.status)
-        print(await resp.text())
-        # self.log.trace(f"Login response: {resp.status} {await resp.text()}")
+        self.log.trace(f"Login response: {resp.status} {await resp.text()}")
         json_data = await self._handle_response(resp)
         parsed = LoginResponse.deserialize(json_data)
         self.state.session.access_token = parsed.access_token

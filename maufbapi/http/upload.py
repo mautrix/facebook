@@ -16,6 +16,7 @@
 from typing import Optional
 import hashlib
 import time
+import json
 
 from .base import BaseAndroidAPI
 from ..types import PasswordKeyResponse
@@ -39,8 +40,11 @@ class UploadAPI(BaseAndroidAPI):
             "x-entity-name": file_name,
             "x-entity-type": mimetype,
             # TODO shared enum with graphql attachment response
+            # TODO for audio files, send audio_type: VOICE_MESSAGE and is_voicemail: 0
             "image_type": "FILE_ATTACHMENT",
             "content-type": "application/octet-stream",
+            "client_tags": json.dumps({"trigger": "2:thread_list:thread",
+                                       "is_in_chatheads": "false"}),
             "original_timestamp": timestamp or int(time.time() * 1000),
             "sender_fbid": self.state.session.uid,
             "x-fb-rmd": "state=NO_MATCH",

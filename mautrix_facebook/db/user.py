@@ -48,8 +48,8 @@ class User:
 
     @classmethod
     async def all_logged_in(cls) -> List['User']:
-        rows = await cls.db.fetch('SELECT mxid, fbid, state, notice_room FROM "user"'
-                                  "WHERE fbid<>''")
+        rows = await cls.db.fetch('SELECT mxid, fbid, state, notice_room FROM "user" '
+                                  "WHERE fbid<>0 AND state IS NOT NULL")
         return [cls._from_row(row) for row in rows]
 
     @classmethod

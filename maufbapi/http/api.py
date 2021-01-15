@@ -13,21 +13,28 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Optional
+from typing import List, Optional, Union, Dict
 from uuid import uuid4
+
+from yarl import URL
 
 from mautrix.types import JSON
 
+from ..types import (ThreadListResponse, ThreadListQuery, MessageList, MoreMessagesQuery,
+                     FetchStickersWithPreviewsQuery, StickerPreviewResponse, MessageUndoSend,
+                     MessageUnsendResponse, ReactionAction, MessageReactionMutation,
+                     DownloadImageFragment, ImageFragment, SubsequentMediaResponse,
+                     SubsequentMediaQuery, FbIdToCursorQuery, FileAttachmentUrlQuery,
+                     FileAttachmentURLResponse)
+from ..types.graphql import PageInfo, ThreadMessageID, OwnInfo
 from .base import BaseAndroidAPI
 from .login import LoginAPI
 from .upload import UploadAPI
 
-from ..types import (ThreadListResponse, ThreadListQuery, MessageList, MoreMessagesQuery,
-                     FetchStickersWithPreviewsQuery, StickerPreviewResponse, MessageUndoSend,
-                     MessageUnsendResponse, ReactionAction, MessageReactionMutation)
-
 
 class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
+    _file_url_cache: Dict[ThreadMessageID, FileAttachmentURLResponse]
+
     async def fetch_threads(self, **kwargs) -> ThreadListResponse:
         return await self.graphql(ThreadListQuery(**kwargs), response_type=ThreadListResponse,
                                   path=["data", "viewer", "message_threads"])
@@ -57,3 +64,66 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
                                                    action=action, client_mutation_id=str(uuid4()),
                                                    actor_id=str(self.state.session.uid)),
                            response_type=JSON)
+
+    async def fetch_image(self, media_id: Union[int, str]) -> ImageFragment:
+        return await self.graphql(DownloadImageFragment(fbid=str(media_id)),
+                                  path=["data", "node"], response_type=ImageFragment)
+
+    async def fbid_to_cursor(self, thread_id: Union[int, str], media_id: Union[int, str]
+                             ) -> PageInfo:
+        return await self.graphql(FbIdToCursorQuery(fbid=str(media_id), thread_id=str(thread_id)),
+                                  path=["data", "message_thread", "message_shared_media",
+                                        "page_info"], response_type=PageInfo)
+
+    async def media_query(self, thread_id: Union[int, str], cursor: Optional[str] = None
+                          ) -> SubsequentMediaResponse:
+        return await self.graphql(SubsequentMediaQuery(thread_id=str(thread_id), cursor_id=cursor),
+                                  path=["data", "message_thread", "mediaResult"],
+                                  response_type=SubsequentMediaResponse)
+
+    async def get_image_url(self, message_id: str, attachment_id: Union[int, str],
+                            preview: bool = False, max_width: int = 384,
+                            max_height: int = 480) -> str:
+        query = {
+            "method": "POST",
+            "redirect": "true",
+            "access_token": self.state.session.access_token,
+            "mid": f"m_{message_id}",
+            "aid": str(attachment_id),
+        }
+        if preview:
+            query["preview"] = "1"
+            query["max_width"] = max_width
+            query["max_height"] = max_height
+        headers = {
+            "referer": f"fbapp://{self.state.application.client_id}/messenger_thread_photo",
+            "x-fb-friendly-name": "image",
+        }
+        resp = await self.get((self.graph_url / "messaging_get_attachment").with_query(query),
+                              headers=headers, include_auth=False, allow_redirects=False)
+        return resp.headers["Location"]
+
+    async def get_file_url(self, thread_id: Union[str, int], message_id: str,
+                           attachment_id: Union[str, int]) -> Optional[URL]:
+        attachment_id = str(attachment_id)
+        msg_id = ThreadMessageID(thread_id=str(thread_id), message_id=message_id)
+        try:
+            resp = self._file_url_cache[msg_id]
+        except KeyError:
+            resp = await self.graphql(FileAttachmentUrlQuery(thread_msg_id=msg_id),
+                                      path=["data", "message"],
+                                      response_type=FileAttachmentURLResponse)
+            if len(resp.blob_attachments) > 1:
+                self._file_url_cache[msg_id] = resp
+        for attachment in resp.blob_attachments:
+            if attachment.attachment_fbid == attachment_id:
+                url = URL(resp.blob_attachments[0].url)
+                if url.host == "l.facebook.com":
+                    url = URL(url.query["u"])
+                return url
+        return None
+
+    async def get_self(self) -> OwnInfo:
+        async with self.get(self.graph_url / str(self.state.session.uid)) as resp:
+            json_data = await self._handle_response(resp)
+        return OwnInfo.deserialize(json_data)

@@ -107,5 +107,5 @@ class Portal:
         await self.db.execute("UPDATE portal SET mxid=$3, name=$4, photo_id=$5, avatar_url=$6,"
                               "                  encrypted=$7 "
                               "WHERE fbid=$1 AND fb_receiver=$2",
-                              self.fbid, self.fb_receiver, self.fb_type.name, self.mxid,
-                              self.name, self.photo_id, self.avatar_url, self.encrypted)
+                              self.fbid, self.fb_receiver, self.mxid, self.name, self.photo_id,
+                              self.avatar_url, self.encrypted)

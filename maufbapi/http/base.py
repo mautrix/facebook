@@ -30,6 +30,7 @@ from yarl import URL
 
 from ..state import AndroidState
 from ..types import GraphQLQuery, GraphQLMutation
+from .errors import ResponseError, error_class_map
 
 T = TypeVar('T')
 
@@ -59,6 +60,7 @@ class BaseAndroidAPI:
         self.nid = base64.b64encode(bytes([random.getrandbits(8) for _ in range(9)])
                                     ).decode("utf-8")
         self._tid = 0
+        self._file_url_cache = {}
 
     @property
     def tid(self) -> int:
@@ -86,8 +88,6 @@ class BaseAndroidAPI:
             req["sig"] = hashlib.md5(sig_data_bytes).hexdigest()
         if extra:
             req.update(extra)
-        import pprint
-        pprint.pprint(req)
         return "&".join(f"{quote(key)}={quote(value)}" for key, value in sorted(req.items()))
 
     @property
@@ -116,16 +116,16 @@ class BaseAndroidAPI:
             "client_country_code": self.state.device.country_code,
         }
 
-    def get(self, url: Union[str, URL], headers: Optional[Dict[str, str]] = None
-            ) -> _RequestContextManager:
+    def get(self, url: Union[str, URL], headers: Optional[Dict[str, str]] = None,
+            include_auth: bool = True, **kwargs) -> _RequestContextManager:
         headers = {
             **self._headers,
             **(headers or {}),
         }
         url = URL(url)
-        if not url.host.endswith(".facebook.com"):
+        if not url.host.endswith(".facebook.com") or not include_auth:
             headers.pop("authorization")
-        return self.http.get(url, headers=headers)
+        return self.http.get(url, headers=headers, **kwargs)
 
     async def graphql(self, req: GraphQLQuery, headers: Optional[Dict[str, str]] = None,
                       response_type: Optional[Type[T]] = JSON, path: Optional[List[str]] = None,
@@ -169,11 +169,12 @@ class BaseAndroidAPI:
     async def _handle_response(self, resp: ClientResponse) -> JSON:
         self._handle_response_headers(resp)
         body = await resp.json()
-        return body
-        # if body.get("status", "fail") == "ok":
-        #     return body
-        # else:
-        #     await self._raise_response_error(resp)
+        error = body.get("error", None)
+        if not error:
+            return body
+        error_class = error_class_map.get(error["type"], ResponseError)
+        raise error_class(error["message"], error.get("code", -1),
+                          error.get("error_subcode", None))
 
     async def _raise_response_error(self, resp: ClientResponse) -> None:
         try:

@@ -20,9 +20,13 @@ legacy_exist_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
                       "              WHERE table_name='alembic_version')")
 legacy_version_query = "SELECT version_num FROM alembic_version"
 last_legacy_version = "f91274813e8c"
+legacy_renamed_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
+                        "              WHERE table_name='legacy_contact')")
+new_tables_created_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
+                            "              WHERE table_name='user_contact')")
 
 
-@upgrade_table.register(description="Initial asyncpg revision")
+@upgrade_table.register(description="Initial asyncpg revision", transaction=False)
 async def upgrade_v1(conn: Connection) -> None:
     is_legacy = await conn.fetchval(legacy_exist_query)
     if is_legacy:
@@ -30,9 +34,16 @@ async def upgrade_v1(conn: Connection) -> None:
         if legacy_version != last_legacy_version:
             raise RuntimeError("Legacy database is not on last version. Please upgrade the old "
                                "database with alembic or drop it completely first.")
-        await rename_legacy_tables(conn)
-        await create_v1_tables(conn)
-        await migrate_legacy_data(conn)
+        already_renamed = await conn.fetchval(legacy_renamed_query)
+        if not already_renamed:
+            async with conn.transaction():
+                await rename_legacy_tables(conn)
+        new_created = await conn.fetchval(new_tables_created_query)
+        if not new_created:
+            async with conn.transaction():
+                await create_v1_tables(conn)
+        async with conn.transaction():
+            await migrate_legacy_data(conn)
     else:
         await conn.execute("CREATE TYPE threadtype AS ENUM ('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
         await create_v1_tables(conn)
@@ -41,7 +52,7 @@ async def upgrade_v1(conn: Connection) -> None:
 async def create_v1_tables(conn: Connection) -> None:
     await conn.execute("""CREATE TABLE "user" (
         mxid        TEXT PRIMARY KEY,
-        fbid        BIGINT,
+        fbid        BIGINT UNIQUE,
         state       jsonb,
         notice_room TEXT
     )""")
@@ -80,6 +91,8 @@ async def create_v1_tables(conn: Connection) -> None:
         fb_chat     BIGINT,
         timestamp   BIGINT,
         PRIMARY KEY (fbid, fb_receiver, index),
+        FOREIGN KEY (fb_chat, fb_receiver) REFERENCES portal(fbid, fb_receiver)
+            ON UPDATE CASCADE ON DELETE CASCADE,
         UNIQUE (mxid, mx_room)
     )""")
     await conn.execute("""CREATE TABLE reaction (
@@ -127,12 +140,11 @@ async def rename_legacy_tables(conn: Connection) -> None:
 
 
 async def migrate_legacy_data(conn: Connection) -> None:
-    await conn.execute('INSERT INTO "user" (mxid, notice_room) '
-                       "SELECT mxid, notice_room FROM legacy_user")
+    await conn.execute('INSERT INTO "user" (mxid, fbid, notice_room) '
+                       "SELECT mxid, fbid::bigint, notice_room FROM legacy_user")
     await conn.execute(
         "INSERT INTO portal (fbid, fb_receiver, fb_type, mxid, name, photo_id, encrypted) "
-        "SELECT fbid::bigint, (CASE WHEN (fb_type = 'USER') THEN fb_receiver::bigint ELSE 0 END), "
-        "       fb_type, mxid, name, photo_id, encrypted "
+        "SELECT fbid::bigint, fb_receiver::bigint, fb_type, mxid, name, photo_id, encrypted "
         "FROM legacy_portal"
     )
     await conn.execute(
@@ -140,12 +152,12 @@ async def migrate_legacy_data(conn: Connection) -> None:
         "                    custom_mxid, access_token, next_batch, base_url) "
         "SELECT fbid::bigint, name, photo_id, name_set, avatar_set, matrix_registered, "
         "       custom_mxid, access_token, next_batch, base_url "
-        "FROM legacy_puppet"
+        "FROM legacy_puppet WHERE fbid ~ '^[0-9]+$'"
     )
     await conn.execute(
         "INSERT INTO message (mxid, mx_room, fbid, fb_receiver, index, fb_chat, timestamp) "
-        "SELECT mxid, mx_room, fbid::bigint, fb_receiver::bigint, index, "
-        "       fb_chat::bigint, (extract(epoch from date) * 1000)::bigint "
+        "SELECT mxid, mx_room, fbid, fb_receiver::bigint, index, fb_chat::bigint, "
+        "       (extract(epoch from date) * 1000)::bigint "
         "FROM legacy_message"
     )
     await conn.execute(
@@ -154,8 +166,12 @@ async def migrate_legacy_data(conn: Connection) -> None:
         "FROM legacy_reaction"
     )
     await conn.execute('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
-                       'SELECT "user", portal::bigint, portal_receiver::bigint, in_community '
+                       'SELECT "user"::bigint, portal::bigint, portal_receiver::bigint, '
+                       '       in_community '
                        'FROM legacy_user_portal')
     await conn.execute('INSERT INTO user_contact ("user", contact, in_community) '
-                       'SELECT "user", contact::bigint, in_community '
+                       'SELECT "user"::bigint, contact::bigint, in_community '
                        "FROM legacy_contact")
+    await conn.execute("UPDATE portal SET fb_receiver=0 WHERE fb_type<>'USER'")
+    await conn.execute("UPDATE reaction SET fb_receiver=0 WHERE fb_receiver "
+                       "IN (SELECT fbid FROM portal WHERE fb_receiver=0)")

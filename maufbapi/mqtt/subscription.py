@@ -31,6 +31,8 @@ class RealtimeTopic(Enum):
     SEND_MESSAGE = "/t_sm"
     SEND_MESSAGE_RESP = "/t_sm_rp"
     REGION_HINT = "/t_region_hint"
+    MARK_THREAD_READ = "/t_mt_req"
+    MARK_THREAD_READ_RESPONSE = "/t_mt_resp"
 
     @property
     def encoded(self) -> str:

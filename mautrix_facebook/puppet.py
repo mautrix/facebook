@@ -104,17 +104,19 @@ class Puppet(DBPuppet, BasePuppet):
                                        in cls.config["bridge.login_shared_secret_map"].items()}
         cls.login_device_name = "Facebook Messenger Bridge"
 
-        return (puppet.try_start() for puppet in Puppet.get_all_with_custom_mxid())
+        return (puppet.try_start() async for puppet in Puppet.get_all_with_custom_mxid())
 
     # region User info updating
 
     async def update_info(self, source: Optional['u.User'] = None, info: Participant = None,
                           update_avatar: bool = True) -> 'Puppet':
         if not info:
-            if not self.should_sync:
-                return self
+            # if not self.should_sync:
+            #     return self
             # FIXME
-            info = await source.client.fetch_thread_info([self.fbid]).__anext__()
+            # info = await source.client.fetch_thread_info([self.fbid]).__anext__()
+            print("no info to update puppet :(")
+            return self
         self._last_info_sync = datetime.now()
         try:
             changed = await self._update_name(info)
@@ -176,12 +178,12 @@ class Puppet(DBPuppet, BasePuppet):
         if photo_id != self.photo_id or not self.avatar_set:
             self.photo_id = photo_id
             if photo:
-                avatar_uri = await self.reupload_avatar(source, self.default_mxid_intent,
-                                                        photo.uri, self.fbid)
+                self.photo_mxc = await self.reupload_avatar(source, self.default_mxid_intent,
+                                                            photo.uri, self.fbid)
             else:
-                avatar_uri = ""
+                self.photo_mxc = ContentURI("")
             try:
-                await self.default_mxid_intent.set_avatar_url(avatar_uri)
+                await self.default_mxid_intent.set_avatar_url(self.photo_mxc)
                 self.avatar_set = True
             except Exception:
                 self.log.exception("Failed to set avatar")

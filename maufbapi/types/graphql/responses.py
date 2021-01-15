@@ -13,8 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
+from yarl import URL
 from attr import dataclass
 import attr
 
@@ -51,6 +52,11 @@ class ReadReceiptList(SerializableAttrs['ReadReceiptList']):
 class Picture(SerializableAttrs['Picture']):
     uri: str
     height: Optional[int] = None
+    width: Optional[int] = None
+
+    @property
+    def dimensions(self) -> Tuple[int, int]:
+        return self.width, self.height
 
 
 @dataclass
@@ -171,25 +177,61 @@ class Dimensions(SerializableAttrs['Dimensions']):
     y: int
 
 
+class AttachmentType(SerializableEnum):
+    IMAGE = "MessageImage"
+    ANIMATED_IMAGE = "MessageAnimatedImage"
+    FILE = "MessageFile"
+    AUDIO = "MessageAudio"
+    VIDEO = "MessageVideo"
+    LOCATION = "MessageLocation"
+    EXTERNAL_URL = "ExternalUrl"
+
+
 @dataclass
 class Attachment(SerializableAttrs['Attachment']):
-    # TODO enum? MessageImage or MessageFile
-    typename: str = attr.ib(metadata={"json": "__typename"})
+    typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
     id: str
     attachment_fbid: str
     filename: str
-    filesize: int
     mimetype: str
+    filesize: Optional[int] = None
+    render_as_sticker: bool = False
 
     # TODO enum? FILE_ATTACHMENT
     image_type: Optional[str] = None
     original_dimensions: Optional[Dimensions] = None
-    render_as_sticker: bool = False
     image_blurred_preview: Optional[Picture] = None
     image_full_screen: Optional[Picture] = None
     image_large_preview: Optional[Picture] = None
     image_medium_preview: Optional[Picture] = None
     image_small_preview: Optional[Picture] = None
+
+    # For animated images
+    animated_image_render_as_sticker: bool = False
+    animated_image_original_dimensions: Optional[Dimensions] = None
+    animated_image_full_screen: Optional[Picture] = None
+    animated_image_large_preview: Optional[Picture] = None
+    animated_image_medium_preview: Optional[Picture] = None
+    animated_image_small_preview: Optional[Picture] = None
+    animated_static_image_full_screen: Optional[Picture] = None
+    animated_static_image_large_preview: Optional[Picture] = None
+    animated_static_image_medium_preview: Optional[Picture] = None
+    animated_static_image_small_preview: Optional[Picture] = None
+
+    # For audio files
+    is_voicemail: bool = False
+    playable_url: Optional[str] = None
+
+    # For audio and video files
+    playable_duration_in_ms: Optional[int] = None
+
+    # For video files
+    # TODO enum? FILE_ATTACHMENT
+    video_type: Optional[str] = None
+    streaming_image_thumbnail: Optional[Picture] = attr.ib(default=None, metadata={
+        "json": "streamingImageThumbnail"})
+    video_filesize: Optional[int] = None
+    attachment_video_url: Optional[str] = None
 
 
 @dataclass
@@ -221,6 +263,52 @@ class Sticker(MinimalSticker, SerializableAttrs['Sticker']):
     label: Optional[str] = None
 
 
+@dataclass
+class ExtensibleText(SerializableAttrs['ExtensibleText']):
+    text: str
+
+
+@dataclass
+class Coordinates(SerializableAttrs['Coordinates']):
+    latitude: float
+    longitude: float
+
+
+@dataclass
+class StoryTarget(SerializableAttrs['StoryTarget']):
+    typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
+    id: Optional[str] = None
+    url: Optional[str] = None
+    coordinates: Optional[Coordinates] = None
+
+
+@dataclass
+class StoryAttachment(SerializableAttrs['StoryAttachment']):
+    title: str
+    url: str
+    # TODO enum? share, message_location, fallback
+    style_list: List[str] = attr.ib(factory=lambda: [])
+    title_with_entities: Optional[ExtensibleText] = None
+    description: Optional[ExtensibleText] = None
+    source: Optional[ExtensibleText] = None
+    subtitle: Optional[ExtensibleText] = None
+    target: Optional[StoryTarget] = None
+
+    @property
+    def clean_url(self) -> URL:
+        url = URL(self.url)
+        if url.host == "l.facebook.com":
+            url = URL(url.query["u"])
+        return url
+
+
+@dataclass
+class ExtensibleAttachment(SerializableAttrs['ExtensibleAttachment']):
+    id: str
+    is_forwardable: bool
+    story_attachment: Optional[StoryAttachment] = None
+
+
 @dataclass(kw_only=True)
 class MinimalMessage(SerializableAttrs['MinimalMessage']):
     # IDs and message are not present in some action messages like adding to group
@@ -230,6 +318,7 @@ class MinimalMessage(SerializableAttrs['MinimalMessage']):
     message_sender: MessageSender
     sticker: Optional[MinimalSticker] = None
     blob_attachments: List[Attachment] = attr.ib(factory=lambda: [])
+    extensible_attachment: ExtensibleAttachment = attr.ib(default=None)
 
 
 class ReplyStatus(SerializableEnum):
@@ -272,6 +361,9 @@ class PageInfo(SerializableAttrs['PageInfo']):
     has_next_page: bool = False
     has_previous_page: bool = False
 
+    end_cursor: Optional[str] = None
+    start_cursor: Optional[str] = None
+
 
 @dataclass
 class MessageList(SerializableAttrs['MessageList']):
@@ -280,7 +372,7 @@ class MessageList(SerializableAttrs['MessageList']):
     page_info: PageInfo = attr.ib(factory=lambda: PageInfo())
 
 
-@dataclass
+@dataclass(eq=True, frozen=True)
 class ThreadKey(SerializableAttrs['ThreadKey']):
     other_user_id: Optional[str] = None
     thread_fbid: Optional[str] = None
@@ -353,3 +445,63 @@ class MessageUnsendResponse(SerializableAttrs['MessageUnsendResponse']):
     did_succeed: bool
     error_code: str
     error_message: str
+
+
+@dataclass
+class ImageFragment(SerializableAttrs['ImageFragment']):
+    typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
+    id: str
+    animated_gif: Optional[Picture] = None
+    image: Optional[Picture] = None
+
+
+@dataclass
+class SubsequentMediaNode(SerializableAttrs['SubsequentMediaNode']):
+    typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
+    id: str
+    legacy_attachment_id: str
+    creation_time: int
+    creator: MinimalParticipant
+    adjusted_size: Optional[Picture] = None
+    image_thumbnail: Optional[Picture] = attr.ib(default=None, metadata={"json": "imageThumbnail"})
+    media_url: Optional[str] = attr.ib(default=None, metadata={"json": "mediaUrl"})
+    original_dimensions: Optional[Dimensions] = None
+
+
+@dataclass
+class SubsequentMediaResponse(SerializableAttrs['SubsequentMediaResponse']):
+    nodes: List[SubsequentMediaNode]
+    page_info: PageInfo
+
+
+@dataclass
+class FileAttachmentWithURL(SerializableAttrs['FileAttachmentWithURL']):
+    typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
+    attachment_fbid: str
+    id: str
+    url: str
+
+
+@dataclass
+class FileAttachmentURLResponse(SerializableAttrs['FileAttachmentURLResponse']):
+    id: str
+    blob_attachments: List[FileAttachmentWithURL]
+
+
+@dataclass(kw_only=True)
+class OwnInfo(SerializableAttrs['OwnInfo']):
+    id: str
+    birthday: Optional[str] = None
+    gender: Optional[str] = None
+    locale: Optional[str] = None
+    email: Optional[str] = None
+    name: str
+    first_name: Optional[str] = None
+    middle_name: Optional[str] = None
+    last_name: Optional[str] = None
+    link: str
+    is_employee: bool = False
+    verified: bool = False
+    published_timeline: bool = False
+    timezone: int = 0
+    updated_time: Optional[str] = None

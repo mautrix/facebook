@@ -4,4 +4,4 @@ asyncpg>=0.20,<0.22
 ruamel.yaml>=0.15.94,<0.17
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
-mautrix>=0.8.6,<0.9
+mautrix>=0.8.7,<0.9

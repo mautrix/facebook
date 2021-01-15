@@ -30,7 +30,8 @@ from yarl import URL
 from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
-from ..types import MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest
+from ..types import (MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest,
+                     MarkReadRequest)
 from ..types.mqtt import Mention
 from ..thrift import ThriftReader, ThriftObject
 from .otclient import MQTToTClient
@@ -60,6 +61,7 @@ class AndroidMQTT:
     log: TraceLogger
     state: AndroidState
     seq_id: Optional[int]
+    seq_id_update_callback: Optional[Callable[[int], None]]
     _publish_waiters: Dict[int, asyncio.Future]
     _response_waiters: Dict[RealtimeTopic, asyncio.Future]
     _response_waiter_locks: Dict[RealtimeTopic, asyncio.Lock]
@@ -71,6 +73,7 @@ class AndroidMQTT:
     def __init__(self, state: AndroidState, loop: Optional[asyncio.AbstractEventLoop] = None,
                  log: Optional[TraceLogger] = None) -> None:
         self.seq_id = None
+        self.seq_id_update_callback = None
         self._publish_waiters = {}
         self._response_waiters = {}
         self._disconnect_error = None
@@ -271,6 +274,7 @@ class AndroidMQTT:
         # TODO handle errors
         if parsed.last_seq_id and parsed.last_seq_id > self.seq_id:
             self.seq_id = parsed.last_seq_id
+            self.seq_id_update_callback(self.seq_id)
         for item in parsed.items:
             for event in item.get_parts():
                 self._loop.create_task(self._dispatch(event))
@@ -283,11 +287,10 @@ class AndroidMQTT:
             topic = RealtimeTopic.decode(message.topic)
             if message.payload[0] == 0:
                 message.payload = message.payload[1:]
-            print(f"Message in {topic} (zlib: {is_compressed}): {message.payload}")
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
             else:
-                # self.log.trace("Other message payload: %s", message.payload)
+                self.log.trace("Other message payload: %s", message.payload)
                 try:
                     waiter = self._response_waiters.pop(topic)
                 except KeyError:
@@ -324,7 +327,7 @@ class AndroidMQTT:
     def disconnect(self) -> None:
         self._client.disconnect()
 
-    async def listen(self, seq_id: int = None, retry_limit: int = 5) -> None:
+    async def listen(self, seq_id: int, retry_limit: int = 5) -> None:
         self.seq_id = seq_id
 
         self.log.debug("Connecting to Messenger MQTT")
@@ -347,7 +350,6 @@ class AndroidMQTT:
                 break  # Stop listening
 
             if rc != paho.mqtt.client.MQTT_ERR_SUCCESS:
-                print(rc, paho.mqtt.client.error_string(rc))
                 # If known/expected error
                 if rc == paho.mqtt.client.MQTT_ERR_CONN_LOST:
                     await self._dispatch(Disconnect(reason="Connection lost, retrying"))
@@ -382,14 +384,15 @@ class AndroidMQTT:
     # region Basic outgoing MQTT
 
     def publish(self, topic: Union[RealtimeTopic, str],
-                payload: Union[str, bytes, dict, ThriftObject]) -> asyncio.Future:
+                payload: Union[str, bytes, dict, ThriftObject],
+                prefix: bytes = b"") -> asyncio.Future:
         if isinstance(payload, dict):
             payload = json.dumps(payload)
         if isinstance(payload, str):
             payload = payload.encode("utf-8")
         if isinstance(payload, ThriftObject):
-            payload = b"\x18\x00\x00" + payload.to_thrift()
-        payload = zlib.compress(payload, level=9)
+            payload = payload.to_thrift()
+        payload = zlib.compress(prefix + payload, level=9)
         info = self._client.publish(topic.encoded if isinstance(topic, RealtimeTopic) else topic,
                                     payload, qos=1)
         fut = asyncio.Future()
@@ -397,11 +400,12 @@ class AndroidMQTT:
         return fut
 
     async def request(self, topic: RealtimeTopic, response: RealtimeTopic,
-                      payload: Union[str, bytes, dict, ThriftObject]) -> MQTTMessage:
+                      payload: Union[str, bytes, dict, ThriftObject], prefix: bytes = b""
+                      ) -> MQTTMessage:
         async with self._response_waiter_locks[response]:
             fut = asyncio.Future()
             self._response_waiters[response] = fut
-            await self.publish(topic, payload)
+            await self.publish(topic, payload, prefix)
             return await fut
 
     @staticmethod
@@ -425,8 +429,20 @@ class AndroidMQTT:
             req.extra_metadata = {"prng": json.dumps([mention.serialize() for mention in mentions],
                                                      separators=(',', ':'))}
         print("Send message request:", req)
-        resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req)
+        resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req,
+                                  prefix=b"\x18\x00\x00")
         print("Send message response:", resp.payload)
         ThriftReader(resp.payload).pretty_print()
+
+    async def mark_read(self, target: int, is_group: bool, read_to: int,
+                        offline_threading_id: Optional[int] = None) -> None:
+        if not offline_threading_id:
+            offline_threading_id = self.generate_offline_threading_id()
+        req = MarkReadRequest(read_to=read_to, offline_threading_id=offline_threading_id)
+        if is_group:
+            req.group_id = target
+        else:
+            req.user_id = target
+        await self.publish(RealtimeTopic.MARK_THREAD_READ, req)
 
     # endregion

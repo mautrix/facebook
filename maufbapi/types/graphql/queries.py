@@ -137,3 +137,44 @@ class MessageReactionMutation(GraphQLMutation, SerializableAttrs['MessageReactio
     actor_id: str
     action: ReactionAction
     reaction: Optional[str] = None
+
+
+@dataclass
+class DownloadImageFragment(GraphQLQuery, SerializableAttrs['DownloadImageFragment']):
+    doc_id: ClassVar[int] = 3063616537053520
+
+    fbid: str
+    img_size: str = "0"
+
+
+@dataclass
+class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs['FbIdToCursorQuery']):
+    doc_id: ClassVar[int] = 2015407048575350
+
+    fbid: str
+    thread_id: str
+
+
+@dataclass
+class SubsequentMediaQuery(GraphQLQuery, SerializableAttrs['SubsequentMediaQuery']):
+    doc_id: ClassVar[int] = 2948398158550055
+
+    thread_id: str
+    cursor_id: Optional[str] = None
+    fetch_size: int = 99
+    thumbnail_size: int = 540
+    height: int = 2088
+    width: int = 1080
+
+
+@dataclass(frozen=True, eq=True)
+class ThreadMessageID(SerializableAttrs['ThreadMessageID']):
+    thread_id: str
+    message_id: str
+
+
+@dataclass
+class FileAttachmentUrlQuery(GraphQLQuery, SerializableAttrs['FileAttachmentUrlQuery']):
+    doc_id: ClassVar[int] = 3200288700012393
+
+    thread_msg_id: ThreadMessageID

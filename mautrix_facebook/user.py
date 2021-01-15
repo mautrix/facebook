@@ -19,8 +19,7 @@ from collections import defaultdict
 import asyncio
 import time
 
-from mautrix.types import (UserID, PresenceState, RoomID, EventID, TextMessageEventContent,
-                           MessageType)
+from mautrix.types import UserID, RoomID, EventID, TextMessageEventContent, MessageType
 from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser
 from mautrix.bridge._community import CommunityHelper, CommunityID
@@ -80,7 +79,7 @@ class User(DBUser, BaseUser):
     client: Optional[AndroidAPI]
     mqtt: Optional[AndroidMQTT]
     listen_task: Optional[asyncio.Task]
-    seq_id: int
+    seq_id: Optional[int]
 
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
@@ -156,7 +155,7 @@ class User(DBUser, BaseUser):
         cls.loop = bridge.loop
         cls._community_helper = CommunityHelper(cls.az)
         cls.temp_disconnect_notices = bridge.config["bridge.temporary_disconnect_notices"]
-        return (user.try_connect() async for user in cls.all_logged_in())
+        return (user.load_session() async for user in cls.all_logged_in())
 
     @property
     def is_connected(self) -> Optional[bool]:
@@ -225,18 +224,16 @@ class User(DBUser, BaseUser):
 
     # endregion
 
-    # FIXME this whole thing is broken
     async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
         elif not self.state:
             return False
         attempt = 0
+        client = AndroidAPI(self.state, log=self.log.getChild("api"))
         while True:
             try:
-                client = AndroidAPI(self.state)
-                # TODO implement is_logged_in?
-                logged_in = await client.is_logged_in()
+                user_info = await client.get_self()
                 break
             except (ProxyError, ProxyTimeoutError, ProxyConnectionError, ConnectionError) as e:
                 attempt += 1
@@ -249,7 +246,7 @@ class User(DBUser, BaseUser):
                 if _raise_errors:
                     raise
                 return False
-        if logged_in:
+        if user_info:
             self.log.info("Loaded session successfully")
             self.client = client
             self._track_metric(METRIC_LOGGED_IN, True)
@@ -261,10 +258,14 @@ class User(DBUser, BaseUser):
         return False
 
     async def is_logged_in(self, _override: bool = False) -> bool:
-        if not self.state:
+        if not self.state or not self.client:
             return False
         if self._is_logged_in is None or _override:
-            self._is_logged_in = await self.client.is_logged_in()
+            try:
+                self._is_logged_in = bool(await self.client.get_self())
+            except Exception:
+                self.log.exception("Exception checking login status")
+                self._is_logged_in = False
         return self._is_logged_in
 
     async def try_refresh(self) -> None:
@@ -275,7 +276,6 @@ class User(DBUser, BaseUser):
             await self.send_bridge_notice("Fatal error while trying to refresh after connection "
                                           "error (see logs for more info)", important=True)
 
-    # FIXME this is broken too
     async def refresh(self, force_notice: bool = False) -> None:
         event_id = None
         self._is_refreshing = True
@@ -298,8 +298,7 @@ class User(DBUser, BaseUser):
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
-            await self.sync_threads()
-            self.start_listen()
+            await self.load_session(_raise_errors=True)
         except Exception:
             await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
                                           "(see logs for more details)", edit=event_id)
@@ -443,7 +442,7 @@ class User(DBUser, BaseUser):
         ups = await UserPortal.all(self.fbid)
         contacts = await UserContact.all(self.fbid)
         # TODO paginate with 20 threads per request
-        resp = await self.client.fetch_threads(limit=sync_count)
+        resp = await self.client.fetch_threads(thread_count=sync_count)
         self.seq_id = int(resp.sync_sequence_id)
         for thread in resp.nodes:
             try:
@@ -455,14 +454,11 @@ class User(DBUser, BaseUser):
 
     async def _sync_thread(self, thread: Thread, ups: Dict[int, UserPortal],
                            contacts: Dict[int, UserContact]) -> None:
-        self.log.debug(f"Syncing thread {thread.thread_key} {thread.name}")
+        self.log.debug(f"Syncing thread {thread.thread_key.id}")
         is_direct = bool(thread.thread_key.other_user_id)
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
-        puppet = None
-
-        if is_direct:
-            puppet = await pu.Puppet.get_by_fbid(int(thread.thread_key.other_user_id), create=True)
-            await puppet.update_info(self, thread)
+        puppet = (await pu.Puppet.get_by_fbid(thread.thread_key.other_user_id)
+                  if is_direct else None)
 
         await self._add_community(ups.get(portal.fbid, None),
                                   contacts.get(puppet.fbid, None) if puppet else None,
@@ -528,10 +524,14 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.debug("Error disconnecting listener after error", exc_info=True)
 
+    def _update_seq_id(self, seq_id: int) -> None:
+        self.seq_id = seq_id
+
     async def _try_listen(self) -> None:
         try:
             if not self.mqtt:
                 self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
+                self.mqtt.seq_id_update_callback = self._update_seq_id
             await self.mqtt.listen(self.seq_id)
             self.is_connected = False
             if not self._is_refreshing and not self.shutdown:
@@ -619,7 +619,7 @@ class User(DBUser, BaseUser):
 
     async def on_logged_in(self, state: AndroidState) -> None:
         self.state = state
-        self.client = AndroidAPI(state)
+        self.client = AndroidAPI(state, log=self.log.getChild("api"))
         await self.save()
         self.stop_listen()
         asyncio.ensure_future(self.post_login(), loop=self.loop)
@@ -660,8 +660,7 @@ class User(DBUser, BaseUser):
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
         if portal.mxid:
             await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
-            # TODO pass through read_at/read_to?
-            await portal.handle_facebook_seen(self, puppet)
+            await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_SEEN)
     async def on_message_seen_self(self, evt: OwnReadReceipt) -> None:
@@ -669,8 +668,7 @@ class User(DBUser, BaseUser):
         for thread in evt.threads:
             portal = await po.Portal.get_by_thread(thread, self.fbid)
             await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
-            # TODO pass through read_at/read_to?
-            await portal.handle_facebook_seen(self, puppet)
+            await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_UNSENT)
     async def on_message_unsent(self, evt: UnsendMessage) -> None:

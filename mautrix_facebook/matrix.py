@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Union, TYPE_CHECKING
-from datetime import datetime
 import time
 
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
@@ -26,7 +25,7 @@ from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
 from . import user as u, portal as po, puppet as pu
-from .db import ThreadType
+from .db import ThreadType, Message as DBMessage
 
 if TYPE_CHECKING:
     from .__main__ import MessengerBridge
@@ -199,8 +198,10 @@ class MatrixHandler(BaseMatrixHandler):
 
     async def handle_read_receipt(self, user: 'u.User', portal: 'po.Portal', event_id: EventID,
                                   data: SingleReceiptEventContent) -> None:
-        timestamp = datetime.fromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
-        # await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
+        timestamp = data.get("ts", int(time.time() * 1000))
+        message = await DBMessage.get_by_mxid(event_id, portal.mxid)
+        await user.mqtt.mark_read(portal.fbid, portal.fb_type != ThreadType.USER,
+                                  read_to=message.timestamp if message else timestamp)
 
     def filter_matrix_event(self, evt: Event) -> bool:
         if isinstance(evt, (ReceiptEvent, TypingEvent, PresenceEvent)):

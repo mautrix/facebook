@@ -13,18 +13,25 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from mautrix.types import SerializableEnum
+from typing import Optional
 
 
-class MessageUnsendability(SerializableEnum):
-    DENY_FOR_NON_SENDER = "deny_for_non_sender"
-    DENY_LOG_MESSAGE = "deny_log_message"
-    DENY_TOMBSTONE_MESSAGE = "deny_tombstone_message"
-    CAN_UNSEND = "can_unsend"
+class ResponseError(Exception):
+    def __init__(self, message: str, code: int, subcode: Optional[int]) -> None:
+        self.message = message
+        self.code = code
+        self.subcode = subcode
+        code_str = f"{code}.{subcode}" if subcode else str(code)
+        super().__init__(f"{code_str}: {message}")
 
 
-class ThreadFolder(SerializableEnum):
-    INBOX = "INBOX"
-    PENDING = "PENDING"
-    ARCHIVED = "ARCHIVED"
-    OTHER = "OTHER"
+class OAuthException(ResponseError):
+    pass
+
+
+class GraphMethodException(ResponseError):
+    pass
+
+
+error_classes = [OAuthException, GraphMethodException]
+error_class_map = {clazz.__name__: clazz for clazz in error_classes}

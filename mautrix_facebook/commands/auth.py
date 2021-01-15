@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,11 +18,12 @@ import time
 
 from yarl import URL
 
-import fbchat
 from mautrix.client import Client
 from mautrix.util.signed_token import sign_token
 from mautrix.bridge.commands import HelpSection, command_handler
 from mautrix.bridge import custom_puppet as cpu
+
+from maufbapi import AndroidState, AndroidAPI
 
 from .. import puppet as pu
 from .typehint import CommandEvent
@@ -44,15 +45,18 @@ async def login(evt: CommandEvent) -> None:
         "action": "Login",
         "room_id": evt.room_id,
     }
+    state = AndroidState()
+    state.generate(evt.sender.mxid)
+    api = AndroidAPI(state, log=evt.sender.log.getChild("login-api"))
     await evt.reply("Logging in...")
     try:
-        session = await fbchat.Session.login(evt.args[0], " ".join(evt.args[1:]),
-                                             on_2fa_callback=evt.sender.on_2fa_callback,
-                                             user_agent=evt.sender.user_agent)
-        await evt.sender.on_logged_in(session)
+        await api.mobile_config_sessionless()
+        await api.login(evt.args[0], " ".join(evt.args[1:]))
+        await evt.sender.on_logged_in(state)
         evt.sender.command_status = None
         await evt.reply("Successfully logged in")
-    except fbchat.FacebookError as e:
+    # TODO more granular catching?
+    except Exception as e:
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
         evt.log.exception("Failed to log in")
@@ -66,103 +70,32 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
     del evt.sender.command_status["next"]
 
 
-@command_handler(needs_auth=False, management_only=True,
-                 help_section=SECTION_AUTH, help_text="Log in to Facebook with Cookie Monster")
-async def login_web(evt: CommandEvent) -> None:
-    if evt.sender.client:
-        await evt.reply("You're already logged in")
-        return
-    external_url = URL(evt.config["appservice.public.external"])
-    token = sign_token(evt.processor.bridge.public_website.secret_key, {
-        "mxid": evt.sender.mxid,
-        "bridge_type": "net.maunium.facebook",
-        "login_api": str(external_url / "api" / "login"),
-        "homeserver": evt.az.domain,
-        "expiry": int(time.time()) + 30 * 60,
-    })
-    url = (external_url / "login.html").with_fragment(token)
-    await evt.reply(f"Visit [the login page]({url}) and follow the instructions")
-    evt.sender.command_status = {
-        "action": "Login",
-        "room_id": evt.room_id,
-    }
-
-
-@command_handler(needs_auth=False, management_only=True,
-                 help_section=SECTION_AUTH, help_text="Log in to Facebook manually")
-async def login_cookie(evt: CommandEvent) -> None:
-    if evt.sender.client:
-        await evt.reply("You're already logged in")
-        return
-    domain = "messenger.com"
-    if len(evt.args) > 0 and evt.args[0].lower() == "facebook.com":
-        domain = "facebook.com"
-    evt.sender.command_status = {
-        "action": "Login",
-        "room_id": evt.room_id,
-        "next": enter_login_cookies,
-        "c_user": None,
-        "domain": domain,
-    }
-    url = f"https://www.{domain}"
-    name = "Messenger" if domain == "messenger.com" else "Facebook"
-    await evt.reply(f"1. Log in to [{name}]({url}/) in a private/incognito window.\n"
-                    "2. Press `F12` to open developer tools.\n"
-                    "3. Select the \"Application\" (Chrome) or \"Storage\" (Firefox) tab.\n"
-                    f"4. In the sidebar, expand \"Cookies\" and select `{url}`.\n"
-                    "5. In the cookie list, find the `c_user` row and double click on the value"
-                    r", then copy the value and send it here.")
-
-
-async def enter_login_cookies(evt: CommandEvent) -> None:
-    if not evt.sender.command_status["c_user"]:
-        if len(evt.args) == 0:
-            await evt.reply("Please enter the value of the `c_user` cookie, or use "
-                            "the `cancel` command to cancel.")
-            return
-        evt.sender.command_status["c_user"] = evt.args[0]
-        await evt.reply("Now do the last step again, but find the value of the `xs` row instead. "
-                        "Before you send the value, close the private window.")
-        return
-    if len(evt.args) == 0:
-        await evt.reply("Please enter the value of the `xs` cookie, or use "
-                        "the `cancel` command to cancel.")
-        return
-
-    try:
-        session = await fbchat.Session.from_cookies({
-            "c_user": evt.sender.command_status["c_user"],
-            "xs": evt.args[0],
-        }, user_agent=evt.sender.user_agent, domain=evt.sender.command_status["domain"])
-    except fbchat.FacebookError as e:
-        evt.sender.command_status = None
-        await evt.reply(f"Failed to log in: {e}")
-        evt.log.exception("Failed to log in")
-        return
-
-    if not await session.is_logged_in():
-        await evt.reply("Failed to log in")
-    else:
-        await evt.sender.on_logged_in(session)
-        await evt.reply("Successfully logged in")
-    evt.sender.command_status = None
-
-
-@command_handler(needs_auth=False, management_only=False, help_section=SECTION_AUTH,
-                 help_text="Change the user agent sent to Facebook", help_args="<_user agent_>")
-async def set_ua(evt: CommandEvent) -> None:
-    if len(evt.args) < 0:
-        await evt.reply("Usage: `$cmdprefix+sp login <user agent>`")
-        return
-    evt.sender.user_agent = " ".join(evt.args)
-    evt.sender.save()
-    await evt.reply(f"Set user agent to `{evt.sender.user_agent}`. The change will be applied when"
-                    " you log in, run `refresh`, or on the next bridge restart.")
+# TODO uncomment after fixing web login
+# @command_handler(needs_auth=False, management_only=True,
+#                  help_section=SECTION_AUTH, help_text="Log in to Facebook with Cookie Monster")
+# async def login_web(evt: CommandEvent) -> None:
+#     if evt.sender.client:
+#         await evt.reply("You're already logged in")
+#         return
+#     external_url = URL(evt.config["appservice.public.external"])
+#     token = sign_token(evt.processor.bridge.public_website.secret_key, {
+#         "mxid": evt.sender.mxid,
+#         "bridge_type": "net.maunium.facebook",
+#         "login_api": str(external_url / "api" / "login"),
+#         "homeserver": evt.az.domain,
+#         "expiry": int(time.time()) + 30 * 60,
+#     })
+#     url = (external_url / "login.html").with_fragment(token)
+#     await evt.reply(f"Visit [the login page]({url}) and follow the instructions")
+#     evt.sender.command_status = {
+#         "action": "Login",
+#         "room_id": evt.room_id,
+#     }
 
 
 @command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
 async def logout(evt: CommandEvent) -> None:
-    puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
+    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
     await evt.sender.logout()
     if puppet.is_real_user:
         await puppet.switch_mxid(None, None)
@@ -173,7 +106,7 @@ async def logout(evt: CommandEvent) -> None:
                  help_section=SECTION_AUTH, help_text="Replace your Facebook Messenger account's "
                                                       "Matrix puppet with your Matrix account")
 async def login_matrix(evt: CommandEvent) -> None:
-    puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
+    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
     _, homeserver = Client.parse_mxid(evt.sender.mxid)
     if homeserver != pu.Puppet.hs_domain:
         await evt.reply("You can't log in with an account on a different homeserver")
@@ -191,7 +124,7 @@ async def login_matrix(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_AUTH,
                  help_text="Revert your Facebook Messenger account's Matrix puppet to the original")
 async def logout_matrix(evt: CommandEvent) -> None:
-    puppet = pu.Puppet.get_by_fbid(evt.sender.fbid)
+    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
     if not puppet.is_real_user:
         await evt.reply("You're not logged in with your Matrix account")
         return

@@ -74,10 +74,11 @@ class MessengerBridge(Bridge):
         for user in User.by_fbid.values():
             user.stop_listen()
 
-    def prepare_shutdown(self) -> None:
+    async def stop(self) -> None:
+        await super().stop()
         self.log.debug("Saving user sessions")
         for user in User.by_mxid.values():
-            user.save()
+            await user.save()
 
     async def start(self) -> None:
         await self.db.start()

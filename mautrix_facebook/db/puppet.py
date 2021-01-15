@@ -47,7 +47,7 @@ class Puppet:
         if row is None:
             return None
         data = {**row}
-        base_url = data.pop("url", None)
+        base_url = data.pop("base_url", None)
         return cls(**data, base_url=URL(base_url) if base_url else None)
 
     @classmethod
@@ -94,3 +94,13 @@ class Puppet:
     async def delete(self) -> None:
         q = "DELETE FROM puppet WHERE fbid=$1"
         await self.db.execute(q, self.fbid)
+
+    async def save(self) -> None:
+        q = ('UPDATE puppet SET name=$2, photo_id=$3, photo_mxc=$4, name_set=$5, avatar_set=$6, '
+             '                  is_registered=$7, custom_mxid=$8, access_token=$9, next_batch=$10,'
+             '                  base_url=$11 '
+             'WHERE fbid=$1')
+        await self.db.execute(q, self.fbid, self.name, self.photo_id, self.photo_mxc,
+                              self.name_set, self.avatar_set, self.is_registered, self.custom_mxid,
+                              self.access_token, self.next_batch,
+                              str(self.base_url) if self.base_url else None)

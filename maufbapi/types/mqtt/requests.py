@@ -50,3 +50,16 @@ class SendMessageRequest(ThriftObject):
     tid2: int = field(TType.I64, index=24)
     # indices 25-27: ???
     reply_to: str = field(index=28)
+
+
+@autospec
+@dataclass(kw_only=True)
+class MarkReadRequest(ThriftObject):
+    receipt_type: str = "read"
+    unknown_boolean: bool = True
+    # indices 3-5: ???
+    group_id: int = field(TType.I64, index=6, default=None)
+    user_id: int = field(TType.I64, default=None)
+    # index 8: ???
+    read_to: int = field(TType.I64)
+    offline_threading_id: int = field(TType.I64)

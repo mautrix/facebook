@@ -23,6 +23,7 @@ import attr
 from mautrix.types import SerializableAttrs
 from maufbapi.thrift import TType, RecursiveType, ThriftObject, field, autospec
 from ..common import MessageUnsendability as Unsendability
+from ..graphql import ExtensibleAttachment
 
 
 @autospec
@@ -94,20 +95,36 @@ class VideoInfo(ThriftObject):
 
 @autospec
 @dataclass(kw_only=True)
+class AudioInfo(ThriftObject):
+    # index 1: mysterious boolean (true)
+    # index 2: mysterious binary (empty)
+    url: str = field(index=3)
+    duration_ms: int = field(TType.I32)
+
+
+@autospec
+@dataclass(kw_only=True)
 class Attachment(ThriftObject):
     media_id_str: str
-    mime_type: str
-    file_name: str
-    media_id: int = field(TType.I64)
+    mime_type: str = field(default=None)
+    file_name: str = field(default=None)
+    media_id: int = field(TType.I64, default=None)
     file_size: int = field(TType.I64, default=None)
-    # indices 6-9: ???
+    # index 6: ???
+    extensible_media: str = field(default=None, index=7)
+    # indices 8 and 9: ???
     image_info: ImageInfo = field(default=None, index=10)
-    video_info: VideoInfo = field(default=None, index=11)
-    # index 12: ???
+    video_info: VideoInfo = field(default=None)
+    audio_info: AudioInfo = field(default=None)
     # can contain a dash_manifest key with some XML as the value
     # or fbtype key with a number as value
-    extra_metadata: Dict[str, str] = field(index=13)
+    extra_metadata: Dict[str, str] = field(factory=lambda: {})
     # index 1007?!: unknown bool
+
+    def parse_extensible(self) -> ExtensibleAttachment:
+        if not self.extensible_media:
+            raise ValueError("This attachment does not contain an extensible attachment")
+        return ExtensibleAttachment.parse_json(self.extensible_media)
 
 
 @autospec
