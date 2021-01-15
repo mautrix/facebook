@@ -1034,7 +1034,7 @@ class Portal(DBPortal, BasePortal):
 
         matrix_reaction = reaction
         # TODO there are probably other emojis that need variation selectors
-        if reaction in {"\u2764", "\U0001f44d", "\U0001f44e"}:
+        if reaction in ("\u2764", "\U0001f44d", "\U0001f44e"):
             matrix_reaction += "\ufe0f"
         mxid = await intent.react(message.mx_room, message.mxid, matrix_reaction)
         self.log.debug(f"Reacted to {message.mxid}, got {mxid}")
@@ -1117,7 +1117,8 @@ class Portal(DBPortal, BasePortal):
                         thread: graphql.Thread) -> None:
         self.log.debug("Backfilling history through %s", source.mxid)
         messages = thread.messages.nodes
-        before_timestamp = messages[0].timestamp - 1
+        oldest_message = messages[0]
+        before_timestamp = oldest_message.timestamp - 1
         self.log.debug("Fetching up to %d messages through %s", limit, source.fbid)
         while len(messages) < limit:
             resp = await source.client.fetch_messages(self.fbid, before_timestamp)

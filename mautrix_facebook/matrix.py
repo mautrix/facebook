@@ -192,9 +192,10 @@ class MatrixHandler(BaseMatrixHandler):
         if not portal:
             return
 
-        users = [await u.User.get_by_mxid(mxid, create=False) for mxid in typing]
-        await portal.handle_matrix_typing({user for user in users
-                                           if user is not None})
+        # FIXME
+        # users = [await u.User.get_by_mxid(mxid, create=False) for mxid in typing]
+        # await portal.handle_matrix_typing({user for user in users
+        #                                    if user is not None})
 
     async def handle_read_receipt(self, user: 'u.User', portal: 'po.Portal', event_id: EventID,
                                   data: SingleReceiptEventContent) -> None:

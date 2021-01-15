@@ -55,7 +55,7 @@ appservice:
     # Display name and avatar for bot. Set to "remove" to remove display name/avatar, leave empty
     # to leave display name/avatar as-is.
     bot_displayname: Facebook bridge bot
-    bot_avatar: mxc://maunium.net/ddtNPZSKMNqaUzqrHuWvUADv
+    bot_avatar: mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak
 
     # Community ID for bridged users (changes registration file) and rooms.
     # Must be created manually. Example: "+facebook:example.com"
@@ -251,8 +251,6 @@ logging:
     loggers:
         mau:
             level: DEBUG
-        fbchat:
-            level: INFO
         paho:
             level: INFO
         aiohttp:

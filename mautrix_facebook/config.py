@@ -39,6 +39,9 @@ class Config(BaseBridgeConfig):
 
         copy("appservice.community_id")
 
+        if self["appservice.bot_avatar"] == "mxc://maunium.net/ddtNPZSKMNqaUzqrHuWvUADv":
+            base["appservice.bot_avatar"] = "mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak"
+
         copy("appservice.public.enabled")
         copy("appservice.public.prefix")
         copy("appservice.public.external")
