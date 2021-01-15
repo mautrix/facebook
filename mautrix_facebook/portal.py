@@ -822,7 +822,7 @@ class Portal(DBPortal, BasePortal):
     async def _handle_facebook_text(self, intent: IntentAPI,
                                     message: Union[graphql.MessageText, mqtt.Message],
                                     reply_to_id: str, timestamp: int) -> EventID:
-        content = facebook_to_matrix(message)
+        content = await facebook_to_matrix(message)
         await self._add_facebook_reply(content, reply_to_id)
         return await self._send_message(intent, content, timestamp=timestamp)
 

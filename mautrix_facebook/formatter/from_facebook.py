@@ -37,18 +37,6 @@ tags = {
 }
 
 
-def _mention_replacer(match: Match) -> str:
-    fbid = match.group(1)
-
-    user = u.User.get_by_fbid(fbid)
-    if user:
-        return f"<a href=\"https://matrix.to/#/{user.mxid}\">{match.group(2)}</a>"
-
-    puppet = pu.Puppet.get_by_fbid(fbid, create=False)
-    if puppet:
-        return f"<a href=\"https://matrix.to/#/{puppet.mxid}\">{match.group(2)}</a>"
-
-
 def _handle_match(html: str, match: Match, nested: bool) -> Tuple[str, int]:
     start, end = match.start(), match.end()
     prefix, sigil, text, suffix = match.groups()
@@ -137,7 +125,7 @@ def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptSt
             output.append(_convert_formatting(post_cb_content))
 
 
-def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMessageEventContent:
+async def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMessageEventContent:
     if isinstance(msg, mqtt.Message):
         text = msg.text
         mentions = msg.mentions
@@ -148,10 +136,12 @@ def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMes
         raise ValueError(f"Unsupported Facebook message type {type(msg).__name__}")
     text = text or ""
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
+    mention_user_ids = []
     for m in reversed(mentions):
         original = text[m.offset:m.offset + m.length]
         if len(original) > 0 and original[0] == "@":
             original = original[1:]
+        mention_user_ids.append(int(m.user_id))
         text = f"{text[:m.offset]}@{m.user_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
     html = escape(text)
     output = []
@@ -167,16 +157,22 @@ def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMes
             if i != len(lines) - 1:
                 output.append("<br/>")
             _handle_codeblock_post(output, *post_args)
-    # TODO find out if share attachments still exist
-    # for attachment in message.attachments:
-    #     if ((isinstance(attachment, fbchat.ShareAttachment)
-    #          and attachment.original_url.rstrip("/") not in text)):
-    #         output.append(f"<br/><a href='{attachment.original_url}'>"
-    #                       f"{attachment.title or attachment.original_url}"
-    #                       "</a>")
-    #         content.body += (f"\n{attachment.title}: {attachment.original_url}"
-    #                          if attachment.title else attachment.original_url)
     html = "".join(output)
+
+    mention_user_map = {}
+    for fbid in mention_user_ids:
+        user = await u.User.get_by_fbid(fbid)
+        if user:
+            mention_user_map[fbid] = user.mxid
+        else:
+            puppet = await pu.Puppet.get_by_fbid(fbid, create=False)
+            mention_user_map[fbid] = puppet.mxid if puppet else None
+
+    def _mention_replacer(match: Match) -> str:
+        mxid = mention_user_map[int(match.group(1))]
+        if not mxid:
+            return match.group(2)
+        return f"<a href=\"https://matrix.to/#/{mxid}\">{match.group(2)}</a>"
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
     if html != escape(content.body).replace("\n", "<br/>"):

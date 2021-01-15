@@ -13,9 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, cast, NamedTuple, List
+from typing import cast, NamedTuple, List
 
-from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
+from mautrix.types import TextMessageEventContent, Format, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
                                     SimpleEntity, EntityType)
 from maufbapi.types.mqtt import Mention
@@ -31,25 +31,11 @@ class SendParams(NamedTuple):
 
 
 class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownString):
-    def _mention_to_entity(self, mxid: UserID) -> Optional[SimpleEntity]:
-        user = u.User.get_by_mxid(mxid, create=False)
-        if user and user.fbid:
-            fbid = user.fbid
-        else:
-            puppet = pu.Puppet.deprecated_sync_get_by_mxid(mxid, create=False)
-            if puppet:
-                fbid = puppet.fbid
-            else:
-                return None
-        return SimpleEntity(type=EntityType.USER_MENTION, offset=0, length=len(self.text),
-                            extra_info={"user_id": mxid, "fbid": fbid})
-
     def format(self, entity_type: EntityType, **kwargs) -> 'FacebookFormatString':
         prefix = suffix = ""
         if entity_type == EntityType.USER_MENTION:
-            mention = self._mention_to_entity(kwargs['user_id'])
-            if mention:
-                self.entities.append(mention)
+            self.entities.append(SimpleEntity(type=entity_type, offset=0, length=len(self.text),
+                                              extra_info={"user_id": kwargs["user_id"]}))
             return self
         elif entity_type == EntityType.BOLD:
             prefix = suffix = "*"
@@ -98,9 +84,20 @@ async def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) 
     if content.format == Format.HTML and content.formatted_body:
         parsed = MatrixParser.parse(content.formatted_body)
         text = parsed.text
-        mentions = [Mention(user_id=mention.extra_info['fbid'], offset=mention.offset,
-                            length=mention.length)
-                    for mention in parsed.entities]
+        mentions = []
+        for mention in parsed.entities:
+            mxid = mention.extra_info["user_id"]
+            user = await u.User.get_by_mxid(mxid, create=False)
+            if user and user.fbid:
+                fbid = user.fbid
+            else:
+                puppet = await pu.Puppet.get_by_mxid(mxid, create=False)
+                if puppet:
+                    fbid = puppet.fbid
+                else:
+                    continue
+            mentions.append(Mention(user_id=str(fbid), offset=mention.offset,
+                                    length=mention.length))
     else:
         text = content.body
     return SendParams(text=text, mentions=mentions, reply_to=reply_to)

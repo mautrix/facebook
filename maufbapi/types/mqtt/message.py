@@ -20,7 +20,7 @@ import json
 from attr import dataclass
 import attr
 
-from mautrix.types import SerializableAttrs
+from mautrix.types import SerializableAttrs, SerializableEnum
 from maufbapi.thrift import TType, RecursiveType, ThriftObject, field, autospec
 from ..common import MessageUnsendability as Unsendability
 from ..graphql import ExtensibleAttachment
@@ -139,7 +139,7 @@ class Reaction(ThriftObject):
     # index 7: unknown number as string, similar to MessageMetadata's index 3
 
 
-class MentionType(Enum):
+class MentionType(SerializableEnum):
     PERSON = "p"
 
 
