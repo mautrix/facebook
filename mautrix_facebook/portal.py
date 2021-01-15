@@ -548,9 +548,11 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_matrix_location(self, sender: 'u.User',
                                       message: LocationMessageEventContent) -> str:
-        match = geo_uri_regex.fullmatch(message.geo_uri)
-        return await self.thread_for(sender).send_pinned_location(float(match.group(1)),
-                                                                  float(match.group(2)))
+        pass
+        # TODO
+        # match = geo_uri_regex.fullmatch(message.geo_uri)
+        # return await self.thread_for(sender).send_pinned_location(float(match.group(1)),
+        #                                                           float(match.group(2)))
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
                                       redaction_event_id: EventID) -> None:
@@ -773,10 +775,11 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.IMAGE
             info = ImageInfo(width=attachment.image_info.original_width,
                              height=attachment.image_info.original_height)
-            if attachment.image_info.alt_previews:
-                url = list(attachment.image_info.alt_previews.values())[-1]
+            previews = attachment.image_info.alt_previews or attachment.image_info.previews
+            if previews:
+                url = list(previews.values())[-1]
             else:
-                url = list(attachment.image_info.previews.values())[-1]
+                url = await source.client.get_image_url(msg_id, attachment.media_id)
         elif attachment.media_id:
             # TODO what if it's not a file?
             msgtype = MessageType.FILE
@@ -972,7 +975,10 @@ class Portal(DBPortal, BasePortal):
         if not self.mxid or self.is_direct or message_id in self._dedup:
             return
         self._dedup.appendleft(message_id)
-        photo_url = new_photo.image_info.previews[-1]
+        if new_photo.image_info.previews:
+            photo_url = list(new_photo.image_info.previews.values())[-1]
+        else:
+            photo_url = await source.client.get_image_url(message_id, new_photo.media_id)
         photo_id = self.get_photo_id(photo_url)
         if self.photo_id == photo_id:
             return

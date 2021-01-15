@@ -134,7 +134,7 @@ class Reaction(ThriftObject):
     message_id: str
     # index 3: unknown int32 (zero)
     reaction_sender_id: int = field(TType.I64, index=4)
-    reaction: str
+    reaction: str = field(default=None)
     message_sender_id: int = field(TType.I64)
     # index 7: unknown number as string, similar to MessageMetadata's index 3
 
