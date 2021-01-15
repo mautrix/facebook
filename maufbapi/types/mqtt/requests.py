@@ -61,5 +61,5 @@ class MarkReadRequest(ThriftObject):
     group_id: int = field(TType.I64, index=6, default=None)
     user_id: int = field(TType.I64, default=None)
     # index 8: ???
-    read_to: int = field(TType.I64)
-    offline_threading_id: int = field(TType.I64)
+    read_to: int = field(TType.I64, index=9)
+    offline_threading_id: int = field(TType.I64, index=13)

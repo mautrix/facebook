@@ -830,8 +830,10 @@ class Portal(DBPortal, BasePortal):
                                        sticker_id: int, reply_to: str, timestamp: int) -> EventID:
         resp = await source.client.fetch_stickers([sticker_id], sticker_labels_enabled=True)
         sticker = resp.nodes[0]
-        mxc, info, decryption_info = await self._reupload_fb_file(
-            sticker.animated_image.uri, source, intent, encrypt=self.encrypted, find_size=True)
+        url = (sticker.animated_image or sticker.thread_image).uri
+        mxc, info, decryption_info = await self._reupload_fb_file(url, source, intent,
+                                                                  encrypt=self.encrypted,
+                                                                  find_size=True)
         return await self._send_message(intent, event_type=EventType.STICKER,
                                         content=MediaMessageEventContent(
                                             url=mxc, file=decryption_info, info=info,
