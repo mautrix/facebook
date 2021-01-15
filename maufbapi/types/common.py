@@ -20,6 +20,7 @@ class MessageUnsendability(SerializableEnum):
     DENY_FOR_NON_SENDER = "deny_for_non_sender"
     DENY_LOG_MESSAGE = "deny_log_message"
     DENY_TOMBSTONE_MESSAGE = "deny_tombstone_message"
+    DENY_IF_PAGE_THREAD = "deny_if_page_thread"
     CAN_UNSEND = "can_unsend"
 
 

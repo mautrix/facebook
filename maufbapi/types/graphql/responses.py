@@ -92,36 +92,36 @@ class MinimalParticipant(ParticipantID, SerializableAttrs['MinimalParticipant'])
 
 @dataclass(kw_only=True)
 class Participant(MinimalParticipant, SerializableAttrs['Participant']):
-    structured_name: StructuredName
     username: str
-    nickname_for_viewer: Optional[str]
+    structured_name: Optional[StructuredName] = None
+    nickname_for_viewer: Optional[str] = None
 
-    profile_pic_small: Optional[Picture]
-    profile_pic_medium: Optional[Picture]
-    profile_pic_large: Optional[Picture]
+    profile_pic_small: Optional[Picture] = None
+    profile_pic_medium: Optional[Picture] = None
+    profile_pic_large: Optional[Picture] = None
 
-    friends: FriendCount
+    friends: Optional[FriendCount] = None
     # TODO enum? CAN/CANNOT_REQUEST
-    friendship_status: str
-    mutual_friends: FriendCount
+    friendship_status: Optional[str] = None
+    mutual_friends: Optional[FriendCount] = None
     # TODO enum? REACHABLE
-    reachability_status_type: str
-    registration_time: int
+    reachability_status_type: Optional[str] = None
+    registration_time: Optional[int] = None
 
-    is_aloha_proxy_confirmed: bool
-    is_blocked_by_viewer: bool
-    is_banned_by_page_viewer: bool
-    is_deactivated_allowed_on_messenger: bool
-    is_managing_parent_approved_user: bool
-    is_memorialized: bool
-    is_message_blocked_by_viewer: bool
-    is_message_ignored_by_viewer: bool
-    is_pseudo_blocked_by_viewer: bool
-    is_messenger_user: bool
-    is_partial: bool
-    is_verified: bool
-    is_viewer_friend: bool
-    can_viewer_message: bool
+    is_aloha_proxy_confirmed: bool = False
+    is_blocked_by_viewer: bool = False
+    is_banned_by_page_viewer: bool = False
+    is_deactivated_allowed_on_messenger: bool = False
+    is_managing_parent_approved_user: bool = False
+    is_memorialized: bool = False
+    is_message_blocked_by_viewer: bool = False
+    is_message_ignored_by_viewer: bool = False
+    is_pseudo_blocked_by_viewer: bool = False
+    is_messenger_user: bool = False
+    is_partial: Optional[bool] = None
+    is_verified: bool = False
+    is_viewer_friend: bool = False
+    can_viewer_message: bool = True
 
 
 @dataclass
@@ -185,6 +185,7 @@ class AttachmentType(SerializableEnum):
     VIDEO = "MessageVideo"
     LOCATION = "MessageLocation"
     EXTERNAL_URL = "ExternalUrl"
+    STORY = "Story"
 
 
 @dataclass

@@ -26,7 +26,7 @@ from mautrix.types import UserID, RoomID, SyncToken, ContentURI
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet
 from mautrix.util.simple_template import SimpleTemplate
-from maufbapi.types.graphql import Thread, Participant, Picture
+from maufbapi.types.graphql import StructuredName, Participant, Picture
 
 from .config import Config
 from .db import Puppet as DBPuppet
@@ -130,13 +130,14 @@ class Puppet(DBPuppet, BasePuppet):
 
     @classmethod
     def _get_displayname(cls, info: Participant) -> str:
+        sn = info.structured_name
         info = {
             "displayname": None,
             "id": info.id,
             "name": info.name,
-            "phonetic_name": info.structured_name.phonetic_name,
+            "phonetic_name": sn.phonetic_name if sn else None,
             "own_nickname": info.nickname_for_viewer,
-            **info.structured_name.to_dict(),
+            **(sn.to_dict() if sn else {}),
         }
         for preference in cls.config["bridge.displayname_preference"]:
             if info.get(preference):
