@@ -277,7 +277,7 @@ class User(DBUser, BaseUser):
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
         try:
-            await self.load_session(_raise_errors=True)
+            await self.load_session(_override=True, _raise_errors=True)
         except Exception:
             await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
                                           "(see logs for more details)", edit=event_id)
