@@ -88,6 +88,33 @@ class LoginAPI(BaseAndroidAPI):
                                  first_factor=self.state.session.login_first_factor,
                                  credentials_type="two_factor")
 
+    async def login_approved(self) -> LoginResponse:
+        if not self.state.session.transient_auth_token:
+            raise ValueError("No two-factor login in progress")
+        return await self._login(password=self.state.session.transient_auth_token,
+                                 email=str(self.state.session.uid), encrypted_msisdn="",
+                                 credentials_type="transient_token")
+
+    async def check_approved_machine(self) -> bool:
+        req: Dict[str, str] = {
+            "u": str(self.state.session.uid),
+            "m": self.state.session.machine_id,
+            **self._params,
+            "method": "GET",
+            "fb_api_req_friendly_name": "checkApprovedMachine",
+            "fb_api_caller_class": "com.facebook.account.twofac.protocol.TwoFacServiceHandler",
+            "access_token": self.state.application.access_token,
+        }
+        headers = {
+            **self._headers,
+            "content-type": "application/x-www-form-urlencoded",
+            "x-fb-friendly-name": req["fb_api_req_friendly_name"],
+        }
+        resp = await self.http.post(url=self.graph_url / "check_approved_machine",
+                                    headers=headers, data=req)
+        json_data = await self._handle_response(resp)
+        return json_data["data"][0]["approved"]
+
     async def _login(self, **kwargs) -> LoginResponse:
         req: Dict[str, str] = {
             **self._params,
@@ -115,8 +142,6 @@ class LoginAPI(BaseAndroidAPI):
             "content-type": "application/x-www-form-urlencoded",
             "x-fb-friendly-name": req["fb_api_req_friendly_name"],
         }
-        import pprint
-        pprint.pprint(headers)
         resp = await self.http.post(url=self.b_graph_url / "auth" / "login",
                                     headers=headers, data=req_data)
         self.log.trace(f"Login response: {resp.status} {await resp.text()}")
@@ -126,6 +151,7 @@ class LoginAPI(BaseAndroidAPI):
             self.state.session.machine_id = e.machine_id
             self.state.session.uid = e.uid
             self.state.session.login_first_factor = e.login_first_factor
+            self.state.session.transient_auth_token = e.auth_token
             raise
         parsed = LoginResponse.deserialize(json_data)
         self.state.session.access_token = parsed.access_token

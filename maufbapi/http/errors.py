@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 class ResponseError(Exception):
@@ -41,14 +41,16 @@ class InvalidAccessToken(OAuthException):
 class TwoFactorRequired(OAuthException):
     user_message: str
     login_first_factor: str
-    machine_id: str
+    auth_token: str
+    machine_id: Optional[str]
     uid: int
 
     def __init__(self, data: Dict[str, Any]) -> None:
         super().__init__(data)
         tfa_data = data["error_data"]
         self.login_first_factor = tfa_data["login_first_factor"]
-        self.machine_id = tfa_data["machine_id"]
+        self.machine_id = tfa_data.get("machine_id")
+        self.auth_token = tfa_data["auth_token"]
         self.uid = tfa_data["uid"]
 
 

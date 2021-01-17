@@ -74,6 +74,7 @@ class AndroidSession(SerializableAttrs['AndroidSession']):
     password_encryption_pubkey: Optional[str] = None
     password_encryption_key_id: Optional[int] = None
     machine_id: Optional[str] = None
+    transient_auth_token: Optional[str] = None
     login_first_factor: Optional[str] = None
     region_hint: str = "ODN"
 

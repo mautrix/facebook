@@ -40,16 +40,14 @@ class PublicBridgeWebsite:
         self.app = web.Application()
         self.secret_key = "".join(random.choices(string.ascii_lowercase + string.digits, k=64))
         self.shared_secret = shared_secret
-        self.app.router.add_options("/api/whoami", self.login_options)
-        self.app.router.add_options("/api/login", self.login_options)
-        self.app.router.add_options("/api/login/2fa", self.login_options)
-        self.app.router.add_options("/api/logout", self.login_options)
-        self.app.router.add_options("/api/disconnect", self.login_options)
-        self.app.router.add_options("/api/reconnect", self.login_options)
-        self.app.router.add_options("/api/refresh", self.login_options)
+        for path in ("whoami", "login", "login/2fa", "login/check_approved", "login/approved",
+                     "logout", "disconnect", "reconnect", "refresh"):
+            self.app.router.add_options(f"/api/{path}", self.login_options)
         self.app.router.add_get("/api/whoami", self.status)
         self.app.router.add_post("/api/login", self.login)
-        self.app.router.add_post("/api/login/2fa", self.login)
+        self.app.router.add_post("/api/login/2fa", self.login_2fa)
+        self.app.router.add_get("/api/login/check_approved", self.login_check_approved)
+        self.app.router.add_post("/api/login/approved", self.login_approved)
         self.app.router.add_post("/api/logout", self.logout)
         self.app.router.add_post("/api/disconnect", self.disconnect)
         self.app.router.add_post("/api/reconnect", self.reconnect)
@@ -188,6 +186,33 @@ class PublicBridgeWebsite:
                                       "status": "incorrect-code"}, headers=self._acao_headers)
         except OAuthException as e:
             return web.json_response({"error": str(e)}, headers=self._acao_headers)
+
+    async def login_approved(self, request: web.Request) -> web.Response:
+        user = await self.check_token(request)
+
+        if not user.command_status or user.command_status["action"] != "Login":
+            raise web.HTTPBadRequest(text='{"error": "No login in progress"}',
+                                     headers=self._headers)
+
+        state: AndroidState = user.command_status["state"]
+        api: AndroidAPI = user.command_status["api"]
+        try:
+            await api.login_approved()
+            await user.on_logged_in(state)
+            return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
+        except OAuthException as e:
+            return web.json_response({"error": str(e)}, headers=self._acao_headers)
+
+    async def login_check_approved(self, request: web.Request) -> web.Response:
+        user = await self.check_token(request)
+
+        if not user.command_status or user.command_status["action"] != "Login":
+            raise web.HTTPBadRequest(text='{"error": "No login in progress"}',
+                                     headers=self._headers)
+
+        api: AndroidAPI = user.command_status["api"]
+        approved = await api.check_approved_machine()
+        return web.json_response({"approved": approved}, headers=self._acao_headers)
 
     async def logout(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)

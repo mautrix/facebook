@@ -13,6 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import asyncio
+
 from mautrix.client import Client
 from mautrix.bridge.commands import HelpSection, command_handler
 from mautrix.bridge import custom_puppet as cpu
@@ -24,6 +26,23 @@ from .. import puppet as pu
 from .typehint import CommandEvent
 
 SECTION_AUTH = HelpSection("Authentication", 10, "")
+
+
+async def check_approved_login(state: AndroidState, api: AndroidAPI, evt: CommandEvent) -> None:
+    while evt.sender.command_status and evt.sender.command_status["action"] == "Login":
+        await asyncio.sleep(5)
+        try:
+            was_approved = await api.check_approved_machine()
+        except Exception as e:
+            evt.log.exception("Error checking if login was approved from another device")
+            await evt.reply(f"Error checking if login was approved from another device: {e}")
+            break
+        if was_approved:
+            evt.sender.command_status = None
+            await api.login_approved()
+            await evt.sender.on_logged_in(state)
+            await evt.reply("Login successfully approved from another device")
+            break
 
 
 @command_handler(needs_auth=False, management_only=True,
@@ -39,15 +58,16 @@ async def login(evt: CommandEvent) -> None:
     state = AndroidState()
     state.generate(evt.sender.mxid)
     api = AndroidAPI(state, log=evt.sender.log.getChild("login-api"))
-    await evt.reply("Logging in...")
     try:
         await api.mobile_config_sessionless()
         await api.login(evt.args[0], " ".join(evt.args[1:]))
         await evt.sender.on_logged_in(state)
         await evt.reply("Successfully logged in")
     except TwoFactorRequired:
-        await evt.reply("You have two-factor authentication turned on. Please send the code from "
-                        "SMS or your authenticator app here.")
+        await evt.reply("You have two-factor authentication turned on. Please either send the code"
+                        " from SMS or your authenticator app here, or approve the login from"
+                        " another device logged into Messenger.")
+        checker_task = asyncio.create_task(check_approved_login(state, api, evt))
         evt.sender.command_status = {
             "action": "Login",
             "room_id": evt.room_id,
@@ -55,6 +75,7 @@ async def login(evt: CommandEvent) -> None:
             "state": state,
             "api": api,
             "email": evt.args[0],
+            "checker_task": checker_task,
         }
     except OAuthException as e:
         await evt.reply(f"Error from Messenger:\n\n> {e}")
@@ -65,6 +86,8 @@ async def login(evt: CommandEvent) -> None:
 
 
 async def enter_2fa_code(evt: CommandEvent) -> None:
+    checker_task: asyncio.Task = evt.sender.command_status["checker_task"]
+    checker_task.cancel()
     state: AndroidState = evt.sender.command_status["state"]
     api: AndroidAPI = evt.sender.command_status["api"]
     email: str = evt.sender.command_status["email"]
