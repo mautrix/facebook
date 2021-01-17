@@ -25,6 +25,7 @@ class Config(BaseBridgeConfig):
     def forbidden_defaults(self) -> List[ForbiddenDefault]:
         return [
             *super().forbidden_defaults,
+            ForbiddenDefault("appservice.database", "postgres://username:password@hostname/db"),
             ForbiddenDefault("appservice.public.external", "https://example.com/public",
                              condition="appservice.public.enabled"),
             ForbiddenDefault("bridge.permissions", ForbiddenKey("example.com"))
@@ -75,7 +76,6 @@ class Config(BaseBridgeConfig):
         copy("bridge.update_avatar_initial_sync")
         copy("bridge.encryption.allow")
         copy("bridge.encryption.default")
-        copy("bridge.encryption.database")
         copy("bridge.encryption.key_sharing.allow")
         copy("bridge.encryption.key_sharing.require_cross_signing")
         copy("bridge.encryption.key_sharing.require_verification")
