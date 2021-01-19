@@ -6,4 +6,4 @@ from .message import (ThreadKey, MessageMetadata, ImageInfo, Attachment, Reactio
                       UnsendMessage, VideoInfo, AvatarChange, OwnReadReceipt, NameChange,
                       ThreadChange, ThreadChangeAction, AudioInfo, MessageSyncError, AddMember,
                       AddMemberParticipant, ExtendedAddMember, ExtendedAddMemberParticipant,
-                      RemoveMember)
+                      RemoveMember, SendMessageResponse)

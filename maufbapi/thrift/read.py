@@ -269,7 +269,10 @@ class ThriftReader(io.BytesIO):
             if field_meta.rtype.type != expected_type:
                 raise ValueError(f"Mismatching type for for field {field_meta.name}/#{field_index}"
                                  f": expected {field_meta.rtype.type.name}, got {field_type.name}")
-            args[field_meta.name] = self.read_val_recursive(field_meta.rtype)
+            if expected_type == TType.BOOL:
+                args[field_meta.name] = True if field_type == TType.TRUE else False
+            else:
+                args[field_meta.name] = self.read_val_recursive(field_meta.rtype)
         # print("Creating a", type.__name__, "with", args)
         return type(**args)
 

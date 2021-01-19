@@ -523,10 +523,12 @@ class Portal(DBPortal, BasePortal):
         converted = await matrix_to_facebook(message, self.mxid)
         offline_threading_id = sender.mqtt.generate_offline_threading_id()
         self._oti_dedup[offline_threading_id] = event_id
-        await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
-                                       message=converted.text, mentions=converted.mentions,
-                                       reply_to=converted.reply_to,
-                                       offline_threading_id=offline_threading_id)
+        resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
+                                              message=converted.text, mentions=converted.mentions,
+                                              reply_to=converted.reply_to,
+                                              offline_threading_id=offline_threading_id)
+        if not resp.success and resp.error_message:
+            await self._send_bridge_error(resp.error_message)
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
                                    message: MediaMessageEventContent) -> None:

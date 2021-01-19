@@ -385,3 +385,13 @@ class MessageSyncPayload(ThriftObject):
     viewer: int = field(TType.I64, default=None)
     subscribe_ok: str = field(index=11, default=None)
     error: MessageSyncError = field(TType.BINARY, index=12, default=None)
+
+
+@autospec
+@dataclass(kw_only=True)
+class SendMessageResponse(ThriftObject):
+    offline_threading_id: int = field(TType.I64)
+    success: bool
+    # index 3: unknown i32 present for errors
+    error_message: str = field(default=None, index=4)
+    # index 5: unknown boolean present for errors

@@ -31,7 +31,7 @@ from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
 from ..types import (MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest,
-                     MarkReadRequest, OpenedThreadRequest)
+                     MarkReadRequest, OpenedThreadRequest, SendMessageResponse)
 from ..types.mqtt import Mention
 from ..thrift import ThriftReader, ThriftObject
 from .otclient import MQTToTClient
@@ -424,7 +424,7 @@ class AndroidMQTT:
     async def send_message(self, target: int, is_group: bool, message: str,
                            offline_threading_id: Optional[int] = None,
                            mentions: Optional[List[Mention]] = None,
-                           reply_to: Optional[str] = None) -> Any:
+                           reply_to: Optional[str] = None) -> SendMessageResponse:
         if not offline_threading_id:
             offline_threading_id = self.generate_offline_threading_id()
         req = SendMessageRequest(chat_id=f"tfbid_{target}" if is_group else str(target),
@@ -441,6 +441,7 @@ class AndroidMQTT:
         resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req,
                                   prefix=b"\x18\x00\x00")
         self.log.trace("Send message response: %s", repr(resp.payload))
+        return SendMessageResponse.from_thrift(resp.payload)
 
     async def opened_thread(self, target: int) -> None:
         if self._opened_thread == target:
