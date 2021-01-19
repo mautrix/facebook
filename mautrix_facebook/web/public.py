@@ -118,8 +118,8 @@ class PublicBridgeWebsite:
             else:
                 data["facebook"] = info.serialize()
                 data["facebook"]["connected"] = user.is_connected
-                data["facebook"]["device_model"] = (f"{user.state.device.manufacturer} "
-                                                    f"{user.state.device.name}")
+                data["facebook"]["device_displayname"] = (f"{user.state.device.manufacturer} "
+                                                          f"{user.state.device.name}")
         return web.json_response(data, headers=self._acao_headers)
 
     async def login(self, request: web.Request) -> web.Response:
