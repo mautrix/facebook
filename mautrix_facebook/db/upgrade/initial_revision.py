@@ -176,6 +176,10 @@ async def migrate_legacy_data(conn: Connection) -> None:
         "SELECT mxid, mx_room, fb_msgid, fb_receiver::bigint, fb_sender::bigint, reaction "
         "FROM legacy_reaction"
     )
+    await conn.execute('DELETE FROM legacy_user_portal '
+                       'WHERE "user" NOT IN (SELECT fbid FROM legacy_user)')
+    await conn.execute('DELETE FROM legacy_contact '
+                       'WHERE "user" NOT IN (SELECT fbid FROM legacy_user)')
     await conn.execute('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
                        'SELECT "user"::bigint, portal::bigint, portal_receiver::bigint, '
                        '       in_community '
