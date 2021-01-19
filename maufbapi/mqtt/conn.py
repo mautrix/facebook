@@ -437,11 +437,10 @@ class AndroidMQTT:
             req.extra_metadata = {"prng": json.dumps([mention.serialize() for mention in mentions],
                                                      separators=(',', ':'))}
         await self.opened_thread(target)
-        print("Send message request:", req)
+        self.log.trace("Send message request: %s", req)
         resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req,
                                   prefix=b"\x18\x00\x00")
-        print("Send message response:", resp.payload)
-        ThriftReader(resp.payload).pretty_print()
+        self.log.trace("Send message response: %s", repr(resp.payload))
 
     async def opened_thread(self, target: int) -> None:
         if self._opened_thread == target:
@@ -449,8 +448,8 @@ class AndroidMQTT:
         self._opened_thread = target
         req = OpenedThreadRequest()
         req.chat_id = target
-        print("Opened thread request:", req)
-        print(await self.publish(RealtimeTopic.OPENED_THREAD, req))
+        self.log.trace("Opened thread request: %s", req)
+        await self.publish(RealtimeTopic.OPENED_THREAD, req)
 
     async def mark_read(self, target: int, is_group: bool, read_to: int,
                         offline_threading_id: Optional[int] = None) -> None:
@@ -462,10 +461,10 @@ class AndroidMQTT:
         else:
             req.user_id = target
         await self.opened_thread(target)
-        print("Mark read request:", req)
+        self.log.trace("Mark read request: %s", req)
         resp = await self.request(RealtimeTopic.MARK_THREAD_READ,
                                   RealtimeTopic.MARK_THREAD_READ_RESPONSE,
                                   req, prefix=b"\x00")
-        print("Mark read response:", resp.payload)
+        self.log.trace("Mark read response: %s", repr(resp.payload))
 
     # endregion
