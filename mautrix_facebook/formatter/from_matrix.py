@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,47 +13,29 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, Any, cast, TYPE_CHECKING
+from typing import cast, NamedTuple, List
 
-from fbchat import Mention
-
-from mautrix.types import TextMessageEventContent, Format, UserID, RoomID, RelationType
+from mautrix.types import TextMessageEventContent, Format, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
                                     SimpleEntity, EntityType)
+from maufbapi.types.mqtt import Mention
 
 from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
 
 
-if TYPE_CHECKING:
-    from typing import TypedDict, List
-
-    class SendParams(TypedDict):
-        text: str
-        mentions: List[Mention]
-        reply_to_id: str
+class SendParams(NamedTuple):
+    text: str
+    mentions: List[Mention]
+    reply_to: str
 
 
 class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownString):
-    def _mention_to_entity(self, mxid: UserID) -> Optional[SimpleEntity]:
-        user = u.User.get_by_mxid(mxid, create=False)
-        if user and user.fbid:
-            fbid = user.fbid
-        else:
-            puppet = pu.Puppet.deprecated_sync_get_by_mxid(mxid, create=False)
-            if puppet:
-                fbid = puppet.fbid
-            else:
-                return None
-        return SimpleEntity(type=EntityType.USER_MENTION, offset=0, length=len(self.text),
-                            extra_info={"user_id": mxid, "fbid": fbid})
-
     def format(self, entity_type: EntityType, **kwargs) -> 'FacebookFormatString':
         prefix = suffix = ""
         if entity_type == EntityType.USER_MENTION:
-            mention = self._mention_to_entity(kwargs['user_id'])
-            if mention:
-                self.entities.append(mention)
+            self.entities.append(SimpleEntity(type=entity_type, offset=0, length=len(self.text),
+                                              extra_info={"user_id": kwargs["user_id"]}))
             return self
         elif entity_type == EntityType.BOLD:
             prefix = suffix = "*"
@@ -91,20 +73,31 @@ class MatrixParser(BaseMatrixParser[FacebookFormatString]):
         return cast(FacebookFormatString, super().parse(data))
 
 
-def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> 'SendParams':
+async def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID) -> SendParams:
     mentions = []
-    reply_to_id = None
+    reply_to = None
     if content.relates_to.rel_type == RelationType.REPLY:
-        message = DBMessage.get_by_mxid(content.relates_to.event_id, room_id)
+        message = await DBMessage.get_by_mxid(content.relates_to.event_id, room_id)
         if message:
             content.trim_reply_fallback()
-            reply_to_id = message.fbid
+            reply_to = message.fbid
     if content.format == Format.HTML and content.formatted_body:
         parsed = MatrixParser.parse(content.formatted_body)
         text = parsed.text
-        mentions = [Mention(thread_id=mention.extra_info['fbid'], offset=mention.offset,
-                            length=mention.length)
-                    for mention in parsed.entities]
+        mentions = []
+        for mention in parsed.entities:
+            mxid = mention.extra_info["user_id"]
+            user = await u.User.get_by_mxid(mxid, create=False)
+            if user and user.fbid:
+                fbid = user.fbid
+            else:
+                puppet = await pu.Puppet.get_by_mxid(mxid, create=False)
+                if puppet:
+                    fbid = puppet.fbid
+                else:
+                    continue
+            mentions.append(Mention(user_id=str(fbid), offset=mention.offset,
+                                    length=mention.length))
     else:
         text = content.body
-    return {"text": text, "mentions": mentions, "reply_to_id": reply_to_id}
+    return SendParams(text=text, mentions=mentions, reply_to=reply_to)

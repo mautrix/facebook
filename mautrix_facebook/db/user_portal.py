@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,31 +13,61 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING, ClassVar
 
-from sqlalchemy import Column, Text, Boolean, ForeignKeyConstraint, and_
-from sqlalchemy.sql import expression
+from asyncpg import Record
+from attr import dataclass
 
-from mautrix.util.db import Base
+from mautrix.util.async_db import Database
+
+fake_db = Database("") if TYPE_CHECKING else None
 
 
-class UserPortal(Base):
-    __tablename__ = "user_portal"
+@dataclass
+class UserPortal:
+    db: ClassVar[Database] = fake_db
 
-    user: str = Column(Text, primary_key=True)
-    portal: str = Column(Text, primary_key=True)
-    portal_receiver: str = Column(Text, primary_key=True)
-    in_community: bool = Column(Boolean, nullable=False, server_default=expression.false())
-
-    __table_args__ = (ForeignKeyConstraint(("portal", "portal_receiver"),
-                                           ("portal.fbid", "portal.fb_receiver"),
-                                           onupdate="CASCADE", ondelete="CASCADE"),)
-
-    @classmethod
-    def all(cls, user: str) -> Dict[str, 'UserPortal']:
-        return {up.portal: up for up in cls._select_all(cls.c.user == user)}
+    user: int
+    portal: int
+    portal_receiver: int
+    in_community: bool
 
     @classmethod
-    def get(cls, user: str, portal: str, portal_receiver: str) -> Optional['UserPortal']:
-        return cls._select_one_or_none(and_(cls.c.user == user, cls.c.portal == portal,
-                                            cls.c.portal_receiver == portal_receiver))
+    def _from_row(cls, row: Optional[Record]) -> Optional['UserPortal']:
+        if row is None:
+            return None
+        return cls(**row)
+
+    @classmethod
+    async def all(cls, user: int) -> Dict[int, 'UserPortal']:
+        q = ('SELECT "user", portal, portal_receiver, in_community FROM user_portal '
+             'WHERE "user"=$1')
+        rows = await cls.db.fetch(q, user)
+        return {up.portal: up for up in (cls._from_row(row) for row in rows)}
+
+    @classmethod
+    async def get(cls, user: int, portal: int, portal_receiver: int) -> Optional['UserPortal']:
+        q = ('SELECT "user", portal, portal_receiver, in_community FROM user_portal '
+             'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3')
+        row = await cls.db.fetchrow(q, user, portal, portal_receiver)
+        return cls._from_row(row)
+
+    async def insert(self) -> None:
+        q = ('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
+             "VALUES ($1, $2, $3, $4)")
+        await self.db.execute(q, self.user, self.portal, self.portal_receiver, self.in_community)
+
+    async def upsert(self) -> None:
+        q = ('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
+             'VALUES ($1, $2, $3, $4) '
+             'ON CONFLICT ("user", portal, portal_receiver) DO UPDATE SET in_community=$4')
+        await self.db.execute(q, self.user, self.portal, self.portal_receiver, self.in_community)
+
+    async def delete(self) -> None:
+        await self.db.execute('DELETE FROM user_portal '
+                              'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3', self.user)
+
+    async def save(self) -> None:
+        await self.db.execute('UPDATE user_portal SET in_community=$4 '
+                              'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3',
+                              self.user, self.portal, self.portal_receiver, self.in_community)

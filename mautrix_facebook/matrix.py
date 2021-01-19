@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Union, TYPE_CHECKING
-from datetime import datetime
 import time
 
 from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
@@ -26,25 +25,25 @@ from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
 
 from . import user as u, portal as po, puppet as pu
-from .db import ThreadType
+from .db import ThreadType, Message as DBMessage
 
 if TYPE_CHECKING:
-    from .context import Context
+    from .__main__ import MessengerBridge
 
 
 class MatrixHandler(BaseMatrixHandler):
-    def __init__(self, context: 'Context') -> None:
-        prefix, suffix = context.config["bridge.username_template"].format(userid=":").split(":")
-        homeserver = context.config["homeserver.domain"]
+    def __init__(self, bridge: 'MessengerBridge') -> None:
+        prefix, suffix = bridge.config["bridge.username_template"].format(userid=":").split(":")
+        homeserver = bridge.config["homeserver.domain"]
         self.user_id_prefix = f"@{prefix}"
         self.user_id_suffix = f"{suffix}:{homeserver}"
-        super().__init__(bridge=context.bridge)
+        super().__init__(bridge=bridge)
 
     async def send_welcome_message(self, room_id: RoomID, inviter: 'u.User') -> None:
         await super().send_welcome_message(room_id, inviter)
         if not inviter.notice_room:
             inviter.notice_room = room_id
-            inviter.save()
+            await inviter.save()
             await self.az.intent.send_notice(room_id, "This room has been marked as your "
                                                       "Facebook Messenger bridge notice room.")
 
@@ -57,7 +56,7 @@ class MatrixHandler(BaseMatrixHandler):
                                                        "Messenger puppets to private chats.")
             return
 
-        portal = po.Portal.get_by_mxid(room_id)
+        portal = await po.Portal.get_by_mxid(room_id)
         if portal:
             if portal.is_direct:
                 await intent.error_and_leave(room_id, text="You can not invite additional users "
@@ -80,7 +79,7 @@ class MatrixHandler(BaseMatrixHandler):
                                               "multi-user rooms.")
             await intent.leave_room(room_id)
             return
-        portal = po.Portal.get_by_fbid(puppet.fbid, invited_by.fbid, ThreadType.USER)
+        portal = await po.Portal.get_by_fbid(puppet.fbid, invited_by.fbid, ThreadType.USER)
         if portal.mxid:
             try:
                 await intent.invite_user(portal.mxid, invited_by.mxid, check_cache=False)
@@ -118,9 +117,9 @@ class MatrixHandler(BaseMatrixHandler):
         pass
 
     async def handle_join(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
-        user = u.User.get_by_mxid(user_id)
+        user = await u.User.get_by_mxid(user_id)
 
-        portal = po.Portal.get_by_mxid(room_id)
+        portal = await po.Portal.get_by_mxid(room_id)
         if not portal:
             return
 
@@ -138,11 +137,11 @@ class MatrixHandler(BaseMatrixHandler):
         # await portal.join_matrix(user, event_id)
 
     async def handle_leave(self, room_id: RoomID, user_id: UserID, event_id: EventID) -> None:
-        portal = po.Portal.get_by_mxid(room_id)
+        portal = await po.Portal.get_by_mxid(room_id)
         if not portal:
             return
 
-        user = u.User.get_by_mxid(user_id, create=False)
+        user = await u.User.get_by_mxid(user_id, create=False)
         if not user:
             return
 
@@ -151,11 +150,11 @@ class MatrixHandler(BaseMatrixHandler):
     @staticmethod
     async def handle_redaction(room_id: RoomID, user_id: UserID, event_id: EventID,
                                redaction_event_id: EventID) -> None:
-        user = u.User.get_by_mxid(user_id)
+        user = await u.User.get_by_mxid(user_id)
         if not user:
             return
 
-        portal = po.Portal.get_by_mxid(room_id)
+        portal = await po.Portal.get_by_mxid(room_id)
         if not portal:
             return
 
@@ -168,11 +167,11 @@ class MatrixHandler(BaseMatrixHandler):
             cls.log.debug(f"Ignoring m.reaction event in {room_id} from {user_id} with unexpected "
                           f"relation type {content.relates_to.rel_type}")
             return
-        user = u.User.get_by_mxid(user_id)
+        user = await u.User.get_by_mxid(user_id)
         if not user:
             return
 
-        portal = po.Portal.get_by_mxid(room_id)
+        portal = await po.Portal.get_by_mxid(room_id)
         if not portal:
             return
 
@@ -182,25 +181,28 @@ class MatrixHandler(BaseMatrixHandler):
     async def handle_presence(self, user_id: UserID, info: PresenceEventContent) -> None:
         if not self.config["bridge.presence"]:
             return
-        user = u.User.get_by_mxid(user_id, create=False)
-        if user and user.listener:
-            user.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
-            user.listener.set_foreground(info.presence == PresenceState.ONLINE)
+        # user = await u.User.get_by_mxid(user_id, create=False)
+        # if user and user.mqtt:
+        #     user.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
+        #     user.mqtt.set_foreground(info.presence == PresenceState.ONLINE)
 
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: List[UserID]) -> None:
-        portal = po.Portal.get_by_mxid(room_id)
+        portal = await po.Portal.get_by_mxid(room_id)
         if not portal:
             return
 
-        users = (u.User.get_by_mxid(mxid, create=False) for mxid in typing)
-        await portal.handle_matrix_typing({user for user in users
-                                           if user is not None})
+        # FIXME
+        # users = [await u.User.get_by_mxid(mxid, create=False) for mxid in typing]
+        # await portal.handle_matrix_typing({user for user in users
+        #                                    if user is not None})
 
     async def handle_read_receipt(self, user: 'u.User', portal: 'po.Portal', event_id: EventID,
                                   data: SingleReceiptEventContent) -> None:
-        timestamp = datetime.fromtimestamp(data.get("ts", int(time.time() * 1000)) / 1000)
-        await user.client.mark_as_read([portal.thread_for(user)], at=timestamp)
+        timestamp = data.get("ts", int(time.time() * 1000))
+        message = await DBMessage.get_by_mxid(event_id, portal.mxid)
+        await user.mqtt.mark_read(portal.fbid, portal.fb_type != ThreadType.USER,
+                                  read_to=message.timestamp if message else timestamp)
 
     def filter_matrix_event(self, evt: Event) -> bool:
         if isinstance(evt, (ReceiptEvent, TypingEvent, PresenceEvent)):

@@ -1,6 +1,6 @@
 # Features & roadmap
 
-* Matrix → Facebook Messenger
+* Matrix → Messenger
   * [ ] Message content
     * [x] Text
     * [ ] Media
@@ -9,14 +9,14 @@
       * [x] Voice messages
       * [x] Videos
       * [x] Images
-      * [x] Locations
+      * [ ] Locations
     * [x] Formatting
     * [x] Replies
     * [x] Mentions
   * [x] Message redactions
   * [x] Message reactions
-  * [x] Presence
-  * [x] Typing notifications
+  * [ ] Presence
+  * [ ] Typing notifications
   * [x] Read receipts
   * [ ] Power level
   * [ ] Membership actions
@@ -26,7 +26,7 @@
   * [ ] Room metadata changes
     * [ ] Name
     * [ ] Avatar
-* Facebook Messenger → Matrix
+* Messenger → Matrix
   * [ ] Message content
     * [x] Text
     * [x] Media
@@ -35,7 +35,7 @@
       * [x] Voice messages
       * [x] Videos
       * [x] Images
-      * [x] Locations
+      * [ ] Locations
     * [x] Formatting
     * [x] Replies
     * [x] Mentions
@@ -43,17 +43,17 @@
   * [x] Message unsend
   * [x] Message reactions
   * [x] Message history
-  * [x] Presence
-  * [x] Typing notifications
+  * [ ] Presence
+  * [ ] Typing notifications
   * [x] Read receipts
   * [ ] Admin status
   * [ ] Membership actions
     * [x] Add member
     * [x] Remove member
     * [ ] Leave
-  * [ ] Chat metadata changes
+  * [x] Chat metadata changes
     * [x] Title
-    * [ ] Avatar
+    * [x] Avatar
   * [x] Initial chat metadata
   * [ ] User metadata
     * [x] Name

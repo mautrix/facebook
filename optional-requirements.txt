@@ -1,14 +1,10 @@
 # Format: #/name defines a new extras_require group called name
 # Uncommented lines after the group definition insert things into that group.
 
-#/postgres
-psycopg2-binary>=2,<3
-
 #/animated_stickers
 pillow>=4,<9
 
 #/e2be
-asyncpg>=0.20,<0.22
 python-olm>=3,<4
 pycryptodome>=3,<4
 unpaddedbase64>=1,<2

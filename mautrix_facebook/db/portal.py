@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,64 +13,99 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Iterator
+from typing import Optional, Union, List, TYPE_CHECKING, ClassVar
+from enum import Enum
 
-from sqlalchemy import Column, Text, Enum, Boolean, false, and_
+from asyncpg import Record
+from attr import dataclass
 
 from mautrix.types import RoomID, ContentURI
-from mautrix.util.db import Base
+from mautrix.util.async_db import Database
+from maufbapi.types.mqtt import ThreadKey as MQTTThreadKey
+from maufbapi.types.graphql import ThreadKey as GraphQLThreadKey
 
-from enum import Enum as EnumType
-from fbchat import ThreadABC, User, Group, Page
+fake_db = Database("") if TYPE_CHECKING else None
 
 
-class ThreadType(EnumType):
-    USER = 1
-    GROUP = 2
-    PAGE = 3
-    UNKNOWN = 4
+class ThreadType(Enum):
+    USER = "USER"
+    GROUP = "GROUP"
+    PAGE = "PAGE"
+    UNKNOWN = "UNKNOWN"
 
     @classmethod
-    def from_thread(cls, thread: ThreadABC) -> 'ThreadType':
-        if isinstance(thread, User):
-            return cls.USER
-        elif isinstance(thread, Group):
+    def from_thread_key(cls, thread_key: Union[MQTTThreadKey, GraphQLThreadKey]) -> 'ThreadType':
+        if thread_key.thread_fbid:
             return cls.GROUP
-        elif isinstance(thread, Page):
-            return cls.PAGE
+        elif thread_key.other_user_id:
+            return cls.USER
         else:
             return cls.UNKNOWN
 
 
-class Portal(Base):
-    __tablename__ = "portal"
+@dataclass
+class Portal:
+    db: ClassVar[Database] = fake_db
 
-    # Facebook chat information
-    fbid: str = Column(Text, primary_key=True)
-    fb_receiver: str = Column(Text, primary_key=True)
-    fb_type: ThreadType = Column(Enum(ThreadType), nullable=False)
-
-    # Matrix portal information
-    mxid: Optional[RoomID] = Column(Text, unique=True, nullable=True)
-    avatar_url: Optional[ContentURI] = Column(Text, nullable=True)
-    encrypted: bool = Column(Boolean, nullable=False, server_default=false())
-
-    # Facebook chat metadata
-    name = Column(Text, nullable=True)
-    photo_id = Column(Text, nullable=True)
+    fbid: int
+    fb_receiver: int
+    fb_type: ThreadType
+    mxid: Optional[RoomID]
+    name: Optional[str]
+    photo_id: Optional[str]
+    avatar_url: Optional[ContentURI]
+    encrypted: bool
 
     @classmethod
-    def get_by_fbid(cls, fbid: str, fb_receiver: str) -> Optional['Portal']:
-        return cls._select_one_or_none(and_(cls.c.fbid == fbid, cls.c.fb_receiver == fb_receiver))
+    def _from_row(cls, row: Optional[Record]) -> Optional['Portal']:
+        if row is None:
+            return None
+        data = {**row}
+        fb_type = ThreadType(data.pop("fb_type"))
+        return cls(**data, fb_type=fb_type)
 
     @classmethod
-    def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
-        return cls._select_one_or_none(cls.c.mxid == mxid)
+    async def get_by_fbid(cls, fbid: int, fb_receiver: int) -> Optional['Portal']:
+        q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted "
+             "FROM portal WHERE fbid=$1 AND fb_receiver=$2")
+        row = await cls.db.fetchrow(q, fbid, fb_receiver)
+        return cls._from_row(row)
 
     @classmethod
-    def get_all_by_receiver(cls, fb_receiver: str) -> Iterator['Portal']:
-        return cls._select_all(cls.c.fb_receiver == fb_receiver, cls.c.fb_type == ThreadType.USER)
+    async def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
+        q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted "
+             "FROM portal WHERE mxid=$1")
+        row = await cls.db.fetchrow(q, mxid)
+        return cls._from_row(row)
 
     @classmethod
-    def all(cls) -> Iterator['Portal']:
-        return cls._select_all()
+    async def get_all_by_receiver(cls, fb_receiver: int) -> List['Portal']:
+        q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted "
+             "FROM portal WHERE fb_receiver=$1 AND fb_type='USER'")
+        rows = await cls.db.fetch(q, fb_receiver)
+        return [cls._from_row(row) for row in rows]
+
+    @classmethod
+    async def all(cls) -> List['Portal']:
+        q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted "
+             "FROM portal")
+        rows = await cls.db.fetch(q)
+        return [cls._from_row(row) for row in rows]
+
+    async def insert(self) -> None:
+        q = ("INSERT INTO portal (fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, "
+             "                    encrypted) "
+             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+        await self.db.execute(q, self.fbid, self.fb_receiver, self.fb_type.name, self.mxid,
+                              self.name, self.photo_id, self.avatar_url, self.encrypted)
+
+    async def delete(self) -> None:
+        q = "DELETE FROM portal WHERE fbid=$1 AND fb_receiver=$2"
+        await self.db.execute(q, self.fbid, self.fb_receiver)
+
+    async def save(self) -> None:
+        await self.db.execute("UPDATE portal SET mxid=$3, name=$4, photo_id=$5, avatar_url=$6,"
+                              "                  encrypted=$7 "
+                              "WHERE fbid=$1 AND fb_receiver=$2",
+                              self.fbid, self.fb_receiver, self.mxid, self.name, self.photo_id,
+                              self.avatar_url, self.encrypted)

@@ -1,9 +1,7 @@
 aiohttp>=3,<4
 yarl>=1,<2
-SQLAlchemy>=1.2,<2
-alembic>=1,<2
+asyncpg>=0.20,<0.22
 ruamel.yaml>=0.15.94,<0.17
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
-mautrix>=0.8.4,<0.9
-fbchat-asyncio>=0.6.21,<0.7
+mautrix>=0.8.7,<0.9

@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,13 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Awaitable, Callable, Dict, Optional, NamedTuple, List
+from typing import NamedTuple
 
-from mautrix.bridge.commands import (HelpSection, CommandEvent as BaseCommandEvent,
-                                     command_handler as base_command_handler,
-                                     CommandHandler as BaseCommandHandler,
-                                     CommandProcessor as BaseCommandProcessor)
-from .. import user as u, context as c
+from mautrix.bridge.commands import HelpSection
 
 HelpCacheKey = NamedTuple('FBHelpCacheKey', is_management=bool, is_admin=bool, is_logged_in=bool)
 

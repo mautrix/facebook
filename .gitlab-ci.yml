@@ -13,8 +13,9 @@ build amd64:
   tags:
   - amd64
   script:
-  - docker pull $CI_REGISTRY_IMAGE:latest || true
-  - docker build --pull --cache-from $CI_REGISTRY_IMAGE:latest --build-arg TARGETARCH=amd64 --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64 .
+  - if [ "$CI_COMMIT_BRANCH" = "master" ]; then export CACHE_FROM=latest; else export CACHE_FROM=$CI_COMMIT_BRANCH; fi
+  - docker pull $CI_REGISTRY_IMAGE:$CACHE_FROM || true
+  - docker build --pull --cache-from $CI_REGISTRY_IMAGE:$CACHE_FROM --build-arg TARGETARCH=amd64 --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64 .
   - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64
   - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64
 
@@ -23,8 +24,9 @@ build arm64:
   tags:
   - arm64
   script:
-  - docker pull $CI_REGISTRY_IMAGE:latest || true
-  - docker build --pull --cache-from $CI_REGISTRY_IMAGE:latest --build-arg TARGETARCH=arm64 --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64 .
+  - if [ "$CI_COMMIT_BRANCH" = "master" ]; then export CACHE_FROM=latest; else export CACHE_FROM=$CI_COMMIT_BRANCH; fi
+  - docker pull $CI_REGISTRY_IMAGE:$CACHE_FROM || true
+  - docker build --pull --cache-from $CI_REGISTRY_IMAGE:$CACHE_FROM --build-arg TARGETARCH=arm64 --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64 .
   - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64
   - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64
 

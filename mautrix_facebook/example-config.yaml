@@ -25,14 +25,8 @@ appservice:
     # Usually 1 is enough, but on high-traffic bridges you might need to increase this to avoid 413s
     max_body_size: 1
 
-    # The full URI to the database. SQLite and Postgres are fully supported.
-    # Other DBMSes supported by SQLAlchemy may or may not work.
-    # Format examples:
-    #   SQLite:   sqlite:///filename.db
-    #   Postgres: postgres://username:password@hostname/dbname
-    database: sqlite:///mautrix-facebook.db
-    # Optional extra arguments for SQLAlchemy's create_engine
-    database_opts: {}
+    # The full URI to the database. Only Postgres is currently supported.
+    database: postgres://username:password@hostname/db
 
     # Public part of web server for out-of-Matrix interaction with the bridge.
     public:
@@ -55,7 +49,7 @@ appservice:
     # Display name and avatar for bot. Set to "remove" to remove display name/avatar, leave empty
     # to leave display name/avatar as-is.
     bot_displayname: Facebook bridge bot
-    bot_avatar: mxc://maunium.net/ddtNPZSKMNqaUzqrHuWvUADv
+    bot_avatar: mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak
 
     # Community ID for bridged users (changes registration file) and rooms.
     # Must be created manually. Example: "+facebook:example.com"
@@ -106,7 +100,7 @@ bridge:
 
     # Number of chats to sync (and create portals for) on startup/login.
     # Set 0 to disable automatic syncing.
-    initial_chat_sync: 10
+    initial_chat_sync: 20
     # Whether or not the Facebook users of logged in Matrix users should be
     # invited to private chats when the user sends a message from another client.
     invite_own_puppet_to_pm: false
@@ -147,15 +141,6 @@ bridge:
         # Default to encryption, force-enable encryption in all portals the bridge creates
         # This will cause the bridge bot to be in private chats for the encryption to work properly.
         default: false
-        # Database for the encryption data. Currently only supports Postgres and an in-memory
-        # store that's persisted as a pickle.
-        # If set to `default`, will use the appservice postgres database
-        # or a pickle file if the appservice database is sqlite.
-        #
-        # Format examples:
-        #   Pickle:   pickle:///filename.pickle
-        #   Postgres: postgres://username:password@hostname/dbname
-        database: default
         # Options for automatic key sharing.
         key_sharing:
             # Enable key sharing? If enabled, key requests for rooms where users are in will be fulfilled.
@@ -251,8 +236,6 @@ logging:
     loggers:
         mau:
             level: DEBUG
-        fbchat:
-            level: INFO
         paho:
             level: INFO
         aiohttp:

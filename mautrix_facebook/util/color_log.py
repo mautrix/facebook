@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2019 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -20,6 +20,6 @@ FBCHAT_COLOR = PREFIX + "35;1m"  # magenta
 
 class ColorFormatter(BaseColorFormatter):
     def _color_name(self, module: str) -> str:
-        if module.startswith("fbchat"):
+        if module.startswith("maufbapi"):
             return FBCHAT_COLOR + module + RESET
         return super()._color_name(module)

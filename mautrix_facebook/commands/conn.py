@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,9 +13,6 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import cast
-
-import fbchat
 from mautrix.bridge.commands import HelpSection, command_handler
 
 from .typehint import CommandEvent
@@ -27,17 +24,17 @@ SECTION_CONNECTION = HelpSection("Connection management", 15, "")
                  help_text="Mark this room as your bridge notice room")
 async def set_notice_room(evt: CommandEvent) -> None:
     evt.sender.notice_room = evt.room_id
-    evt.sender.save()
+    await evt.sender.save()
     await evt.reply("This room has been marked as your bridge notice room")
 
 
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
                  help_text="Disconnect from Facebook Messenger")
 async def disconnect(evt: CommandEvent) -> None:
-    if not evt.sender.listener:
+    if not evt.sender.mqtt:
         await evt.reply("You don't have a Messenger MQTT connection")
         return
-    evt.sender.listener.disconnect()
+    evt.sender.mqtt.disconnect()
 
 
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
@@ -55,12 +52,12 @@ async def ping(evt: CommandEvent) -> None:
     if not await evt.sender.is_logged_in():
         await evt.reply("You're not logged into Facebook Messenger")
         return
-    try:
-        own_info = cast(fbchat.User,
-                        await evt.sender.client.fetch_thread_info([evt.sender.fbid]).__anext__())
-    except fbchat.PleaseRefresh as e:
-        await evt.reply(f"{e}\n\nUse `$cmdprefix+sp refresh` refresh the session.")
-        return
+    # try:
+    own_info = await evt.sender.client.get_self()
+    # TODO catch errors
+    # except fbchat.PleaseRefresh as e:
+    #     await evt.reply(f"{e}\n\nUse `$cmdprefix+sp refresh` refresh the session.")
+    #     return
     await evt.reply(f"You're logged in as {own_info.name} (user ID {own_info.id})")
 
     if not evt.sender.listen_task or evt.sender.listen_task.done():

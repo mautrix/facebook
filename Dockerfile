@@ -12,20 +12,16 @@ RUN apk add --no-cache \
       py3-pillow \
       py3-aiohttp \
       py3-magic \
+      py3-ruamel.yaml \
+      py3-commonmark@edge \
+      py3-paho-mqtt \
+      # For legacy migrations
       py3-sqlalchemy \
       py3-psycopg2 \
-      py3-ruamel.yaml \
-      imagemagick \
-      # Indirect dependencies
-      py3-commonmark@edge \
       py3-alembic@edge \
-      #fbchat
-        py3-beautifulsoup4 \
-        py3-paho-mqtt \
-      py3-idna \
-      py3-cffi \
       # encryption
       olm-dev \
+      py3-cffi \
       py3-pycryptodome \
       py3-unpaddedbase64 \
       py3-future \
@@ -37,15 +33,13 @@ RUN apk add --no-cache \
       su-exec \
       bash \
       curl \
-      jq && \
-    curl -sLo yq https://github.com/mikefarah/yq/releases/download/3.3.2/yq_linux_${TARGETARCH} && \
-    chmod +x yq && mv yq /usr/bin/yq
+      jq \
+      yq@edge
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
 WORKDIR /opt/mautrix-facebook
 RUN apk add --virtual .build-deps python3-dev libffi-dev build-base \
- && sed -Ei 's/psycopg2-binary.+//' optional-requirements.txt \
  && pip3 install -r requirements.txt -r optional-requirements.txt \
  && apk del .build-deps
 

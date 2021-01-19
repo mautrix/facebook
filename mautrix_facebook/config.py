@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -25,6 +25,7 @@ class Config(BaseBridgeConfig):
     def forbidden_defaults(self) -> List[ForbiddenDefault]:
         return [
             *super().forbidden_defaults,
+            ForbiddenDefault("appservice.database", "postgres://username:password@hostname/db"),
             ForbiddenDefault("appservice.public.external", "https://example.com/public",
                              condition="appservice.public.enabled"),
             ForbiddenDefault("bridge.permissions", ForbiddenKey("example.com"))
@@ -38,6 +39,9 @@ class Config(BaseBridgeConfig):
         copy("homeserver.asmux")
 
         copy("appservice.community_id")
+
+        if self["appservice.bot_avatar"] == "mxc://maunium.net/ddtNPZSKMNqaUzqrHuWvUADv":
+            base["appservice.bot_avatar"] = "mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak"
 
         copy("appservice.public.enabled")
         copy("appservice.public.prefix")
@@ -72,7 +76,6 @@ class Config(BaseBridgeConfig):
         copy("bridge.update_avatar_initial_sync")
         copy("bridge.encryption.allow")
         copy("bridge.encryption.default")
-        copy("bridge.encryption.database")
         copy("bridge.encryption.key_sharing.allow")
         copy("bridge.encryption.key_sharing.require_cross_signing")
         copy("bridge.encryption.key_sharing.require_verification")

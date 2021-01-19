@@ -1,5 +1,5 @@
-# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge
-# Copyright (C) 2020 Tulir Asokan
+# mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+# Copyright (C) 2021 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,12 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, List, Optional, Match
+from typing import Tuple, List, Optional, Match, Union
 from html import escape
 import re
 
-import fbchat
 from mautrix.types import TextMessageEventContent, Format, MessageType
+from maufbapi.types import graphql, mqtt
 
 from .. import puppet as pu, user as u
 
@@ -35,18 +35,6 @@ tags = {
     "~": "del",
     "`": "code"
 }
-
-
-def _mention_replacer(match: Match) -> str:
-    fbid = match.group(1)
-
-    user = u.User.get_by_fbid(fbid)
-    if user:
-        return f"<a href=\"https://matrix.to/#/{user.mxid}\">{match.group(2)}</a>"
-
-    puppet = pu.Puppet.get_by_fbid(fbid, create=False)
-    if puppet:
-        return f"<a href=\"https://matrix.to/#/{puppet.mxid}\">{match.group(2)}</a>"
 
 
 def _handle_match(html: str, match: Match, nested: bool) -> Tuple[str, int]:
@@ -137,14 +125,24 @@ def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptSt
             output.append(_convert_formatting(post_cb_content))
 
 
-def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
-    text = message.text or ""
+async def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMessageEventContent:
+    if isinstance(msg, mqtt.Message):
+        text = msg.text
+        mentions = msg.mentions
+    elif isinstance(msg, graphql.MessageText):
+        text = msg.text
+        mentions = msg.ranges
+    else:
+        raise ValueError(f"Unsupported Facebook message type {type(msg).__name__}")
+    text = text or ""
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
-    for m in reversed(message.mentions):
+    mention_user_ids = []
+    for m in reversed(mentions):
         original = text[m.offset:m.offset + m.length]
         if len(original) > 0 and original[0] == "@":
             original = original[1:]
-        text = f"{text[:m.offset]}@{m.thread_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
+        mention_user_ids.append(int(m.user_id))
+        text = f"{text[:m.offset]}@{m.user_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
     html = escape(text)
     output = []
     if html:
@@ -159,15 +157,22 @@ def facebook_to_matrix(message: fbchat.MessageData) -> TextMessageEventContent:
             if i != len(lines) - 1:
                 output.append("<br/>")
             _handle_codeblock_post(output, *post_args)
-    for attachment in message.attachments:
-        if ((isinstance(attachment, fbchat.ShareAttachment)
-             and attachment.original_url.rstrip("/") not in text)):
-            output.append(f"<br/><a href='{attachment.original_url}'>"
-                          f"{attachment.title or attachment.original_url}"
-                          "</a>")
-            content.body += (f"\n{attachment.title}: {attachment.original_url}"
-                             if attachment.title else attachment.original_url)
     html = "".join(output)
+
+    mention_user_map = {}
+    for fbid in mention_user_ids:
+        user = await u.User.get_by_fbid(fbid)
+        if user:
+            mention_user_map[fbid] = user.mxid
+        else:
+            puppet = await pu.Puppet.get_by_fbid(fbid, create=False)
+            mention_user_map[fbid] = puppet.mxid if puppet else None
+
+    def _mention_replacer(match: Match) -> str:
+        mxid = mention_user_map[int(match.group(1))]
+        if not mxid:
+            return match.group(2)
+        return f"<a href=\"https://matrix.to/#/{mxid}\">{match.group(2)}</a>"
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
     if html != escape(content.body).replace("\n", "<br/>"):
