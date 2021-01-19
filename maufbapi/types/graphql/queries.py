@@ -185,7 +185,7 @@ class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs['SearchEntitiesNa
     doc_id: ClassVar[int] = 3414226858659179
 
     search_query: str
-    session_id: str = "???"
+    session_id: Optional[str] = None
 
     results_limit: int = 20
     num_users_query: int = 20
