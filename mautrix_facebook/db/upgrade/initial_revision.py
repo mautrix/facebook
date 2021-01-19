@@ -13,7 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from asyncpg import Connection, UndefinedObjectError, DuplicateObjectError
+from asyncpg import (Connection, UndefinedObjectError, DuplicateObjectError,
+                     ForeignKeyViolationError)
 from . import upgrade_table
 
 legacy_exist_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
@@ -176,17 +177,18 @@ async def migrate_legacy_data(conn: Connection) -> None:
         "SELECT mxid, mx_room, fb_msgid, fb_receiver::bigint, fb_sender::bigint, reaction "
         "FROM legacy_reaction"
     )
-    await conn.execute('DELETE FROM legacy_user_portal '
-                       'WHERE "user" NOT IN (SELECT fbid FROM legacy_user)')
-    await conn.execute('DELETE FROM legacy_contact '
-                       'WHERE "user" NOT IN (SELECT fbid FROM legacy_user)')
-    await conn.execute('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
-                       'SELECT "user"::bigint, portal::bigint, portal_receiver::bigint, '
-                       '       in_community '
-                       'FROM legacy_user_portal')
-    await conn.execute('INSERT INTO user_contact ("user", contact, in_community) '
-                       'SELECT "user"::bigint, contact::bigint, in_community '
-                       "FROM legacy_contact")
+    try:
+        async with conn.transaction():
+            await conn.execute(
+                'INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
+                'SELECT "user"::bigint, portal::bigint, portal_receiver::bigint, in_community '
+                'FROM legacy_user_portal')
+            await conn.execute(
+                'INSERT INTO user_contact ("user", contact, in_community) '
+                'SELECT "user"::bigint, contact::bigint, in_community '
+                "FROM legacy_contact")
+    except ForeignKeyViolationError:
+        pass
     await conn.execute("UPDATE portal SET fb_receiver=0 WHERE fb_type<>'USER'")
     await conn.execute("UPDATE reaction SET fb_receiver=0 WHERE fb_receiver "
                        "IN (SELECT fbid FROM portal WHERE fb_receiver=0)")
