@@ -29,7 +29,9 @@ new_tables_created_query = ("SELECT EXISTS(SELECT FROM information_schema.tables
 @upgrade_table.register(description="Initial asyncpg revision", transaction=False)
 async def upgrade_v1(conn: Connection) -> None:
     try:
-        await conn.execute("CREATE TYPE threadtype AS ENUM ('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
+        async with conn.transaction():
+            await conn.execute("CREATE TYPE threadtype AS ENUM "
+                               "('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
     except DuplicateObjectError:
         pass
 
