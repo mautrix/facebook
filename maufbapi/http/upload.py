@@ -19,13 +19,13 @@ import time
 import json
 
 from .base import BaseAndroidAPI
-from ..types import PasswordKeyResponse
+from ..types import UploadResponse
 
 
 class UploadAPI(BaseAndroidAPI):
     async def send_media(self, data: bytes, file_name: str, mimetype: str,
                          chat_id: int, is_group: bool, offline_threading_id: int,
-                         timestamp: Optional[int] = None) -> PasswordKeyResponse:
+                         timestamp: Optional[int] = None) -> UploadResponse:
         headers = {
             **self._headers,
             "app_id": self.state.application.client_id,
@@ -36,7 +36,7 @@ class UploadAPI(BaseAndroidAPI):
             "ttl": "0",
             "offset": "0",
             "to": f"tfbid_{chat_id}" if is_group else str(chat_id),
-            "x-entity-length": len(data),
+            "x-entity-length": str(len(data)),
             "x-entity-name": file_name,
             "x-entity-type": mimetype,
             # TODO shared enum with graphql attachment response
@@ -45,18 +45,15 @@ class UploadAPI(BaseAndroidAPI):
             "content-type": "application/octet-stream",
             "client_tags": json.dumps({"trigger": "2:thread_list:thread",
                                        "is_in_chatheads": "false"}),
-            "original_timestamp": timestamp or int(time.time() * 1000),
-            "sender_fbid": self.state.session.uid,
+            "original_timestamp": str(timestamp or int(time.time() * 1000)),
+            "sender_fbid": str(self.state.session.uid),
             "x-fb-rmd": "state=NO_MATCH",
             "x-msgr-region": self.state.session.region_hint,
             "x-fb-friendly-name": "post_resumable_upload_session",
         }
-        # TODO generate 51-character hex id?
         file_id = hashlib.md5(data).hexdigest() + str(offline_threading_id)
         resp = await self.http.post(self.rupload_url / "messenger_image" / file_id,
                                     headers=headers, data=data)
         json_data = await self._handle_response(resp)
-        parsed = PasswordKeyResponse.deserialize(json_data)
-        self.state.session.password_encryption_pubkey = parsed.public_key
-        self.state.session.password_encryption_key_id = parsed.key_id
+        parsed = UploadResponse.deserialize(json_data)
         return parsed
