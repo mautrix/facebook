@@ -4,4 +4,6 @@ from .message import (ThreadKey, MessageMetadata, ImageInfo, Attachment, Reactio
                       Mention, Message, ExtendedMessage, MessageSyncInnerEvent, MessageSyncEvent,
                       MessageSyncInnerPayload, MessageSyncPayload, BinaryData, ReadReceipt,
                       UnsendMessage, VideoInfo, AvatarChange, OwnReadReceipt, NameChange,
-                      EmojiChange, EmojiChangeAction, AudioInfo, MessageSyncError)
+                      ThreadChange, ThreadChangeAction, AudioInfo, MessageSyncError, AddMember,
+                      AddMemberParticipant, ExtendedAddMember, ExtendedAddMemberParticipant,
+                      RemoveMember)

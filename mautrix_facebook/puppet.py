@@ -20,13 +20,12 @@ import asyncio
 
 from yarl import URL
 import magic
-import attr
 
 from mautrix.types import UserID, RoomID, SyncToken, ContentURI
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet
 from mautrix.util.simple_template import SimpleTemplate
-from maufbapi.types.graphql import StructuredName, Participant, Picture
+from maufbapi.types.graphql import Participant, Picture
 
 from .config import Config
 from .db import Puppet as DBPuppet

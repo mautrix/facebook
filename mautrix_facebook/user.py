@@ -13,8 +13,8 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import (Any, Dict, List, Optional, AsyncIterable, Type, Callable, Awaitable, Union,
-                    TypeVar, AsyncGenerator, TYPE_CHECKING, cast)
+from typing import (Dict, List, Optional, AsyncIterable, Awaitable, Union, TypeVar, AsyncGenerator,
+                    TYPE_CHECKING, cast)
 from collections import defaultdict
 import asyncio
 import time
@@ -28,9 +28,7 @@ from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 
 from maufbapi import AndroidState, AndroidMQTT, AndroidAPI
 from maufbapi.mqtt import Disconnect, Connect, MQTTNotLoggedIn, MQTTNotConnected
-from maufbapi.types.graphql import Thread
-from maufbapi.types.mqtt import (Message, Reaction, UnsendMessage, ExtendedMessage, NameChange,
-                                 AvatarChange, ReadReceipt, OwnReadReceipt)
+from maufbapi.types import graphql, mqtt as mqtt_t
 
 from .config import Config
 from .commands import enter_2fa_code
@@ -49,6 +47,7 @@ METRIC_MESSAGE_UNSENT = Summary('bridge_on_unsent', 'calls to on_unsent')
 METRIC_MESSAGE_SEEN = Summary('bridge_on_message_seen', 'calls to on_message_seen')
 METRIC_TITLE_CHANGE = Summary('bridge_on_title_change', 'calls to on_title_change')
 METRIC_AVATAR_CHANGE = Summary('bridge_on_avatar_change', 'calls to on_avatar_change')
+METRIC_THREAD_CHANGE = Summary('bridge_on_thread_change', 'calls to on_thread_change')
 METRIC_MESSAGE = Summary('bridge_on_message', 'calls to on_message')
 METRIC_LOGGED_IN = Gauge('bridge_logged_in', 'Users logged into the bridge')
 METRIC_CONNECTED = Gauge('bridge_connected', 'Bridge users connected to Facebook')
@@ -431,7 +430,7 @@ class User(DBUser, BaseUser):
 
         await self.update_direct_chats()
 
-    async def _sync_thread(self, thread: Thread, ups: Dict[int, UserPortal],
+    async def _sync_thread(self, thread: graphql.Thread, ups: Dict[int, UserPortal],
                            contacts: Dict[int, UserContact]) -> None:
         self.log.debug(f"Syncing thread {thread.thread_key.id}")
         is_direct = bool(thread.thread_key.other_user_id)
@@ -511,14 +510,17 @@ class User(DBUser, BaseUser):
             if not self.mqtt:
                 self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
                 self.mqtt.seq_id_update_callback = self._update_seq_id
-                self.mqtt.add_event_handler(Message, self.on_message)
-                self.mqtt.add_event_handler(ExtendedMessage, self.on_message)
-                self.mqtt.add_event_handler(NameChange, self.on_title_change)
-                self.mqtt.add_event_handler(AvatarChange, self.on_avatar_change)
-                self.mqtt.add_event_handler(UnsendMessage, self.on_message_unsent)
-                self.mqtt.add_event_handler(ReadReceipt, self.on_message_seen)
-                self.mqtt.add_event_handler(OwnReadReceipt, self.on_message_seen_self)
-                self.mqtt.add_event_handler(Reaction, self.on_reaction)
+                self.mqtt.add_event_handler(mqtt_t.Message, self.on_message)
+                self.mqtt.add_event_handler(mqtt_t.ExtendedMessage, self.on_message)
+                self.mqtt.add_event_handler(mqtt_t.NameChange, self.on_title_change)
+                self.mqtt.add_event_handler(mqtt_t.AvatarChange, self.on_avatar_change)
+                self.mqtt.add_event_handler(mqtt_t.UnsendMessage, self.on_message_unsent)
+                self.mqtt.add_event_handler(mqtt_t.ReadReceipt, self.on_message_seen)
+                self.mqtt.add_event_handler(mqtt_t.OwnReadReceipt, self.on_message_seen_self)
+                self.mqtt.add_event_handler(mqtt_t.Reaction, self.on_reaction)
+                self.mqtt.add_event_handler(mqtt_t.AddMember, self.on_members_added)
+                self.mqtt.add_event_handler(mqtt_t.RemoveMember, self.on_member_removed)
+                self.mqtt.add_event_handler(mqtt_t.ThreadChange, self.on_thread_change)
                 self.mqtt.add_event_handler(Connect, self.on_connect)
                 self.mqtt.add_event_handler(Disconnect, self.on_disconnect)
             await self.mqtt.listen(self.seq_id)
@@ -598,8 +600,8 @@ class User(DBUser, BaseUser):
         asyncio.ensure_future(self.post_login(), loop=self.loop)
 
     @async_time(METRIC_MESSAGE)
-    async def on_message(self, evt: Union[Message, ExtendedMessage]) -> None:
-        if isinstance(evt, ExtendedMessage):
+    async def on_message(self, evt: Union[mqtt_t.Message, mqtt_t.ExtendedMessage]) -> None:
+        if isinstance(evt, mqtt_t.ExtendedMessage):
             reply_to = evt.reply_to_message
             evt = evt.message
         else:
@@ -612,7 +614,7 @@ class User(DBUser, BaseUser):
         await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
 
     @async_time(METRIC_TITLE_CHANGE)
-    async def on_title_change(self, evt: NameChange) -> None:
+    async def on_title_change(self, evt: mqtt_t.NameChange) -> None:
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
         await portal.backfill_lock.wait("title change")
@@ -620,7 +622,7 @@ class User(DBUser, BaseUser):
                                           evt.metadata.timestamp)
 
     @async_time(METRIC_AVATAR_CHANGE)
-    async def on_avatar_change(self, evt: AvatarChange) -> None:
+    async def on_avatar_change(self, evt: mqtt_t.AvatarChange) -> None:
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
         await portal.backfill_lock.wait("avatar change")
@@ -628,7 +630,7 @@ class User(DBUser, BaseUser):
                                            evt.metadata.timestamp)
 
     @async_time(METRIC_MESSAGE_SEEN)
-    async def on_message_seen(self, evt: ReadReceipt) -> None:
+    async def on_message_seen(self, evt: mqtt_t.ReadReceipt) -> None:
         puppet = await pu.Puppet.get_by_fbid(evt.user_id)
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
         if portal.mxid:
@@ -636,7 +638,7 @@ class User(DBUser, BaseUser):
             await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_SEEN)
-    async def on_message_seen_self(self, evt: OwnReadReceipt) -> None:
+    async def on_message_seen_self(self, evt: mqtt_t.OwnReadReceipt) -> None:
         puppet = await pu.Puppet.get_by_fbid(self.fbid)
         for thread in evt.threads:
             portal = await po.Portal.get_by_thread(thread, self.fbid)
@@ -644,7 +646,7 @@ class User(DBUser, BaseUser):
             await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_UNSENT)
-    async def on_message_unsent(self, evt: UnsendMessage) -> None:
+    async def on_message_unsent(self, evt: mqtt_t.UnsendMessage) -> None:
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
         if portal.mxid:
             await portal.backfill_lock.wait(f"redaction of {evt.message_id}")
@@ -652,7 +654,7 @@ class User(DBUser, BaseUser):
             await portal.handle_facebook_unsend(puppet, evt.message_id, timestamp=evt.timestamp)
 
     @async_time(METRIC_REACTION)
-    async def on_reaction(self, evt: Reaction) -> None:
+    async def on_reaction(self, evt: mqtt_t.Reaction) -> None:
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
         if not portal.mxid:
             return
@@ -679,25 +681,39 @@ class User(DBUser, BaseUser):
     #     if portal.mxid and not portal.backfill_lock.locked:
     #         puppet = pu.Puppet.get_by_fbid(evt.author.id)
     #         await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
-    #
-    # @async_time(METRIC_MEMBERS_ADDED)
-    # async def on_members_added(self, evt: fbchat.PeopleAdded) -> None:
-    #     assert isinstance(evt.thread, fbchat.Group)
-    #     portal = po.Portal.get_by_thread(evt.thread)
-    #     if portal.mxid:
-    #         sender = pu.Puppet.get_by_fbid(evt.author.id)
-    #         users = [pu.Puppet.get_by_fbid(user.id) for user in evt.added]
-    #         await portal.backfill_lock.wait("member add")
-    #         await portal.handle_facebook_join(self, sender, users)
-    #
-    # @async_time(METRIC_MEMBER_REMOVED)
-    # async def on_member_removed(self, evt: fbchat.PersonRemoved) -> None:
-    #     assert isinstance(evt.thread, fbchat.Group)
-    #     portal = po.Portal.get_by_thread(evt.thread)
-    #     if portal.mxid:
-    #         sender = pu.Puppet.get_by_fbid(evt.author.id)
-    #         user = pu.Puppet.get_by_fbid(evt.removed.id)
-    #         await portal.backfill_lock.wait("member remove")
-    #         await portal.handle_facebook_leave(self, sender, user)
+
+    @async_time(METRIC_MEMBERS_ADDED)
+    async def on_members_added(self, evt: mqtt_t.AddMember) -> None:
+        portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        if portal.mxid:
+            sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+            users = [await pu.Puppet.get_by_fbid(user.id) for user in evt.users]
+            await portal.backfill_lock.wait("member add")
+            await portal.handle_facebook_join(self, sender, users)
+
+    @async_time(METRIC_MEMBER_REMOVED)
+    async def on_member_removed(self, evt: mqtt_t.RemoveMember) -> None:
+        portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        if portal.mxid:
+            sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+            user = await pu.Puppet.get_by_fbid(evt.user_id)
+            await portal.backfill_lock.wait("member remove")
+            await portal.handle_facebook_leave(self, sender, user)
+
+    @async_time(METRIC_THREAD_CHANGE)
+    async def on_thread_change(self, evt: mqtt_t.ThreadChange) -> None:
+        pass
+        # portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        # if not portal.mxid:
+        #     return
+
+        # TODO
+        # if evt.action == mqtt_t.ThreadChangeAction.ADMINS:
+        #     sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+        #     user = await pu.Puppet.get_by_fbid(evt.action_data["TARGET_ID"])
+        #     make_admin = evt.action_data["ADMIN_EVENT"] == "add_admin"
+        #     # TODO does the ADMIN_TYPE data matter?
+        #     await portal.backfill_lock.wait("admin change")
+        #     await portal.handle_facebook_admin(self, sender, user, make_admin)
 
     # endregion

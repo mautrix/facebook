@@ -55,6 +55,7 @@ class MessageMetadata(ThriftObject):
     tags: List[str] = field(factory=lambda: [])
     # index 9: unknown int32 (ex: 3)
     # index 10: unknown bool (ex: false)
+    # index 11: ???
     message_unsendability: Unsendability = field(TType.BINARY, index=12,
                                                  default=Unsendability.DENY_FOR_NON_SENDER)
     # indices 13-16: ???
@@ -119,6 +120,7 @@ class Attachment(ThriftObject):
     # can contain a dash_manifest key with some XML as the value
     # or fbtype key with a number as value
     extra_metadata: Dict[str, str] = field(factory=lambda: {})
+
     # index 1007?!: unknown bool
 
     def parse_extensible(self) -> ExtensibleAttachment:
@@ -210,8 +212,25 @@ class UnsendMessage(ThriftObject):
 
 @autospec
 @dataclass
+class ExtendedAddMemberParticipant(ThriftObject):
+    addee_user_id: int = field(TType.I64)
+    adder_user_id: int = field(TType.I64)
+    # index 3: unknown int32 (ex: 0)
+    timestamp: int = field(TType.I64, index=4)
+
+
+@autospec
+@dataclass
+class ExtendedAddMember(ThriftObject):
+    thread: ThreadKey
+    users: List[ExtendedAddMemberParticipant]
+
+
+@autospec
+@dataclass
 class MessageSyncInnerEvent(ThriftObject):
     reaction: Reaction = field(index=10, default=None)
+    extended_add_member: ExtendedAddMember = field(index=42, default=None)
     extended_message: ExtendedMessage = field(index=55, default=None)
     unsend_message: UnsendMessage = field(index=67, default=None)
 
@@ -263,27 +282,77 @@ class AvatarChange(ThriftObject):
     new_avatar: Attachment
 
 
-# TODO are there others?
-class EmojiChangeAction(Enum):
-    CHANGE_THREAD_ICON = "change_thread_icon"
+class ThreadChangeAction(Enum):
+    # action_data:
+    #   'thread_icon_url': 'https://www.facebook.com/images/emoji.php/v9/t54/1/16/1f408.png'
+    #   'thread_icon': '🐈'
+    ICON = "change_thread_icon"
+
+    # action_data:
+    #   'should_show_icon': '1'
+    #   'theme_color': 'FF5E007E'
+    #   'accessibility_label': 'Grape'
+    THEME = "change_thread_theme"
+
+    # action_data:
+    #   'THREAD_CATEGORY': 'GROUP'
+    #   'TARGET_ID': '<user id>'
+    #   'ADMIN_TYPE': '0'
+    #   'ADMIN_EVENT': 'add_admin' or 'remove_admin'
+    ADMINS = "change_thread_admins"
+
+    # action_data:
+    #   'APPROVAL_MODE': '1' (or '0'?)
+    #   'THREAD_CATEGORY': 'GROUP'
+    APPROVAL_MODE = "change_thread_approval_mode"
+
+    # TODO are there others?
 
 
 @autospec
 @dataclass(kw_only=True)
-class EmojiChange(ThriftObject):
+class ThreadChange(ThriftObject):
     metadata: MessageMetadata
-    action: EmojiChangeAction = field(TType.BINARY)
-    action_data: Dict[str, str]
+    action: ThreadChangeAction = field(TType.BINARY)
+    action_data: Dict[str, str] = field(TType.MAP,
+                                        key_type=RecursiveType(TType.BINARY, python_type=str),
+                                        value_type=RecursiveType(TType.BINARY, python_type=str))
+
+
+@autospec
+@dataclass(kw_only=True)
+class AddMemberParticipant(ThriftObject):
+    id: int = field(TType.I64)
+    first_name: str
+    name: str
+    # index 4: unknown boolean
+
+
+@autospec
+@dataclass(kw_only=True)
+class AddMember(ThriftObject):
+    metadata: MessageMetadata
+    users: List[AddMemberParticipant]
+
+
+@autospec
+@dataclass(kw_only=True)
+class RemoveMember(ThriftObject):
+    metadata: MessageMetadata
+    user_id: int = field(TType.I64)
 
 
 @autospec
 @dataclass(kw_only=True)
 class MessageSyncEvent(ThriftObject):
+    # index 1: unknown struct (no fields known)
     message: Message = field(index=2, default=None)
     own_read_receipt: OwnReadReceipt = field(index=4, default=None)
+    add_member: AddMember = field(index=8, default=None)
+    remove_member: RemoveMember = field(index=9, default=None)
     name_change: NameChange = field(index=10, default=None)
     avatar_change: AvatarChange = field(index=11, default=None)
-    emoji_change: EmojiChange = field(index=17, default=None)
+    thread_change: ThreadChange = field(index=17, default=None)
     read_receipt: ReadReceipt = field(index=19, default=None)
     # index 25: unknown struct
     #   index 1: ThreadKey
@@ -293,12 +362,12 @@ class MessageSyncEvent(ThriftObject):
     binary: BinaryData = field(index=42, default=None)
 
     def get_parts(self) -> List[Any]:
-        parts = [self.message, self.own_read_receipt, self.name_change, self.avatar_change,
-                 self.emoji_change, self.read_receipt]
+        parts = [self.message, self.own_read_receipt, self.add_member, self.remove_member,
+                 self.name_change, self.avatar_change, self.thread_change, self.read_receipt]
         if self.binary:
             for inner_item in self.binary.parse().items:
                 parts += [inner_item.reaction, inner_item.extended_message,
-                          inner_item.unsend_message]
+                          inner_item.unsend_message, inner_item.extended_add_member]
         return [part for part in parts if part is not None]
 
 

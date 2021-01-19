@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Dict, Deque, Optional, Tuple, Union, Set, AsyncGenerator, List, Any, Awaitable,
                     Pattern, TYPE_CHECKING, cast)
-from mimetypes import guess_extension
 from collections import deque
 from io import BytesIO
 import mimetypes

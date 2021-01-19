@@ -1,6 +1,6 @@
 # Features & roadmap
 
-* Matrix → Facebook Messenger
+* Matrix → Messenger
   * [ ] Message content
     * [x] Text
     * [ ] Media
@@ -26,7 +26,7 @@
   * [ ] Room metadata changes
     * [ ] Name
     * [ ] Avatar
-* Facebook Messenger → Matrix
+* Messenger → Matrix
   * [ ] Message content
     * [x] Text
     * [x] Media
@@ -43,7 +43,7 @@
   * [x] Message unsend
   * [x] Message reactions
   * [x] Message history
-  * [x] Presence
+  * [ ] Presence
   * [ ] Typing notifications
   * [x] Read receipts
   * [ ] Admin status
