@@ -39,9 +39,6 @@ class UploadAPI(BaseAndroidAPI):
             "x-entity-length": str(len(data)),
             "x-entity-name": file_name,
             "x-entity-type": mimetype,
-            # TODO shared enum with graphql attachment response
-            # TODO for audio files, send audio_type: VOICE_MESSAGE and is_voicemail: 0
-            "image_type": "FILE_ATTACHMENT",
             "content-type": "application/octet-stream",
             "client_tags": json.dumps({"trigger": "2:thread_list:thread",
                                        "is_in_chatheads": "false"}),
@@ -51,9 +48,17 @@ class UploadAPI(BaseAndroidAPI):
             "x-msgr-region": self.state.session.region_hint,
             "x-fb-friendly-name": "post_resumable_upload_session",
         }
+        if mimetype.startswith("image/"):
+            headers["image_type"] = "FILE_ATTACHMENT"
+        elif mimetype.startswith("video/"):
+            headers["video_type"] = "FILE_ATTACHMENT"
+        elif mimetype.startswith("audio/"):
+            headers["audio_type"] = "VOICE_MESSAGE"
+            headers["is_voicemail"] = "0"
         file_id = hashlib.md5(data).hexdigest() + str(offline_threading_id)
         resp = await self.http.post(self.rupload_url / "messenger_image" / file_id,
                                     headers=headers, data=data)
         json_data = await self._handle_response(resp)
+        self.log.trace("Upload response: %s %s", resp.status, json_data)
         parsed = UploadResponse.deserialize(json_data)
         return parsed
