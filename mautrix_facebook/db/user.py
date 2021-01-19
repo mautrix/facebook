@@ -30,7 +30,7 @@ class User:
     db: ClassVar[Database] = fake_db
 
     mxid: UserID
-    fbid: int
+    fbid: Optional[int]
     state: Optional[AndroidState]
     notice_room: Optional[RoomID]
 

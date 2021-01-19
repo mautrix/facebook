@@ -71,3 +71,7 @@ class UserPortal:
         await self.db.execute('UPDATE user_portal SET in_community=$4 '
                               'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3',
                               self.user, self.portal, self.portal_receiver, self.in_community)
+
+    @classmethod
+    async def delete_all(cls, user: int) -> None:
+        await cls.db.execute('DELETE FROM user_portal WHERE "user"=$1', user)

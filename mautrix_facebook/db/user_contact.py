@@ -67,3 +67,7 @@ class UserContact:
         await self.db.execute('UPDATE user_contact SET in_community=$3 '
                               'WHERE "user"=$1 AND contact=$2',
                               self.user, self.contact, self.in_community)
+
+    @classmethod
+    async def delete_all(cls, user: int) -> None:
+        await cls.db.execute('DELETE FROM user_contact WHERE "user"=$1', user)

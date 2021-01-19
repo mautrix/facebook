@@ -309,6 +309,13 @@ class User(DBUser, BaseUser):
         self.is_connected = None
         self.client = None
         self.mqtt = None
+
+        if self.fbid:
+            await UserContact.delete_all(self.fbid)
+            await UserPortal.delete_all(self.fbid)
+            del self.by_fbid[self.fbid]
+            self.fbid = None
+
         await self.save()
         return ok
 
