@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from asyncpg import Connection, UndefinedObjectError
+from asyncpg import Connection, UndefinedObjectError, DuplicateObjectError
 from . import upgrade_table
 
 legacy_exist_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
@@ -28,6 +28,11 @@ new_tables_created_query = ("SELECT EXISTS(SELECT FROM information_schema.tables
 
 @upgrade_table.register(description="Initial asyncpg revision", transaction=False)
 async def upgrade_v1(conn: Connection) -> None:
+    try:
+        await conn.execute("CREATE TYPE threadtype AS ENUM ('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
+    except DuplicateObjectError:
+        pass
+
     is_legacy = await conn.fetchval(legacy_exist_query)
     if is_legacy:
         legacy_version = await conn.fetchval(legacy_version_query)
@@ -45,7 +50,6 @@ async def upgrade_v1(conn: Connection) -> None:
         async with conn.transaction():
             await migrate_legacy_data(conn)
     else:
-        await conn.execute("CREATE TYPE threadtype AS ENUM ('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
         await create_v1_tables(conn)
 
 
