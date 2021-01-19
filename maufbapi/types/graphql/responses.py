@@ -92,7 +92,7 @@ class MinimalParticipant(ParticipantID, SerializableAttrs['MinimalParticipant'])
 
 @dataclass(kw_only=True)
 class Participant(MinimalParticipant, SerializableAttrs['Participant']):
-    username: str
+    username: Optional[str] = None
     structured_name: Optional[StructuredName] = None
     nickname_for_viewer: Optional[str] = None
 
