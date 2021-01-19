@@ -13,14 +13,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from mautrix.types import SerializableEnum
+from mautrix.types import ExtensibleEnum, SerializableEnum
 
 
-class MessageUnsendability(SerializableEnum):
+class MessageUnsendability(ExtensibleEnum):
     DENY_FOR_NON_SENDER = "deny_for_non_sender"
     DENY_LOG_MESSAGE = "deny_log_message"
     DENY_TOMBSTONE_MESSAGE = "deny_tombstone_message"
     DENY_IF_PAGE_THREAD = "deny_if_page_thread"
+    DENY_IF_CANNOT_REPLY_TO_VIEWER_THREAD = "deny_if_cannot_reply_to_viewer_thread"
     CAN_UNSEND = "can_unsend"
 
 
