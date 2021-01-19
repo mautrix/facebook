@@ -129,7 +129,8 @@ async def rename_legacy_tables(conn: Connection) -> None:
     await conn.execute("ALTER TABLE mx_user_profile RENAME TO legacy_mx_user_profile")
     await conn.execute("ALTER TABLE mx_room_state RENAME TO legacy_mx_room_state")
     try:
-        await conn.execute("ALTER TYPE membership RENAME TO legacy_membership")
+        async with conn.transaction():
+            await conn.execute("ALTER TYPE membership RENAME TO legacy_membership")
     except UndefinedObjectError:
         pass
 
