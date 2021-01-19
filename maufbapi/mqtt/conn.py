@@ -31,7 +31,7 @@ from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
 from ..types import (MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest,
-                     MarkReadRequest)
+                     MarkReadRequest, OpenedThreadRequest)
 from ..types.mqtt import Mention
 from ..thrift import ThriftReader, ThriftObject
 from .otclient import MQTToTClient
@@ -62,6 +62,7 @@ class AndroidMQTT:
     state: AndroidState
     seq_id: Optional[int]
     seq_id_update_callback: Optional[Callable[[int], None]]
+    _opened_thread: Optional[int]
     _publish_waiters: Dict[int, asyncio.Future]
     _response_waiters: Dict[RealtimeTopic, asyncio.Future]
     _response_waiter_locks: Dict[RealtimeTopic, asyncio.Lock]
@@ -74,6 +75,7 @@ class AndroidMQTT:
                  log: Optional[TraceLogger] = None) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
+        self._opened_thread = None
         self._publish_waiters = {}
         self._response_waiters = {}
         self._disconnect_error = None
@@ -130,7 +132,8 @@ class AndroidMQTT:
         #                     "/ls_resp", "/t_rtc_multi",  # RealtimeTopic.SEND_MESSAGE_RESP,
         #                     ]
         subscribe_topics = [RealtimeTopic.MESSAGE_SYNC, RealtimeTopic.REGION_HINT,
-                            RealtimeTopic.SEND_MESSAGE_RESP]
+                            RealtimeTopic.SEND_MESSAGE_RESP,
+                            RealtimeTopic.MARK_THREAD_READ_RESPONSE]
         topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
                      for topic in subscribe_topics]
         cfg = RealtimeConfig(
@@ -192,6 +195,7 @@ class AndroidMQTT:
         self._loop.create_task(self._post_connect())
 
     async def _post_connect(self) -> None:
+        self._opened_thread = None
         self.log.debug("Re-creating sync queue after reconnect")
         await self._dispatch(Connect())
         await self.publish("/ls_req", {
@@ -269,12 +273,15 @@ class AndroidMQTT:
 
     # region Incoming event parsing
 
+    def _update_seq_id(self, msp: MessageSyncPayload) -> None:
+        if msp.last_seq_id and msp.last_seq_id > self.seq_id:
+            self.seq_id = msp.last_seq_id
+            self.seq_id_update_callback(self.seq_id)
+
     def _on_message_sync(self, payload: bytes) -> None:
         parsed = MessageSyncPayload.from_thrift(payload)
         # TODO handle errors
-        if parsed.last_seq_id and parsed.last_seq_id > self.seq_id:
-            self.seq_id = parsed.last_seq_id
-            self.seq_id_update_callback(self.seq_id)
+        self._update_seq_id(parsed)
         for item in parsed.items:
             for event in item.get_parts():
                 self._loop.create_task(self._dispatch(event))
@@ -429,11 +436,21 @@ class AndroidMQTT:
         if mentions:
             req.extra_metadata = {"prng": json.dumps([mention.serialize() for mention in mentions],
                                                      separators=(',', ':'))}
+        await self.opened_thread(target)
         print("Send message request:", req)
         resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req,
                                   prefix=b"\x18\x00\x00")
         print("Send message response:", resp.payload)
         ThriftReader(resp.payload).pretty_print()
+
+    async def opened_thread(self, target: int) -> None:
+        if self._opened_thread == target:
+            return
+        self._opened_thread = target
+        req = OpenedThreadRequest()
+        req.chat_id = target
+        print("Opened thread request:", req)
+        print(await self.publish(RealtimeTopic.OPENED_THREAD, req))
 
     async def mark_read(self, target: int, is_group: bool, read_to: int,
                         offline_threading_id: Optional[int] = None) -> None:
@@ -444,6 +461,11 @@ class AndroidMQTT:
             req.group_id = target
         else:
             req.user_id = target
-        await self.publish(RealtimeTopic.MARK_THREAD_READ, req)
+        await self.opened_thread(target)
+        print("Mark read request:", req)
+        resp = await self.request(RealtimeTopic.MARK_THREAD_READ,
+                                  RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+                                  req, prefix=b"\x00")
+        print("Mark read response:", resp.payload)
 
     # endregion

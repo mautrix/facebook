@@ -63,3 +63,24 @@ class MarkReadRequest(ThriftObject):
     # index 8: ???
     read_to: int = field(TType.I64, index=9)
     offline_threading_id: int = field(TType.I64, index=13)
+
+
+@autospec
+@dataclass
+class ChatIDWrapper(ThriftObject):
+    chat_id: str
+
+
+@autospec
+@dataclass
+class OpenedThreadRequest(ThriftObject):
+    unknown_i64: int = field(TType.I64, default=0)
+    _chat_id: bytes = field(default=None)
+
+    @property
+    def chat_id(self) -> int:
+        return int(ChatIDWrapper.from_thrift(self._chat_id).chat_id)
+
+    @chat_id.setter
+    def chat_id(self, value: int) -> None:
+        self._chat_id = ChatIDWrapper(str(value)).to_thrift()

@@ -7,4 +7,4 @@ from .graphql import (GraphQLQuery, MoreMessagesQuery, ThreadListQuery, ThreadLi
                       ImageFragment, SubsequentMediaQuery, FbIdToCursorQuery,
                       SubsequentMediaResponse, FileAttachmentUrlQuery, FileAttachmentURLResponse)
 from .mqtt import (RealtimeConfig, RealtimeClientInfo, SendMessageRequest, MessageSyncPayload,
-                   MarkReadRequest)
+                   MarkReadRequest, OpenedThreadRequest)

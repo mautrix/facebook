@@ -962,7 +962,7 @@ class Portal(DBPortal, BasePortal):
             return
         # TODO can we set a timestamp when the read receipt happened?
         await sender.intent_for(self).mark_read(msg.mx_room, msg.mxid)
-        self.log.trace(f"Handled Messenger read receipt from {sender.fbid} "
+        self.log.debug(f"Handled Messenger read receipt from {sender.fbid} "
                        f"up to {timestamp}/{msg.mxid}")
 
     async def handle_facebook_typing(self, source: 'u.User', sender: 'p.Puppet') -> None:

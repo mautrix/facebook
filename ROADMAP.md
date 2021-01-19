@@ -17,7 +17,7 @@
   * [x] Message reactions
   * [ ] Presence
   * [ ] Typing notifications
-  * [ ] Read receipts
+  * [x] Read receipts
   * [ ] Power level
   * [ ] Membership actions
     * [ ] Invite
