@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from asyncpg import Connection
+from asyncpg import Connection, UndefinedObjectError
 from . import upgrade_table
 
 legacy_exist_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
@@ -128,7 +128,10 @@ async def create_v1_tables(conn: Connection) -> None:
 async def rename_legacy_tables(conn: Connection) -> None:
     await conn.execute("ALTER TABLE mx_user_profile RENAME TO legacy_mx_user_profile")
     await conn.execute("ALTER TABLE mx_room_state RENAME TO legacy_mx_room_state")
-    await conn.execute("ALTER TYPE membership RENAME TO legacy_membership")
+    try:
+        await conn.execute("ALTER TYPE membership RENAME TO legacy_membership")
+    except UndefinedObjectError:
+        pass
 
     await conn.execute("ALTER TABLE message RENAME TO legacy_message")
     await conn.execute("ALTER TABLE portal RENAME TO legacy_portal")
