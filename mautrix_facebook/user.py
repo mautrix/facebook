@@ -421,14 +421,14 @@ class User(DBUser, BaseUser):
 
     async def _sync_threads(self) -> None:
         sync_count = self.config["bridge.initial_chat_sync"]
-        if sync_count <= 0:
-            return
         self.log.debug("Fetching threads...")
         ups = await UserPortal.all(self.fbid)
         contacts = await UserContact.all(self.fbid)
         # TODO paginate with 20 threads per request
         resp = await self.client.fetch_threads(thread_count=sync_count)
         self.seq_id = int(resp.sync_sequence_id)
+        if sync_count <= 0:
+            return
         for thread in resp.nodes:
             try:
                 await self._sync_thread(thread, ups, contacts)
