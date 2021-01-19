@@ -83,7 +83,7 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
 
     async def get_image_url(self, message_id: str, attachment_id: Union[int, str],
                             preview: bool = False, max_width: int = 384,
-                            max_height: int = 480) -> str:
+                            max_height: int = 480) -> Optional[str]:
         query = {
             "method": "POST",
             "redirect": "true",
@@ -101,7 +101,10 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
         }
         resp = await self.get((self.graph_url / "messaging_get_attachment").with_query(query),
                               headers=headers, include_auth=False, allow_redirects=False)
-        return resp.headers["Location"]
+        try:
+            return resp.headers["Location"]
+        except KeyError:
+            return None
 
     async def get_file_url(self, thread_id: Union[str, int], message_id: str,
                            attachment_id: Union[str, int]) -> Optional[URL]:

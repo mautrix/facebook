@@ -776,11 +776,11 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.IMAGE
             info = ImageInfo(width=attachment.image_info.original_width,
                              height=attachment.image_info.original_height)
-            # previews = attachment.image_info.alt_previews or attachment.image_info.previews
-            # if previews:
-            #     url = list(previews.values())[-1]
-            # else:
             url = await source.client.get_image_url(msg_id, attachment.media_id)
+            if not url:
+                previews = attachment.image_info.alt_previews or attachment.image_info.previews
+                info = ImageInfo()
+                url = list(previews.values())[-1]
         elif attachment.media_id:
             # TODO what if it's not a file?
             msgtype = MessageType.FILE
@@ -875,10 +875,9 @@ class Portal(DBPortal, BasePortal):
                                  height=attachment.animated_image_original_dimensions.y,
                                  mimetype=attachment.mimetype)
                 full_screen = attachment.animated_image_full_screen
-            if (info.width, info.height) == full_screen.dimensions:
-                url = full_screen.uri
-            else:
-                url = await source.client.get_image_url(msg_id, attachment.attachment_fbid)
+            url = full_screen.uri
+            if (info.width, info.height) > full_screen.dimensions:
+                url = await source.client.get_image_url(msg_id, attachment.attachment_fbid) or url
             referer = "messenger_thread_photo"
         elif attachment.typename == graphql.AttachmentType.AUDIO:
             msgtype = MessageType.AUDIO
@@ -978,10 +977,9 @@ class Portal(DBPortal, BasePortal):
         if not self.mxid or self.is_direct or message_id in self._dedup:
             return
         self._dedup.appendleft(message_id)
-        if new_photo.image_info.previews:
+        photo_url = await source.client.get_image_url(message_id, new_photo.media_id)
+        if not photo_url and new_photo.image_info.previews:
             photo_url = list(new_photo.image_info.previews.values())[-1]
-        else:
-            photo_url = await source.client.get_image_url(message_id, new_photo.media_id)
         photo_id = self.get_photo_id(photo_url)
         if self.photo_id == photo_id:
             return
@@ -1143,9 +1141,9 @@ class Portal(DBPortal, BasePortal):
             try:
                 slice_index = next(index for index, message in enumerate(messages)
                                    if message.timestamp > after_timestamp)
-                messages = messages[slice_index + 1:]
+                messages = messages[slice_index:]
             except StopIteration:
-                messages = 0
+                messages = []
         if not messages:
             self.log.debug("Didn't get any messages from server")
             return
