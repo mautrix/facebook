@@ -2,7 +2,7 @@ from .queries import (GraphQLQuery, GraphQLMutation, MoreMessagesQuery, ThreadLi
                       ThreadNameMutation, ThreadNameMutationSource, FetchStickersWithPreviewsQuery,
                       MessageUndoSend, ReactionAction, MessageReactionMutation, ThreadMessageID,
                       DownloadImageFragment, SubsequentMediaQuery, FbIdToCursorQuery,
-                      FileAttachmentUrlQuery)
+                      FileAttachmentUrlQuery, SearchEntitiesNamedQuery)
 from .responses import (ParticipantID, ReadReceipt, ReadReceiptList, Picture, StructuredNameChunk,
                         StructuredName, FriendCount, MinimalParticipant, ParticipantNode,
                         Participant, ParticipantList, MessageSender, MessageRange, MessagePowerUp,
@@ -10,6 +10,6 @@ from .responses import (ParticipantID, ReadReceipt, ReadReceiptList, Picture, St
                         ReplyStatus, Reply, Message, PageInfo, MessageList, ThreadKey, Thread,
                         ThreadListResponse, StickerPreviewResponse, MinimalSticker, ImageFragment,
                         StickerPackMeta, MessageUnsendResponse, AttachmentType, ExtensibleText,
-                        ExtensibleAttachment, StoryAttachment, SubsequentMediaNode,
+                        ExtensibleAttachment, StoryAttachment, SubsequentMediaNode, Coordinates,
                         SubsequentMediaResponse, FileAttachmentURLResponse, FileAttachmentWithURL,
-                        Coordinates, StoryTarget, OwnInfo)
+                        StoryTarget, OwnInfo, SearchEntitiesResponse, SearchResults, SearchResult)

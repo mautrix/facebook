@@ -25,12 +25,15 @@ from .typehint import CommandEvent
 SECTION_MISC = HelpSection("Miscellaneous", 40, "")
 
 
-# @command_handler(needs_auth=True, management_only=False,
-#                  help_section=SECTION_MISC, help_text="Search for a Facebook user",
-#                  help_args="<_search query_>")
-# async def search(evt: CommandEvent) -> None:
-#     res = await evt.sender.client.search_for_users(" ".join(evt.args), limit=10)
-#     await evt.reply(await _handle_search_result(evt.sender, res))
+@command_handler(needs_auth=True, management_only=False,
+                 help_section=SECTION_MISC, help_text="Search for a Facebook user",
+                 help_args="<_search query_>")
+async def search(evt: CommandEvent) -> None:
+    resp = await evt.sender.client.search(" ".join(evt.args))
+    import json
+    data = json.dumps(resp.search_results.serialize()["edges"], indent="  ")
+    await evt.reply(f"```json\n{data}\n```")
+    # await evt.reply(await _handle_search_result(evt.sender, res))
 #
 #
 # @command_handler(needs_auth=True, management_only=False)

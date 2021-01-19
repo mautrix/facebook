@@ -506,3 +506,22 @@ class OwnInfo(SerializableAttrs['OwnInfo']):
     published_timeline: bool = False
     timezone: int = 0
     updated_time: Optional[str] = None
+
+
+@dataclass
+class SearchResult(SerializableAttrs['SearchResult']):
+    pass
+
+
+from mautrix.types import JSON
+
+
+@dataclass
+class SearchResults(SerializableAttrs['SearchResults']):
+    edges: List[JSON]
+
+
+@dataclass
+class SearchEntitiesResponse(SerializableAttrs['SearchEntitiesResponse']):
+    cache_id: str
+    search_results: SearchResults

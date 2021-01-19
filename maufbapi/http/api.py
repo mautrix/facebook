@@ -25,7 +25,7 @@ from ..types import (ThreadListResponse, ThreadListQuery, MessageList, MoreMessa
                      MessageUnsendResponse, ReactionAction, MessageReactionMutation,
                      DownloadImageFragment, ImageFragment, SubsequentMediaResponse,
                      SubsequentMediaQuery, FbIdToCursorQuery, FileAttachmentUrlQuery,
-                     FileAttachmentURLResponse)
+                     FileAttachmentURLResponse, SearchEntitiesNamedQuery, SearchEntitiesResponse)
 from ..types.graphql import PageInfo, ThreadMessageID, OwnInfo
 from .base import BaseAndroidAPI
 from .login import LoginAPI
@@ -80,6 +80,11 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
         return await self.graphql(SubsequentMediaQuery(thread_id=str(thread_id), cursor_id=cursor),
                                   path=["data", "message_thread", "mediaResult"],
                                   response_type=SubsequentMediaResponse)
+
+    async def search(self, query: str, **kwargs) -> SearchEntitiesResponse:
+        return await self.graphql(SearchEntitiesNamedQuery(search_query=query, **kwargs),
+                                  path=["data", "entities_named"],
+                                  response_type=SearchEntitiesResponse)
 
     async def get_image_url(self, message_id: str, attachment_id: Union[int, str],
                             preview: bool = False, max_width: int = 384,

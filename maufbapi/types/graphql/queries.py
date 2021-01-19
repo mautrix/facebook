@@ -178,3 +178,27 @@ class FileAttachmentUrlQuery(GraphQLQuery, SerializableAttrs['FileAttachmentUrlQ
     doc_id: ClassVar[int] = 3200288700012393
 
     thread_msg_id: ThreadMessageID
+
+
+@dataclass
+class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs['SearchEntitiesNamedQuery']):
+    doc_id: ClassVar[int] = 3414226858659179
+
+    search_query: str
+    session_id: str = "???"
+
+    results_limit: int = 20
+    num_users_query: int = 20
+    num_group_threads_query: int = 20
+    num_pages_query: int = 6
+
+    unified_config: str = "DOUBLE_SERVER_QUERY_PRIMARY"
+    search_surface: str = "UNIVERSAL_ALL"
+    user_types: List[str] = ["CONTACT", "NON_FRIEND_NON_CONTACT"]
+    entity_types: List[str] = ["user", "group_thread", "page", "game", "matched_message_thread"]
+    include_pages: bool = True
+    include_games: bool = True
+
+    profile_pic_large_size: int = 880
+    profile_pic_medium_size: int = 220
+    profile_pic_small_size: int = 138
