@@ -38,8 +38,15 @@ async def check_approved_login(state: AndroidState, api: AndroidAPI, evt: Comman
             await evt.reply(f"Error checking if login was approved from another device: {e}")
             break
         if was_approved:
+            prev_cmd_status = evt.sender.command_status
             evt.sender.command_status = None
-            await api.login_approved()
+            try:
+                await api.login_approved()
+            except TwoFactorRequired:
+                await evt.reply("Login approved from another device, but Facebook decided that "
+                                "you need to enter the 2FA code anyway.")
+                evt.sender.command_status = prev_cmd_status
+                return
             await evt.sender.on_logged_in(state)
             await evt.reply("Login successfully approved from another device")
             break
