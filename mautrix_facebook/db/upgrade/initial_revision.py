@@ -152,7 +152,8 @@ async def migrate_legacy_data(conn: Connection) -> None:
                        "SELECT mxid, fbid::bigint, notice_room FROM legacy_user")
     await conn.execute(
         "INSERT INTO portal (fbid, fb_receiver, fb_type, mxid, name, photo_id, encrypted) "
-        "SELECT fbid::bigint, fb_receiver::bigint, fb_type, mxid, name, photo_id, encrypted "
+        "SELECT fbid::bigint, fb_receiver::bigint, fb_type::threadtype, mxid, name, photo_id, "
+        "       encrypted "
         "FROM legacy_portal"
     )
     await conn.execute(
