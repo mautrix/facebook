@@ -293,12 +293,10 @@ class AndroidMQTT:
             if is_compressed:
                 message.payload = zlib.decompress(message.payload)
             topic = RealtimeTopic.decode(message.topic)
-            if message.payload[0] == 0:
-                message.payload = message.payload[1:]
+            _, message.payload = message.payload.split(b"\x00", 1)
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
             else:
-                self.log.trace("Other message payload: %s", message.payload)
                 try:
                     waiter = self._response_waiters.pop(topic)
                 except KeyError:

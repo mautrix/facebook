@@ -708,7 +708,8 @@ class Portal(DBPortal, BasePortal):
             raise ValueError(f"Invalid message class {type(message).__name__}")
         if oti in self._oti_dedup:
             event_id = self._oti_dedup.pop(oti)
-            self.log.debug("Got message ID %s for offline threading ID %s / %s", msg_id, oti, event_id)
+            self.log.debug("Got message ID %s for offline threading ID %s / %s", msg_id, oti,
+                           event_id)
             self._dedup.appendleft(msg_id)
             await DBMessage(mxid=event_id, mx_room=self.mxid, fbid=msg_id, fb_chat=self.fbid,
                             fb_receiver=self.fb_receiver, index=0, timestamp=timestamp).insert()
