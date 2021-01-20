@@ -64,7 +64,7 @@ async def login(evt: CommandEvent) -> None:
         return
 
     email, password = evt.args[0], " ".join(evt.args[1:])
-    await evt.bridge.matrix.az.intent.redact(evt.room_id, evt.event_id)
+    await evt.az.intent.redact(evt.room_id, evt.event_id)
 
     state = AndroidState()
     state.generate(evt.sender.mxid)
