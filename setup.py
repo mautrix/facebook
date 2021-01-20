@@ -62,10 +62,15 @@ setuptools.setup(
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
     ],
-    package_data={"mautrix_facebook": [
-        "web/static/*",
-        "example-config.yaml",
-    ]},
+    package_data={
+        "mautrix_facebook": [
+#            "web/static/*",
+            "example-config.yaml",
+        ],
+        "maufbapi.mqtt": [
+            "topics.json",
+        ],
+    },
     data_files=[
         (".", ["alembic.ini", "mautrix_facebook/example-config.yaml"]),
         ("alembic", ["alembic/env.py"]),
