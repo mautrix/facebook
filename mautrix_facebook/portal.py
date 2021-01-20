@@ -695,10 +695,12 @@ class Portal(DBPortal, BasePortal):
                                        message: Union[graphql.Message, mqtt.Message],
                                        reply_to: Optional[mqtt.Message] = None) -> None:
         if isinstance(message, graphql.Message):
+            self.log.trace("Handling Facebook message from GraphQL: %s", message)
             msg_id = message.message_id
             oti = int(message.offline_threading_id)
             timestamp = message.timestamp
         elif isinstance(message, mqtt.Message):
+            self.log.trace("Handling Facebook message from MQTT: %s", message)
             msg_id = message.metadata.id
             oti = message.metadata.offline_threading_id
             timestamp = message.metadata.timestamp
@@ -706,6 +708,7 @@ class Portal(DBPortal, BasePortal):
             raise ValueError(f"Invalid message class {type(message).__name__}")
         if oti in self._oti_dedup:
             event_id = self._oti_dedup.pop(oti)
+            self.log.debug("Got message ID %s for offline threading ID %s / %s", msg_id, oti, event_id)
             self._dedup.appendleft(msg_id)
             await DBMessage(mxid=event_id, mx_room=self.mxid, fbid=msg_id, fb_chat=self.fbid,
                             fb_receiver=self.fb_receiver, index=0, timestamp=timestamp).insert()

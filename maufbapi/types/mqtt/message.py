@@ -14,13 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Dict, Optional, Any
-from enum import Enum
 import json
 
 from attr import dataclass
 import attr
 
-from mautrix.types import SerializableAttrs, SerializableEnum
+from mautrix.types import SerializableAttrs, SerializableEnum, ExtensibleEnum
 from maufbapi.thrift import TType, RecursiveType, ThriftObject, field, autospec
 from ..common import MessageUnsendability as Unsendability
 from ..graphql import ExtensibleAttachment
@@ -282,7 +281,7 @@ class AvatarChange(ThriftObject):
     new_avatar: Attachment
 
 
-class ThreadChangeAction(Enum):
+class ThreadChangeAction(ExtensibleEnum):
     # action_data:
     #   'thread_icon_url': 'https://www.facebook.com/images/emoji.php/v9/t54/1/16/1f408.png'
     #   'thread_icon': '🐈'
@@ -371,7 +370,7 @@ class MessageSyncEvent(ThriftObject):
         return [part for part in parts if part is not None]
 
 
-class MessageSyncError(Enum):
+class MessageSyncError(ExtensibleEnum):
     QUEUE_OVERFLOW = "ERROR_QUEUE_OVERFLOW"
     QUEUE_UNDERFLOW = "ERROR_QUEUE_UNDERFLOW"
 
@@ -383,8 +382,9 @@ class MessageSyncPayload(ThriftObject):
     first_seq_id: int = field(TType.I64, default=None)
     last_seq_id: int = field(TType.I64, default=None)
     viewer: int = field(TType.I64, default=None)
+    # indices 5-10: ???
     subscribe_ok: str = field(index=11, default=None)
-    error: MessageSyncError = field(TType.BINARY, index=12, default=None)
+    error: MessageSyncError = field(TType.BINARY, default=None)
 
 
 @autospec

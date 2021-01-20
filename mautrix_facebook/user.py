@@ -528,6 +528,7 @@ class User(DBUser, BaseUser):
                 self.mqtt.add_event_handler(mqtt_t.AddMember, self.on_members_added)
                 self.mqtt.add_event_handler(mqtt_t.RemoveMember, self.on_member_removed)
                 self.mqtt.add_event_handler(mqtt_t.ThreadChange, self.on_thread_change)
+                self.mqtt.add_event_handler(mqtt_t.MessageSyncError, self.on_message_sync_error)
                 self.mqtt.add_event_handler(Connect, self.on_connect)
                 self.mqtt.add_event_handler(Disconnect, self.on_disconnect)
             await self.mqtt.listen(self.seq_id)
@@ -722,5 +723,10 @@ class User(DBUser, BaseUser):
         #     # TODO does the ADMIN_TYPE data matter?
         #     await portal.backfill_lock.wait("admin change")
         #     await portal.handle_facebook_admin(self, sender, user, make_admin)
+
+    async def on_message_sync_error(self, evt: mqtt_t.MessageSyncError) -> None:
+        # TODO handle error?
+        self.log.error(f"Message sync error: {evt.value}")
+        await self.send_bridge_notice(f"Message sync error: {evt.value}")
 
     # endregion

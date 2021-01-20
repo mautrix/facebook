@@ -280,8 +280,9 @@ class AndroidMQTT:
 
     def _on_message_sync(self, payload: bytes) -> None:
         parsed = MessageSyncPayload.from_thrift(payload)
-        # TODO handle errors
         self._update_seq_id(parsed)
+        if parsed.error:
+            self._loop.create_task(self._dispatch(parsed.error))
         for item in parsed.items:
             for event in item.get_parts():
                 self._loop.create_task(self._dispatch(event))
@@ -317,7 +318,6 @@ class AndroidMQTT:
             self.log.trace("Trying to reconnect to MQTT")
             self._client.reconnect()
         except (SocketError, OSError, WebsocketConnectionError) as e:
-            # TODO custom class
             raise MQTTNotLoggedIn("MQTT reconnection failed") from e
 
     def add_event_handler(self, evt_type: Type[T], handler: Callable[[T], Awaitable[None]]
