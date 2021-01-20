@@ -287,12 +287,12 @@ class StoryTarget(SerializableAttrs['StoryTarget']):
 class StoryAttachment(SerializableAttrs['StoryAttachment']):
     title: str
     url: str
-    # TODO enum? share, message_location, fallback
+    # TODO enum? share, message_location, attached_story, photo, games_app, messenger_native_templates, unavailable, fallback
     style_list: List[str] = attr.ib(factory=lambda: [])
     title_with_entities: Optional[ExtensibleText] = None
     description: Optional[ExtensibleText] = None
     source: Optional[ExtensibleText] = None
-    subtitle: Optional[ExtensibleText] = None
+    subtitle: Optional[str] = None
     target: Optional[StoryTarget] = None
 
     @property
