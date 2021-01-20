@@ -82,21 +82,21 @@ class PublicBridgeWebsite:
             token = request.headers["Authorization"]
             token = token[len("Bearer "):]
         except KeyError:
-            raise web.HTTPBadRequest(body='{"error": "Missing Authorization header"}',
+            raise web.HTTPBadRequest(text='{"error": "Missing Authorization header"}',
                                      headers=self._headers)
         except IndexError:
-            raise web.HTTPBadRequest(body='{"error": "Malformed Authorization header"}',
+            raise web.HTTPBadRequest(text='{"error": "Malformed Authorization header"}',
                                      headers=self._headers)
         if self.shared_secret and token == self.shared_secret:
             try:
                 user_id = request.query["user_id"]
             except KeyError:
-                raise web.HTTPBadRequest(body='{"error": "Missing user_id query param"}',
+                raise web.HTTPBadRequest(text='{"error": "Missing user_id query param"}',
                                          headers=self._headers)
         else:
             user_id = self.verify_token(token)
             if not user_id:
-                raise web.HTTPForbidden(body='{"error": "Invalid token"}', headers=self._headers)
+                raise web.HTTPForbidden(text='{"error": "Invalid token"}', headers=self._headers)
 
         user = await u.User.get_by_mxid(user_id)
         return user
