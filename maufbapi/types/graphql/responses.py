@@ -324,6 +324,7 @@ class MinimalMessage(SerializableAttrs['MinimalMessage']):
 
 class ReplyStatus(SerializableEnum):
     VALID = "VALID"
+    DELETED = "DELETED"
 
 
 @dataclass
