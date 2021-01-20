@@ -528,7 +528,10 @@ class Portal(DBPortal, BasePortal):
                                               reply_to=converted.reply_to,
                                               offline_threading_id=offline_threading_id)
         if not resp.success and resp.error_message:
+            self.log.debug(f"Error handling Matrix message {event_id}: {resp.error_message}")
             await self._send_bridge_error(resp.error_message)
+        else:
+            self.log.debug(f"Handled Matrix message {event_id} -> OTI: {offline_threading_id}")
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
                                    message: MediaMessageEventContent) -> None:
@@ -553,8 +556,11 @@ class Portal(DBPortal, BasePortal):
                                               reply_to=reply_to, chat_id=self.fbid,
                                               is_group=self.fb_type != ThreadType.USER)
         if not resp.media_id and resp.debug_info:
+            self.log.debug(f"Error uploading media for Matrix message {event_id}: "
+                           f"{resp.debug_info.message}")
             await self._send_bridge_error(f"Media upload error: {resp.debug_info.message}")
             return
+        self.log.debug(f"Handled Matrix message {event_id} -> {resp.message_id} / {oti}")
         # send_resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
         #                                            media_ids=[resp.media_id], reply_to=reply_to,
         #                                            offline_threading_id=oti)
@@ -695,12 +701,12 @@ class Portal(DBPortal, BasePortal):
                                        message: Union[graphql.Message, mqtt.Message],
                                        reply_to: Optional[mqtt.Message] = None) -> None:
         if isinstance(message, graphql.Message):
-            self.log.trace("Handling Facebook message from GraphQL: %s", message)
+            self.log.trace("Facebook GraphQL event content: %s", message)
             msg_id = message.message_id
             oti = int(message.offline_threading_id)
             timestamp = message.timestamp
         elif isinstance(message, mqtt.Message):
-            self.log.trace("Handling Facebook message from MQTT: %s", message)
+            self.log.trace("Facebook MQTT event content: %s", message)
             msg_id = message.metadata.id
             oti = message.metadata.offline_threading_id
             timestamp = message.metadata.timestamp
@@ -721,6 +727,7 @@ class Portal(DBPortal, BasePortal):
         elif self.backfill_lock.locked and await DBMessage.get_by_fbid(msg_id, self.fb_receiver):
             self.log.trace("Not handling message %s, found duplicate in database", msg_id)
             return
+        self.log.debug("Handling Facebook event %s (/%s)", msg_id, oti)
         self._dedup.appendleft(msg_id)
         if not self.mxid:
             mxid = await self.create_matrix_room(source)
@@ -744,9 +751,10 @@ class Portal(DBPortal, BasePortal):
             self.log.warning(f"Unhandled Messenger message {msg_id}")
             self.log.trace("Message %s content: %s", msg_id, message)
             return
+        event_ids = [event_id for event_id in event_ids if event_id]
+        self.log.debug(f"Handled Messenger message {msg_id} -> {event_ids}")
         await DBMessage.bulk_create(fbid=msg_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
-                                    mx_room=self.mxid, timestamp=timestamp,
-                                    event_ids=[event_id for event_id in event_ids if event_id])
+                                    mx_room=self.mxid, timestamp=timestamp, event_ids=event_ids)
         await self._send_delivery_receipt(event_ids[-1])
 
     async def _handle_mqtt_message(self, source: 'u.User', intent: IntentAPI,
