@@ -62,12 +62,16 @@ async def login(evt: CommandEvent) -> None:
     elif evt.sender.client:
         await evt.reply("You're already logged in")
         return
+
+    email, password = evt.args[0], " ".join(evt.args[1:])
+    await evt.bridge.matrix.az.intent.redact(evt.room_id, evt.event_id)
+
     state = AndroidState()
     state.generate(evt.sender.mxid)
     api = AndroidAPI(state, log=evt.sender.log.getChild("login-api"))
     try:
         await api.mobile_config_sessionless()
-        await api.login(evt.args[0], " ".join(evt.args[1:]))
+        await api.login(email, password)
         await evt.sender.on_logged_in(state)
         await evt.reply("Successfully logged in")
     except TwoFactorRequired:
@@ -81,7 +85,7 @@ async def login(evt: CommandEvent) -> None:
             "next": enter_2fa_code,
             "state": state,
             "api": api,
-            "email": evt.args[0],
+            "email": email,
             "checker_task": checker_task,
         }
     except OAuthException as e:
