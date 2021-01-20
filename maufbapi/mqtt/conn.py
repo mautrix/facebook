@@ -421,15 +421,16 @@ class AndroidMQTT:
         rand = format(int(random.random() * 4294967295), "022b")[-22:]
         return int(f"{int(time.time() * 1000):b}{rand}", 2)
 
-    async def send_message(self, target: int, is_group: bool, message: str,
-                           offline_threading_id: Optional[int] = None,
-                           mentions: Optional[List[Mention]] = None,
-                           reply_to: Optional[str] = None) -> SendMessageResponse:
+    async def send_message(self, target: int, is_group: bool, message: str = "",
+                           offline_threading_id: Optional[int] = None, media_ids: List[int] = None,
+                           mentions: Optional[List[Mention]] = None, reply_to: Optional[str] = None
+                           ) -> SendMessageResponse:
         if not offline_threading_id:
             offline_threading_id = self.generate_offline_threading_id()
         req = SendMessageRequest(chat_id=f"tfbid_{target}" if is_group else str(target),
                                  message=message, offline_threading_id=offline_threading_id,
                                  sender_id=self.state.session.uid, reply_to=reply_to,
+                                 media_ids=[str(i) for i in media_ids] if media_ids else None,
                                  flags={"is_in_chatheads": "false",
                                         "trigger": "2:thread_list:thread"},
                                  tid2=self.generate_offline_threading_id())

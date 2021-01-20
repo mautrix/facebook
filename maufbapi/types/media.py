@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, List, Any, Optional
+from typing import Optional
 
 from attr import dataclass
 import attr
@@ -22,11 +22,19 @@ from mautrix.types import SerializableAttrs
 
 
 @dataclass
+class UploadErrorData(SerializableAttrs['UploadErrorData']):
+    retriable: bool
+    type: str
+    message: str
+
+
+@dataclass
 class UploadResponse(SerializableAttrs['UploadResponse']):
-    err_code: str
-    err_str: str
-    is_retryable: str = attr.ib(metadata={"json": "isRetryable"})
-    media_id: int
-    message_id: str
-    sent_by_server: str
-    success: str
+    media_id: Optional[int] = None
+    err_code: Optional[str] = None
+    err_str: Optional[str] = None
+    is_retryable: Optional[str] = attr.ib(metadata={"json": "isRetryable"}, default=None)
+    message_id: Optional[str] = None
+    sent_by_server: Optional[str] = None
+    success: Optional[str] = None
+    debug_info: Optional[UploadErrorData] = None

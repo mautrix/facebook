@@ -500,7 +500,7 @@ class OwnInfo(SerializableAttrs['OwnInfo']):
     first_name: Optional[str] = None
     middle_name: Optional[str] = None
     last_name: Optional[str] = None
-    link: str
+    link: Optional[str] = None
     is_employee: bool = False
     verified: bool = False
     published_timeline: bool = False

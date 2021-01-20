@@ -9,4 +9,4 @@ from .graphql import (GraphQLQuery, MoreMessagesQuery, ThreadListQuery, ThreadLi
                       SearchEntitiesResponse, SearchEntitiesNamedQuery)
 from .mqtt import (RealtimeConfig, RealtimeClientInfo, SendMessageRequest, MessageSyncPayload,
                    MarkReadRequest, OpenedThreadRequest, SendMessageResponse)
-from .media import UploadResponse
+from .media import UploadResponse, UploadErrorData

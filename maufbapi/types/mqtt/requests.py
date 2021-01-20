@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict
+from typing import Dict, List
 
 from attr import dataclass
 
@@ -34,10 +34,16 @@ class SendMessageRequest(ThriftObject):
     #   'entrypoint': 'messenger_inbox:in_thread'
     #   'trigger': '2:thread_list:thread' or 'thread_view_messages_fragment_unknown'
     #   'active_now': '{"is_online":"false","last_active_seconds":"1431"}'
+    #
+    #   'media_camera_mode': 'VIDEO'
+    #   'trigger': 'thread_view_messages_fragment_unknown'
+    #   'entry_point': 'THREAD_CAMERA_COMPOSER_BUTTON'
     flags: Dict[str, str] = field(index=5, factory=lambda: {})
     # 369239263222822 = "like"
     sticker: str = field(default=None)
-    # indices 7-11: ???
+    # indices 7 and 8: ???
+    media_ids: List[str] = field(default=None)
+    # indices 10 and 11: ???
     sender_id: int = field(TType.I64, index=12)
     # indices 13-17: ???
     unknown_int32: int = field(TType.I32, index=18, default=0)

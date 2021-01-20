@@ -543,9 +543,23 @@ class Portal(DBPortal, BasePortal):
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
         oti = sender.mqtt.generate_offline_threading_id()
         self._oti_dedup[oti] = event_id
-        resp = await sender.client.send_media(data, message.body, mime, self.fbid,
-                                              self.fb_type != ThreadType.USER, oti)
-        # TODO we could use the response to fill the message database
+        reply_to = None
+        if message.relates_to.rel_type == RelationType.REPLY:
+            reply_to_msg = await DBMessage.get_by_mxid(message.relates_to.event_id, self.mxid)
+            if reply_to_msg:
+                reply_to = reply_to_msg.fbid
+        # await sender.mqtt.opened_thread(self.fbid)
+        resp = await sender.client.send_media(data, message.body, mime, offline_threading_id=oti,
+                                              reply_to=reply_to, chat_id=self.fbid,
+                                              is_group=self.fb_type != ThreadType.USER)
+        if not resp.media_id and resp.debug_info:
+            await self._send_bridge_error(f"Media upload error: {resp.debug_info.message}")
+            return
+        # send_resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
+        #                                            media_ids=[resp.media_id], reply_to=reply_to,
+        #                                            offline_threading_id=oti)
+        # if not send_resp.success and send_resp.error_message:
+        #     await self._send_bridge_error(send_resp.error_message)
 
     async def _handle_matrix_location(self, sender: 'u.User',
                                       message: LocationMessageEventContent) -> str:
