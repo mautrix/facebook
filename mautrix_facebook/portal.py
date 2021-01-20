@@ -217,7 +217,7 @@ class Portal(DBPortal, BasePortal):
             data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
         info = FileInfo(mimetype=mime, size=len(data))
-        if mime.startswith("image/") and find_size:
+        if Image and mime.startswith("image/") and find_size:
             with Image.open(BytesIO(data)) as img:
                 width, height = img.size
             info = ImageInfo(mimetype=mime, size=len(data), width=width, height=height)
