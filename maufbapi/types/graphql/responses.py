@@ -19,7 +19,7 @@ from yarl import URL
 from attr import dataclass
 import attr
 
-from mautrix.types import SerializableEnum, SerializableAttrs
+from mautrix.types import SerializableEnum, ExtensibleEnum, SerializableAttrs
 from ..common import ThreadFolder, MessageUnsendability
 
 
@@ -177,13 +177,14 @@ class Dimensions(SerializableAttrs['Dimensions']):
     y: int
 
 
-class AttachmentType(SerializableEnum):
+class AttachmentType(ExtensibleEnum):
     IMAGE = "MessageImage"
     ANIMATED_IMAGE = "MessageAnimatedImage"
     FILE = "MessageFile"
     AUDIO = "MessageAudio"
     VIDEO = "MessageVideo"
     LOCATION = "MessageLocation"
+    LIVE_LOCATION = "MessageLiveLocation"
     EXTERNAL_URL = "ExternalUrl"
     STORY = "Story"
 
