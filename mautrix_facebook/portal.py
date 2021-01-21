@@ -1208,7 +1208,7 @@ class Portal(DBPortal, BasePortal):
         return None
 
     @classmethod
-    async def get_by_fbid(cls, fbid: int, fb_receiver: int = 0,
+    async def get_by_fbid(cls, fbid: int, fb_receiver: int = 0, create: bool = True,
                           fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
         if fb_type:
             fb_receiver = fb_receiver if fb_type == ThreadType.USER else 0
@@ -1223,7 +1223,7 @@ class Portal(DBPortal, BasePortal):
             await portal.postinit()
             return portal
 
-        if fb_type:
+        if fb_type and create:
             portal = cls(fbid=fbid, fb_receiver=fb_receiver, fb_type=fb_type)
             await portal.insert()
             await portal.postinit()
@@ -1255,7 +1255,9 @@ class Portal(DBPortal, BasePortal):
 
     @classmethod
     def get_by_thread(cls, key: Union[graphql.ThreadKey, mqtt.ThreadKey],
-                      fb_receiver: Optional[int] = None) -> Awaitable['Portal']:
-        return cls.get_by_fbid(key.id, fb_receiver, ThreadType.from_thread_key(key))
+                      fb_receiver: Optional[int] = None, create: bool = True
+                      ) -> Awaitable['Portal']:
+        return cls.get_by_fbid(key.id, fb_receiver, create=create,
+                               fb_type=ThreadType.from_thread_key(key))
 
     # endregion

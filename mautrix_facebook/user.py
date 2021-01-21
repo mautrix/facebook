@@ -640,8 +640,8 @@ class User(DBUser, BaseUser):
     @async_time(METRIC_MESSAGE_SEEN)
     async def on_message_seen(self, evt: mqtt_t.ReadReceipt) -> None:
         puppet = await pu.Puppet.get_by_fbid(evt.user_id)
-        portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
-        if portal.mxid:
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
+        if portal and portal.mxid:
             await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
             await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
@@ -649,22 +649,23 @@ class User(DBUser, BaseUser):
     async def on_message_seen_self(self, evt: mqtt_t.OwnReadReceipt) -> None:
         puppet = await pu.Puppet.get_by_fbid(self.fbid)
         for thread in evt.threads:
-            portal = await po.Portal.get_by_thread(thread, self.fbid)
-            await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
-            await portal.handle_facebook_seen(self, puppet, evt.read_to)
+            portal = await po.Portal.get_by_thread(thread, self.fbid, create=False)
+            if portal:
+                await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
+                await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_UNSENT)
     async def on_message_unsent(self, evt: mqtt_t.UnsendMessage) -> None:
-        portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
-        if portal.mxid:
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
+        if portal and portal.mxid:
             await portal.backfill_lock.wait(f"redaction of {evt.message_id}")
             puppet = await pu.Puppet.get_by_fbid(evt.user_id)
             await portal.handle_facebook_unsend(puppet, evt.message_id, timestamp=evt.timestamp)
 
     @async_time(METRIC_REACTION)
     async def on_reaction(self, evt: mqtt_t.Reaction) -> None:
-        portal = await po.Portal.get_by_thread(evt.thread, self.fbid)
-        if not portal.mxid:
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
+        if not portal or not portal.mxid:
             return
         puppet = await pu.Puppet.get_by_fbid(evt.reaction_sender_id)
         await portal.backfill_lock.wait(f"reaction to {evt.message_id}")
