@@ -19,7 +19,7 @@ from yarl import URL
 from attr import dataclass
 import attr
 
-from mautrix.types import SerializableEnum, ExtensibleEnum, SerializableAttrs
+from mautrix.types import ExtensibleEnum, SerializableAttrs
 from ..common import ThreadFolder, MessageUnsendability
 
 
@@ -59,12 +59,17 @@ class Picture(SerializableAttrs['Picture']):
         return self.width, self.height
 
 
+class StructuredNamePart(ExtensibleEnum):
+    FIRST = "first"
+    MIDDLE = "middle"
+    LAST = "last"
+
+
 @dataclass
 class StructuredNameChunk(SerializableAttrs['StructuredNameChunk']):
     length: int
     offset: int
-    # TODO enum? first/middle/last
-    part: str
+    part: StructuredNamePart
 
 
 @dataclass
@@ -75,7 +80,7 @@ class StructuredName(SerializableAttrs['StructuredName']):
 
     def to_dict(self) -> Dict[str, str]:
         return {
-            f"{part.part}_name": self.text[part.offset:part.offset + part.length]
+            f"{part.part.value}_name": self.text[part.offset:part.offset + part.length]
             for part in self.parts
         }
 
@@ -90,6 +95,19 @@ class MinimalParticipant(ParticipantID, SerializableAttrs['MinimalParticipant'])
     name: Optional[str] = None
 
 
+class FriendshipStatus(ExtensibleEnum):
+    ARE_FRIENDS = "ARE_FRIENDS"
+    CAN_REQUEST = "CAN_REQUEST"
+    CANNOT_REQUEST = "CANNOT_REQUEST"
+    INCOMING_REQUEST = "INCOMING_REQUEST"
+    OUTGOING_REQUEST = "OUTGOING_REQUEST"
+
+
+class ReachabilityStatus(ExtensibleEnum):
+    REACHABLE = "REACHABLE"
+    UNREACHABLE_USER_TYPE = "UNREACHABLE_USER_TYPE"
+
+
 @dataclass(kw_only=True)
 class Participant(MinimalParticipant, SerializableAttrs['Participant']):
     username: Optional[str] = None
@@ -101,11 +119,9 @@ class Participant(MinimalParticipant, SerializableAttrs['Participant']):
     profile_pic_large: Optional[Picture] = None
 
     friends: Optional[FriendCount] = None
-    # TODO enum? CAN/CANNOT_REQUEST
-    friendship_status: Optional[str] = None
+    friendship_status: Optional[FriendshipStatus] = None
     mutual_friends: Optional[FriendCount] = None
-    # TODO enum? REACHABLE
-    reachability_status_type: Optional[str] = None
+    reachability_status_type: Optional[ReachabilityStatus] = None
     registration_time: Optional[int] = None
 
     is_aloha_proxy_confirmed: bool = False
@@ -152,10 +168,17 @@ class MessageRange(SerializableAttrs['MessageRange']):
         return self.entity.id
 
 
+class MessagePowerUpType(ExtensibleEnum):
+    NONE = "NONE"
+    LOVE = "LOVE"
+    GIFT_WRAP = "GIFT_WRAP"
+    CELEBRATION = "CELEBRATION"
+    FIRE = "FIRE"
+
+
 @dataclass
 class MessagePowerUp(SerializableAttrs['MessagePowerUp']):
-    # TODO enum? NONE
-    style: str
+    style: MessagePowerUpType
 
 
 @dataclass
@@ -189,6 +212,21 @@ class AttachmentType(ExtensibleEnum):
     STORY = "Story"
 
 
+class ImageType(ExtensibleEnum):
+    FILE_ATTACHMENT = "FILE_ATTACHMENT"
+    MESSENGER_CAM = "MESSENGER_CAM"
+    TRANSPARENT = "TRANSPARENT"
+
+
+class VideoType(ExtensibleEnum):
+    FILE_ATTACHMENT = "FILE_ATTACHMENT"
+    RECORDED_VIDEO = "RECORDED_VIDEO"
+    SPEAKING_STICKER = "SPEAKING_STICKER"
+    RECORDED_STICKER = "RECORDED_STICKER"
+    VIDEO_MAIL = "VIDEO_MAIL"
+    IG_SELFIE_STICKER = "IG_SELFIE_STICKER"
+
+
 @dataclass
 class Attachment(SerializableAttrs['Attachment']):
     typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
@@ -199,8 +237,7 @@ class Attachment(SerializableAttrs['Attachment']):
     filesize: Optional[int] = None
     render_as_sticker: bool = False
 
-    # TODO enum? FILE_ATTACHMENT
-    image_type: Optional[str] = None
+    image_type: Optional[ImageType] = None
     original_dimensions: Optional[Dimensions] = None
     image_blurred_preview: Optional[Picture] = None
     image_full_screen: Optional[Picture] = None
@@ -228,8 +265,7 @@ class Attachment(SerializableAttrs['Attachment']):
     playable_duration_in_ms: Optional[int] = None
 
     # For video files
-    # TODO enum? FILE_ATTACHMENT
-    video_type: Optional[str] = None
+    video_type: Optional[VideoType] = None
     streaming_image_thumbnail: Optional[Picture] = attr.ib(default=None, metadata={
         "json": "streamingImageThumbnail"})
     video_filesize: Optional[int] = None
@@ -254,14 +290,19 @@ class StickerPackMeta(SerializableAttrs['StickerPackMeta']):
     is_sms_capable: bool
 
 
+class StickerType(ExtensibleEnum):
+    REGULAR = "REGULAR"
+    AVATAR = "AVATAR"
+    CUSTOM = "CUSTOM"
+
+
 @dataclass
 class Sticker(MinimalSticker, SerializableAttrs['Sticker']):
     pack: StickerPackMeta
     animated_image: Picture
     preview_image: Picture
     thread_image: Picture
-    # TODO enum? REGULAR
-    sticker_type: str
+    sticker_type: StickerType
     label: Optional[str] = None
 
 
@@ -323,7 +364,7 @@ class MinimalMessage(SerializableAttrs['MinimalMessage']):
     extensible_attachment: ExtensibleAttachment = attr.ib(default=None)
 
 
-class ReplyStatus(SerializableEnum):
+class ReplyStatus(ExtensibleEnum):
     VALID = "VALID"
     DELETED = "DELETED"
 
