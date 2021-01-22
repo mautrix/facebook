@@ -308,7 +308,7 @@ class Portal(DBPortal, BasePortal):
                                   ) -> None:
         await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=False)
         puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
-        if puppet:
+        if puppet and puppet.is_real_user:
             await puppet.intent.ensure_joined(self.mxid)
 
         await self.update_info(source, info)
