@@ -301,7 +301,7 @@ class AndroidMQTT:
                     waiter = self._response_waiters.pop(topic)
                 except KeyError:
                     self.log.debug("No handler for MQTT message in %s: %s",
-                                   topic.value, message.payload)
+                                   topic, message.payload)
                     ThriftReader(message.payload).pretty_print()
                 else:
                     waiter.set_result(message)
