@@ -526,6 +526,9 @@ class Portal(DBPortal, BasePortal):
                                   message: TextMessageEventContent) -> None:
         converted = await matrix_to_facebook(message, self.mxid)
         offline_threading_id = sender.mqtt.generate_offline_threading_id()
+        # TODO store OTI's in the database because sometimes facebook doesn't echo the message back
+        #      immediately. Also need to update things like incoming replies to search the database
+        #      by OTI instead of only message ID. Outgoing replies may be unsolveable.
         self._oti_dedup[offline_threading_id] = event_id
         resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
                                               message=converted.text, mentions=converted.mentions,
@@ -536,6 +539,7 @@ class Portal(DBPortal, BasePortal):
             await self._send_bridge_error(resp.error_message)
         else:
             self.log.debug(f"Handled Matrix message {event_id} -> OTI: {offline_threading_id}")
+            await self._send_delivery_receipt(event_id)
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
                                    message: MediaMessageEventContent) -> None:
@@ -564,7 +568,9 @@ class Portal(DBPortal, BasePortal):
                            f"{resp.debug_info.message}")
             await self._send_bridge_error(f"Media upload error: {resp.debug_info.message}")
             return
+        # TODO put message ID from response to database if oti is still on _oti_dedup
         self.log.debug(f"Handled Matrix message {event_id} -> {resp.message_id} / {oti}")
+        await self._send_delivery_receipt(event_id)
         # send_resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
         #                                            media_ids=[resp.media_id], reply_to=reply_to,
         #                                            offline_threading_id=oti)
@@ -723,7 +729,6 @@ class Portal(DBPortal, BasePortal):
             self._dedup.appendleft(msg_id)
             await DBMessage(mxid=event_id, mx_room=self.mxid, fbid=msg_id, fb_chat=self.fbid,
                             fb_receiver=self.fb_receiver, index=0, timestamp=timestamp).insert()
-            await self._send_delivery_receipt(event_id)
             return
         elif msg_id in self._dedup:
             self.log.trace("Not handling message %s, found ID in dedup queue", msg_id)
