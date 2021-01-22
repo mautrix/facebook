@@ -305,8 +305,6 @@ class ThreadChangeAction(ExtensibleEnum):
     #   'THREAD_CATEGORY': 'GROUP'
     APPROVAL_MODE = "change_thread_approval_mode"
 
-    # TODO are there others?
-
 
 @autospec
 @dataclass(kw_only=True)

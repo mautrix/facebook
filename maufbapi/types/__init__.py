@@ -4,9 +4,9 @@ from .graphql import (GraphQLQuery, MoreMessagesQuery, ThreadListQuery, ThreadLi
                       MessageList, GraphQLMutation, ThreadNameMutation, StickerPreviewResponse,
                       FetchStickersWithPreviewsQuery, MessageUndoSend, MessageUnsendResponse,
                       ReactionAction, MessageReactionMutation, DownloadImageFragment,
-                      ImageFragment, SubsequentMediaQuery, FbIdToCursorQuery,
+                      ImageFragment, SubsequentMediaQuery, FbIdToCursorQuery, ThreadQuery,
                       SubsequentMediaResponse, FileAttachmentUrlQuery, FileAttachmentURLResponse,
-                      SearchEntitiesResponse, SearchEntitiesNamedQuery)
+                      SearchEntitiesResponse, SearchEntitiesNamedQuery, ThreadQueryResponse)
 from .mqtt import (RealtimeConfig, RealtimeClientInfo, SendMessageRequest, MessageSyncPayload,
                    MarkReadRequest, OpenedThreadRequest, SendMessageResponse)
 from .media import UploadResponse, UploadErrorData

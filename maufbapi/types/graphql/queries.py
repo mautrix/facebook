@@ -40,6 +40,33 @@ class NTContext(SerializableAttrs['ThreadListQueryNTContext']):
 
 
 @dataclass
+class ThreadQuery(GraphQLQuery, SerializableAttrs['ThreadQuery']):
+    doc_id: ClassVar[int] = 5487678687924830
+
+    thread_ids: List[str]
+    msg_count: int = 20
+
+    blur: int = 0
+
+    nt_context: NTContext = attr.ib(factory=lambda: NTContext())
+    include_full_user_info: str = "true"
+    include_message_info: str = "true"
+    include_booking_requests: bool = True
+
+    full_screen_width: int = 4096
+    full_screen_height: int = 4096
+    large_preview_width: int = 1500
+    large_preview_height: int = 750
+    medium_preview_width: int = 962
+    medium_preview_height: int = 481
+    small_preview_width: int = 716
+    small_preview_height: int = 358
+    profile_pic_large_size: int = 880
+    profile_pic_small_size: int = 138
+
+
+
+@dataclass
 class ThreadListQuery(GraphQLQuery, SerializableAttrs['ThreadListQuery']):
     doc_id: ClassVar[int] = 3562683343826563
 

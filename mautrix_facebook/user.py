@@ -425,7 +425,7 @@ class User(DBUser, BaseUser):
         ups = await UserPortal.all(self.fbid)
         contacts = await UserContact.all(self.fbid)
         # TODO paginate with 20 threads per request
-        resp = await self.client.fetch_threads(thread_count=sync_count)
+        resp = await self.client.fetch_thread_list(thread_count=sync_count)
         self.seq_id = int(resp.sync_sequence_id)
         if sync_count <= 0:
             return
@@ -616,8 +616,8 @@ class User(DBUser, BaseUser):
             reply_to = None
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-        if not puppet.name:
-            await puppet.update_info(self)
+        # if not puppet.name:
+        #     await puppet.update_info(self)
         await portal.backfill_lock.wait(evt.metadata.id)
         await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
 

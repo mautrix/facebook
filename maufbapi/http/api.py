@@ -25,8 +25,9 @@ from ..types import (ThreadListResponse, ThreadListQuery, MessageList, MoreMessa
                      MessageUnsendResponse, ReactionAction, MessageReactionMutation,
                      DownloadImageFragment, ImageFragment, SubsequentMediaResponse,
                      SubsequentMediaQuery, FbIdToCursorQuery, FileAttachmentUrlQuery,
-                     FileAttachmentURLResponse, SearchEntitiesNamedQuery, SearchEntitiesResponse)
-from ..types.graphql import PageInfo, ThreadMessageID, OwnInfo
+                     FileAttachmentURLResponse, SearchEntitiesNamedQuery, SearchEntitiesResponse,
+                     ThreadQuery, ThreadQueryResponse)
+from ..types.graphql import PageInfo, ThreadMessageID, OwnInfo, Thread
 from .base import BaseAndroidAPI
 from .login import LoginAPI
 from .upload import UploadAPI
@@ -35,9 +36,14 @@ from .upload import UploadAPI
 class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
     _file_url_cache: Dict[ThreadMessageID, FileAttachmentURLResponse]
 
-    async def fetch_threads(self, **kwargs) -> ThreadListResponse:
+    async def fetch_thread_list(self, **kwargs) -> ThreadListResponse:
         return await self.graphql(ThreadListQuery(**kwargs), response_type=ThreadListResponse,
                                   path=["data", "viewer", "message_threads"])
+
+    async def fetch_thread_info(self, *thread_ids: Union[str, int], **kwargs) -> List[Thread]:
+        resp = await self.graphql(ThreadQuery(thread_ids=[str(i) for i in thread_ids], **kwargs),
+                                  path=["data"], response_type=ThreadQueryResponse)
+        return resp.message_threads
 
     async def fetch_messages(self, thread_id: int, before_time_ms: int, **kwargs
                              ) -> MessageList:

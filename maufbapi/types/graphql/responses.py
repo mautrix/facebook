@@ -480,6 +480,11 @@ class ThreadListResponse(SerializableAttrs['ThreadListResponse']):
 
 
 @dataclass
+class ThreadQueryResponse(SerializableAttrs['ThreadQueryResponse']):
+    message_threads: List[Thread]
+
+
+@dataclass
 class StickerPreviewResponse(SerializableAttrs['StickerPreviewResponse']):
     nodes: List[Sticker]
 

@@ -175,11 +175,15 @@ class Portal(DBPortal, BasePortal):
     async def update_info(self, source: Optional['u.User'] = None,
                           info: Optional[graphql.Thread] = None) -> Optional[graphql.Thread]:
         if not info:
-            self.log.debug("Called update_info with no info, not fetching thread info...")
-            return
-            # FIXME
-            # info = await source.client.fetch_thread_info([self.fbid]).__anext__()
-        # self.log.trace("Thread info for %s: %s", self.fbid, info)
+            self.log.debug("Called update_info with no info, fetching thread info...")
+            threads = await source.client.fetch_thread_info(self.fbid)
+            if not threads:
+                return None
+            elif threads[0].thread_key.id != self.fbid:
+                self.log.warning("fetch_thread_info response contained different ID (%s) "
+                                 "than expected (%s)", threads[0].thread_key.id, self.fbid)
+                self.log.debug(f"Number of threads in unexpected response: {len(threads)}")
+            info = threads[0]
         if info.thread_key != self.graphql_key:
             self.log.warning("Got different ID (%s) than what asked for (%s) when fetching info",
                              info.thread_key.id, self.fbid)
