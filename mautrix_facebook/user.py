@@ -28,6 +28,7 @@ from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 
 from maufbapi import AndroidState, AndroidMQTT, AndroidAPI
 from maufbapi.mqtt import Disconnect, Connect, MQTTNotLoggedIn, MQTTNotConnected
+from maufbapi.http import InvalidAccessToken
 from maufbapi.types import graphql, mqtt as mqtt_t
 
 from .config import Config
@@ -249,6 +250,15 @@ class User(DBUser, BaseUser):
     async def try_refresh(self) -> None:
         try:
             await self.refresh()
+        except InvalidAccessToken as e:
+            self.log.exception("Invalid auth error while trying to refresh after connection error")
+            await self.send_bridge_notice("Got authentication error from Messenger:\n\n"
+                                          f"> {e!s}\n\n"
+                                          "If you changed your Facebook password or enabled two-"
+                                          "factor authentication, this is normal and you just "
+                                          "need to log in again.",
+                                          important=True)
+            await self.logout(remove_fbid=False)
         except Exception:
             self.log.exception("Fatal error while trying to refresh after connection error")
             await self.send_bridge_notice("Fatal error while trying to refresh after connection "
@@ -292,7 +302,7 @@ class User(DBUser, BaseUser):
         self.start_listen()
         self._is_refreshing = False
 
-    async def logout(self) -> bool:
+    async def logout(self, remove_fbid: bool = True) -> bool:
         ok = True
         self.stop_listen()
         if self.state:
@@ -310,7 +320,7 @@ class User(DBUser, BaseUser):
         self.client = None
         self.mqtt = None
 
-        if self.fbid:
+        if self.fbid and remove_fbid:
             await UserContact.delete_all(self.fbid)
             await UserPortal.delete_all(self.fbid)
             del self.by_fbid[self.fbid]
