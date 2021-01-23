@@ -59,12 +59,13 @@ async def login(evt: CommandEvent) -> None:
     if len(evt.args) < 2:
         await evt.reply("Usage: `$cmdprefix+sp login <email> <password>`")
         return
-    elif evt.sender.client:
-        await evt.reply("You're already logged in")
-        return
 
     email, password = evt.args[0], " ".join(evt.args[1:])
     await evt.az.intent.redact(evt.room_id, evt.event_id)
+
+    if evt.sender.client:
+        await evt.reply("You're already logged in")
+        return
 
     state = AndroidState()
     state.generate(evt.sender.mxid)
