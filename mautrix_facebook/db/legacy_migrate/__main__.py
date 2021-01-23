@@ -50,10 +50,8 @@ def connect(to):
         "Message": Message,
         "Puppet": Puppet,
         "User": User,
-        "UserPortal": UserPortal,
         "RoomState": RoomState,
         "UserProfile": UserProfile,
-        "Contact": Contact,
         "Reaction": Reaction,
     }
 
