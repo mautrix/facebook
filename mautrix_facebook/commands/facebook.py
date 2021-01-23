@@ -13,16 +13,22 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Iterable, List
 import asyncio
 
 from mautrix.bridge.commands import HelpSection, command_handler
+from maufbapi.types import graphql
 
-from .. import puppet as pu, portal as po, user as u
-from ..db import UserPortal as DBUserPortal
+from .. import puppet as pu, user as u
 from .typehint import CommandEvent
 
 SECTION_MISC = HelpSection("Miscellaneous", 40, "")
+
+
+async def _get_search_result_puppet(source: 'u.User', node: graphql.Participant) -> 'pu.Puppet':
+    puppet = await pu.Puppet.get_by_fbid(node.id)
+    if not puppet.name_set:
+        await puppet.update_info(source, node)
+    return puppet
 
 
 @command_handler(needs_auth=True, management_only=False,
@@ -30,60 +36,12 @@ SECTION_MISC = HelpSection("Miscellaneous", 40, "")
                  help_args="<_search query_>")
 async def search(evt: CommandEvent) -> None:
     resp = await evt.sender.client.search(" ".join(evt.args))
-    import json
-    data = json.dumps(resp.search_results.serialize()["edges"], indent="  ")
-    await evt.reply(f"```json\n{data}\n```")
-    # await evt.reply(await _handle_search_result(evt.sender, res))
-#
-#
-# @command_handler(needs_auth=True, management_only=False)
-# async def search_by_id(evt: CommandEvent) -> None:
-#     res = [item async for item in evt.sender.client.fetch_thread_info(evt.args)]
-#     await evt.reply(await _handle_search_result(evt.sender, res))
-#
-#
-# async def _handle_search_result(sender: 'u.User', res: Iterable[fbchat.UserData]) -> str:
-#     puppets: List[pu.Puppet] = await asyncio.gather(*[pu.Puppet.get_by_fbid(user.id, create=True)
-#                                                     .update_info(sender, user)
-#                                                       for user in res])
-#     results = "".join(
-#         f"* [{puppet.name}](https://matrix.to/#/{puppet.default_mxid})\n"
-#         for puppet in puppets)
-#     if results:
-#         return f"Search results:\n\n{results}"
-#     else:
-#         return "No results :("
-
-
-# @command_handler(needs_auth=True, management_only=False, help_section=SECTION_MISC,
-#                  help_text="Synchronize portals", help_args="[_limit_] [--create] [--contacts]")
-# async def sync(evt: CommandEvent) -> None:
-#     contacts = False
-#     create_portals = False
-#     limit = evt.config["bridge.initial_chat_sync"]
-#     for arg in evt.args:
-#         arg = arg.lower()
-#         if arg == "--contacts":
-#             contacts = True
-#         elif arg == "--create":
-#             create_portals = True
-#         else:
-#             limit = int(arg)
-#
-#     ups = DBUserPortal.all(evt.sender.fbid)
-#     async for thread in evt.sender.client.fetch_threads(limit, fbchat.ThreadLocation.INBOX):
-#         if not isinstance(thread, (fbchat.UserData, fbchat.PageData, fbchat.GroupData)):
-#             # TODO log?
-#             continue
-#         portal = po.Portal.get_by_thread(thread, evt.sender.fbid)
-#         if create_portals and not portal.mxid:
-#             await portal.create_matrix_room(evt.sender, thread)
-#         elif portal.mxid:
-#             await portal.update_matrix_room(evt.sender, thread)
-#             await portal.backfill(evt.sender, is_initial=False, last_active=thread.last_active)
-#             await evt.sender._add_community(ups.get(portal.fbid, None), None, portal, None)
-#
-#     if contacts:
-#         await evt.sender.sync_contacts()
-#
-#     await evt.reply("Syncing complete")
+    puppets = await asyncio.gather(*[_get_search_result_puppet(evt.sender, edge.node)
+                                     for edge in resp.search_results.edges
+                                     if isinstance(edge.node, graphql.Participant)])
+    results = "".join(f"* [{puppet.name}](https://matrix.to/#/{puppet.default_mxid})\n"
+                      for puppet in puppets)
+    if results:
+        await evt.reply(f"Search results:\n\n{results}")
+    else:
+        await evt.reply("No results :(")

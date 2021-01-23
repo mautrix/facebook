@@ -258,7 +258,7 @@ class Portal(DBPortal, BasePortal):
             if photo:
                 self.avatar_url = await p.Puppet.reupload_avatar(
                     source, self.main_intent, photo.uri,
-                    self.fbid if self.is_direct else None)
+                    self.fbid, use_graph=self.is_direct and (photo.height or 0) < 500)
             else:
                 self.avatar_url = ContentURI("")
             if self.mxid:

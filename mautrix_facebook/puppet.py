@@ -159,9 +159,9 @@ class Puppet(DBPuppet, BasePuppet):
 
     @staticmethod
     async def reupload_avatar(source: Optional['u.User'], intent: IntentAPI, url: str,
-                              fbid: Optional[int]) -> ContentURI:
+                              fbid: int, use_graph: bool = True) -> ContentURI:
         data = None
-        if fbid and source and source.state and source.state.session.access_token:
+        if use_graph and source and source.state and source.state.session.access_token:
             graph_url = ((source.client.graph_url / str(fbid) / "picture")
                          .with_query({"width": "1000", "height": "1000"}))
             async with source.client.get(graph_url) as resp:
@@ -179,7 +179,8 @@ class Puppet(DBPuppet, BasePuppet):
             self.photo_id = photo_id
             if photo:
                 self.photo_mxc = await self.reupload_avatar(source, self.default_mxid_intent,
-                                                            photo.uri, self.fbid)
+                                                            photo.uri, self.fbid,
+                                                            use_graph=(photo.height or 0) < 500)
             else:
                 self.photo_mxc = ContentURI("")
             try:

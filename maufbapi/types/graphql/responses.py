@@ -13,13 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Union
 
 from yarl import URL
 from attr import dataclass
 import attr
 
-from mautrix.types import ExtensibleEnum, SerializableAttrs
+from mautrix.types import ExtensibleEnum, SerializableAttrs, JSON, Obj, deserializer
 from ..common import ThreadFolder, MessageUnsendability
 
 
@@ -108,8 +108,15 @@ class ReachabilityStatus(ExtensibleEnum):
     UNREACHABLE_USER_TYPE = "UNREACHABLE_USER_TYPE"
 
 
+class ParticipantType(ExtensibleEnum):
+    USER = "User"
+    PAGE = "Page"
+
+
 @dataclass(kw_only=True)
 class Participant(MinimalParticipant, SerializableAttrs['Participant']):
+    typename: ParticipantType = attr.ib(metadata={"json": "__typename"})
+
     username: Optional[str] = None
     structured_name: Optional[StructuredName] = None
     nickname_for_viewer: Optional[str] = None
@@ -557,16 +564,35 @@ class OwnInfo(SerializableAttrs['OwnInfo']):
 
 
 @dataclass
+class MessageSearchResult(SerializableAttrs['MessageSearchResult']):
+    thread_id: str
+    name: Optional[str]
+    # TODO message_thread, matched_message
+
+
+# TODO there might be other types of search results
+SearchResultNode = Union[MessageSearchResult, Participant, Obj]
+
+
+@deserializer(SearchResultNode)
+def deserialize_search_node(val: JSON) -> SearchResultNode:
+    type = val["__typename"]
+    if type in ("User", "Page"):
+        return Participant.deserialize(val)
+    elif type == "MessageSearchResult":
+        return MessageSearchResult.deserialize(val)
+    return Obj(**val)
+
+
+@dataclass
 class SearchResult(SerializableAttrs['SearchResult']):
-    pass
-
-
-from mautrix.types import JSON
+    node: SearchResultNode
+    # there's a header field with some random metadata too
 
 
 @dataclass
 class SearchResults(SerializableAttrs['SearchResults']):
-    edges: List[JSON]
+    edges: List[SearchResult]
 
 
 @dataclass
