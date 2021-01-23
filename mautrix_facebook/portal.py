@@ -290,8 +290,8 @@ class Portal(DBPortal, BasePortal):
             if self.is_direct and self.fbid == puppet.fbid and self.encrypted:
                 changed = await self._update_name(puppet.name) or changed
                 changed = await self._update_photo_from_puppet(puppet) or changed
-            if self.mxid:
-                await puppet.intent_for(self).ensure_joined(self.mxid)
+            if self.mxid and (puppet.fbid != self.fb_receiver or puppet.is_real_user):
+                await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
         return changed
 
     # endregion
