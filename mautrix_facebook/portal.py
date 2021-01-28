@@ -811,11 +811,10 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.IMAGE
             info = ImageInfo(width=attachment.image_info.original_width,
                              height=attachment.image_info.original_height)
-            url = await source.client.get_image_url(msg_id, attachment.media_id)
-            if not url:
-                previews = attachment.image_info.alt_previews or attachment.image_info.previews
-                info = ImageInfo()
-                url = list(previews.values())[-1]
+            previews = attachment.image_info.alt_previews or attachment.image_info.previews
+            url = list(previews.values())[0]
+            # TODO find out if we need to use get_image_url in some cases even with MQTT
+            # url = await source.client.get_image_url(msg_id, attachment.media_id)
         elif attachment.media_id:
             # TODO what if it's not a file?
             msgtype = MessageType.FILE
