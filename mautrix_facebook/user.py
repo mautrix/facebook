@@ -500,11 +500,17 @@ class User(DBUser, BaseUser):
     def _update_seq_id(self, seq_id: int) -> None:
         self.seq_id = seq_id
 
+    def _update_region_hint(self, region_hint: str) -> None:
+        self.log.debug(f"Got region hint {region_hint}")
+        self.state.session.region_hint = region_hint
+        self.loop.create_task(self.save())
+
     async def _try_listen(self) -> None:
         try:
             if not self.mqtt:
                 self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
                 self.mqtt.seq_id_update_callback = self._update_seq_id
+                self.mqtt.region_hint_callback = self._update_region_hint
                 self.mqtt.add_event_handler(mqtt_t.Message, self.on_message)
                 self.mqtt.add_event_handler(mqtt_t.ExtendedMessage, self.on_message)
                 self.mqtt.add_event_handler(mqtt_t.NameChange, self.on_title_change)

@@ -112,6 +112,7 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
         }
         resp = await self.get((self.graph_url / "messaging_get_attachment").with_query(query),
                               headers=headers, include_auth=False, allow_redirects=False)
+        # TODO handle errors more properly?
         try:
             return resp.headers["Location"]
         except KeyError:

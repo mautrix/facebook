@@ -31,7 +31,7 @@ from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
 from ..types import (MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest,
-                     MarkReadRequest, OpenedThreadRequest, SendMessageResponse)
+                     MarkReadRequest, OpenedThreadRequest, SendMessageResponse, RegionHintPayload)
 from ..types.mqtt import Mention
 from ..thrift import ThriftReader, ThriftObject
 from .otclient import MQTToTClient
@@ -62,6 +62,7 @@ class AndroidMQTT:
     state: AndroidState
     seq_id: Optional[int]
     seq_id_update_callback: Optional[Callable[[int], None]]
+    region_hint_callback: Optional[Callable[[str], None]]
     _opened_thread: Optional[int]
     _publish_waiters: Dict[int, asyncio.Future]
     _response_waiters: Dict[RealtimeTopic, asyncio.Future]
@@ -75,6 +76,7 @@ class AndroidMQTT:
                  log: Optional[TraceLogger] = None) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
+        self.region_hint_callback = None
         self._opened_thread = None
         self._publish_waiters = {}
         self._response_waiters = {}
@@ -287,6 +289,11 @@ class AndroidMQTT:
             for event in item.get_parts():
                 self._loop.create_task(self._dispatch(event))
 
+    def _on_region_hint(self, payload: bytes) -> None:
+        rhp = RegionHintPayload.from_thrift(payload)
+        if self.region_hint_callback:
+            self.region_hint_callback(rhp.region_hint.code)
+
     def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
         try:
             is_compressed = message.payload.startswith(b"x\xda")
@@ -296,6 +303,8 @@ class AndroidMQTT:
             _, message.payload = message.payload.split(b"\x00", 1)
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
+            elif topic == RealtimeTopic.REGION_HINT:
+                self._on_region_hint(message.payload)
             else:
                 try:
                     waiter = self._response_waiters.pop(topic)

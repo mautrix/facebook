@@ -393,3 +393,20 @@ class SendMessageResponse(ThriftObject):
     # index 3: unknown i32 present for errors
     error_message: str = field(default=None, index=4)
     # index 5: unknown boolean present for errors
+
+
+@autospec
+@dataclass
+class RegionHint(ThriftObject):
+    code: str
+
+
+@autospec
+@dataclass(kw_only=True)
+class RegionHintPayload(ThriftObject):
+    unknown_int64: int = field(TType.I64)
+    region_hint_data: bytes
+
+    @property
+    def region_hint(self) -> RegionHint:
+        return RegionHint.from_thrift(self.region_hint_data)

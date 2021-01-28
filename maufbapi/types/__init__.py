@@ -8,5 +8,5 @@ from .graphql import (GraphQLQuery, MoreMessagesQuery, ThreadListQuery, ThreadLi
                       SubsequentMediaResponse, FileAttachmentUrlQuery, FileAttachmentURLResponse,
                       SearchEntitiesResponse, SearchEntitiesNamedQuery, ThreadQueryResponse)
 from .mqtt import (RealtimeConfig, RealtimeClientInfo, SendMessageRequest, MessageSyncPayload,
-                   MarkReadRequest, OpenedThreadRequest, SendMessageResponse)
+                   MarkReadRequest, OpenedThreadRequest, SendMessageResponse, RegionHintPayload)
 from .media import UploadResponse, UploadErrorData
