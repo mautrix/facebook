@@ -78,7 +78,7 @@ class Message:
     async def get_closest_before(cls, fb_chat: int, fb_receiver: int, timestamp: int
                                  ) -> Optional['Message']:
         q = ("SELECT mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp "
-             "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND timestamp>=$3 "
+             "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND timestamp<=$3 "
              "ORDER BY timestamp DESC LIMIT 1")
         row = await cls.db.fetchrow(q, fb_chat, fb_receiver, timestamp)
         return cls._from_row(row)

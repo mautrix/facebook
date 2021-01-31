@@ -333,6 +333,24 @@ class StoryTarget(SerializableAttrs['StoryTarget']):
 
 
 @dataclass
+class StoryMediaAttachment(SerializableAttrs['StoryMediaAttachment']):
+    typename_str: str = attr.ib(metadata={"json": "__typename"})
+    id: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    owner: Optional[MinimalParticipant] = None
+    title: Optional[ExtensibleText] = None
+    image: Optional[Picture] = None
+    image_natural: Optional[Picture] = attr.ib(default=None, metadata={"json": "imageNatural"})
+    image_fullscreen: Optional[Picture] = attr.ib(default=None,
+                                                  metadata={"json": "imageFullScreen"})
+    image_large: Optional[Picture] = attr.ib(default=None, metadata={"json": "imageLarge"})
+    playable_url: Optional[str] = None
+    is_looping: bool = False
+    is_playable: bool = False
+
+
+@dataclass
 class StoryAttachment(SerializableAttrs['StoryAttachment']):
     title: str
     url: str
@@ -343,6 +361,8 @@ class StoryAttachment(SerializableAttrs['StoryAttachment']):
     source: Optional[ExtensibleText] = None
     subtitle: Optional[str] = None
     target: Optional[StoryTarget] = None
+    deduplication_key: Optional[str] = None
+    media: Optional[StoryMediaAttachment] = None
 
     @property
     def clean_url(self) -> URL:

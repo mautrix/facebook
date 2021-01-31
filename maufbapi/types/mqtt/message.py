@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import List, Dict, Optional, Any
+import base64
 import json
 
 from attr import dataclass
@@ -125,7 +126,14 @@ class Attachment(ThriftObject):
     def parse_extensible(self) -> ExtensibleAttachment:
         if not self.extensible_media:
             raise ValueError("This attachment does not contain an extensible attachment")
-        return ExtensibleAttachment.parse_json(self.extensible_media)
+        data = json.loads(self.extensible_media)
+        raw_media_key = f"extensible_message_attachment:{self.media_id_str}"
+        expected_key = base64.b64encode(raw_media_key.encode("utf-8")).decode("utf-8").rstrip("=")
+        try:
+            media_data = data[expected_key]
+        except KeyError:
+            media_data = list(data.values())[0]
+        return ExtensibleAttachment.deserialize(media_data)
 
 
 @autospec

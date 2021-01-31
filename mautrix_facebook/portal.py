@@ -16,6 +16,7 @@
 from typing import (Dict, Deque, Optional, Tuple, Union, Set, AsyncGenerator, List, Any, Awaitable,
                     Pattern, TYPE_CHECKING, cast)
 from collections import deque
+from html import escape
 from io import BytesIO
 import mimetypes
 import asyncio
@@ -758,7 +759,6 @@ class Portal(DBPortal, BasePortal):
             event_ids = await self._handle_mqtt_message(source, intent, message, reply_to)
         if not event_ids:
             self.log.warning(f"Unhandled Messenger message {msg_id}")
-            self.log.trace("Message %s content: %s", msg_id, message)
             return
         event_ids = [event_id for event_id in event_ids if event_id]
         self.log.debug(f"Handled Messenger message {msg_id} -> {event_ids}")
@@ -787,6 +787,54 @@ class Portal(DBPortal, BasePortal):
                                                               message.metadata.timestamp))
         return event_ids
 
+    async def _convert_extensible_media(self, source: 'u.User', intent: IntentAPI,
+                                        sa: graphql.StoryAttachment
+                                        ) -> Optional[MessageEventContent]:
+        if sa.target.typename == graphql.AttachmentType.EXTERNAL_URL:
+            target_url = escape(str(sa.clean_url))
+            html = f'<a href="{target_url}">{target_url}</a>'
+            return TextMessageEventContent(msgtype=MessageType.TEXT, format=Format.HTML,
+                                           body=str(sa.clean_url), formatted_body=html)
+        elif sa.media:
+            msgtype = {
+                "Image": MessageType.IMAGE,
+                "Video": MessageType.VIDEO,
+            }.get(sa.media.typename_str)
+            if sa.media.playable_url and msgtype == MessageType.VIDEO:
+                info = VideoInfo()
+                url = sa.media.playable_url
+            elif sa.media.image_natural and msgtype == MessageType.IMAGE:
+                url = sa.media.image_natural.uri
+                info = ImageInfo(width=sa.media.image_natural.width,
+                                 height=sa.media.image_natural.height)
+            else:
+                self.log.debug("Unsupported story media attachment: %s",
+                               sa.serialize())
+                body = "Unsupported shared media attachment"
+                html = body
+                if sa.title:
+                    body = f"{body}: **{sa.title}**"
+                    html = f"{html}: <strong>{escape(sa.title)}</strong>"
+                if sa.description:
+                    body = f"{body}\n\n>{sa.description.text}"
+                    html = (f"<p>{html}</p>"
+                            f"<blockquote>{escape(sa.description.text)}</blockquote>")
+                return TextMessageEventContent(msgtype=MessageType.TEXT, format=Format.HTML,
+                                               external_url=sa.url, body=body,
+                                               formatted_body=html)
+            mxc, additional_info, decryption_info = await self._reupload_fb_file(
+                url, source, intent, encrypt=self.encrypted, find_size=False)
+            info.size = additional_info.size
+            info.mimetype = additional_info.mimetype
+            filename = f"{sa.media.typename_str}{mimetypes.guess_extension(info.mimetype)}"
+            return MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
+                                            body=filename, info=info, external_url=sa.url)
+        else:
+            self.log.debug("Unhandled story attachment: %s",
+                           sa.serialize())
+            return None
+
+
     async def _convert_mqtt_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
                                        attachment: mqtt.Attachment) -> MessageEventContent:
         filename = attachment.file_name
@@ -794,8 +842,9 @@ class Portal(DBPortal, BasePortal):
             filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
         if attachment.extensible_media:
-            # TODO
-            return None
+            sa = attachment.parse_extensible().story_attachment
+            self.log.trace("Story attachment %s content: %s", attachment.media_id_str, sa)
+            return await self._convert_extensible_media(source, intent, sa)
         elif attachment.video_info:
             msgtype = MessageType.VIDEO
             url = attachment.video_info.download_url
@@ -811,8 +860,16 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.IMAGE
             info = ImageInfo(width=attachment.image_info.original_width,
                              height=attachment.image_info.original_height)
-            previews = attachment.image_info.alt_previews or attachment.image_info.previews
-            url = list(previews.values())[0]
+            if attachment.image_info.alt_previews:
+                url = list(attachment.image_info.alt_previews.values())[0]
+                # Override the mime type or detect from file
+                attachment.mime_type = {
+                    "webp": "image/webp",
+                    "gif": "image/gif",
+                    "png": "image/png",
+                }.get(attachment.image_info.alt_preview_type, None)
+            else:
+                url = list(attachment.image_info.previews.values())[0]
             # TODO find out if we need to use get_image_url in some cases even with MQTT
             # url = await source.client.get_image_url(msg_id, attachment.media_id)
         elif attachment.media_id:
@@ -848,7 +905,12 @@ class Portal(DBPortal, BasePortal):
                   for attachment in message.blob_attachments]
             )
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
-        # TODO handle message.extensible_attachment
+        if message.extensible_attachment:
+            sa = message.extensible_attachment.story_attachment
+            content = await self._convert_extensible_media(source, intent, sa)
+            if content:
+                event_ids.append(await self._send_message(intent, content,
+                                                          timestamp=message.timestamp))
         if message.message and message.message.text:
             event_ids.append(await self._handle_facebook_text(intent, message.message, reply_to_id,
                                                               message.timestamp))
