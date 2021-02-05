@@ -1,11 +1,6 @@
-FROM docker.io/alpine:3.12
+FROM docker.io/alpine:3.13
 
 ARG TARGETARCH=amd64
-
-RUN echo $'\
-@edge http://dl-cdn.alpinelinux.org/alpine/edge/main\n\
-@edge http://dl-cdn.alpinelinux.org/alpine/edge/testing\n\
-@edge http://dl-cdn.alpinelinux.org/alpine/edge/community' >> /etc/apk/repositories
 
 RUN apk add --no-cache \
       python3 py3-pip py3-setuptools py3-wheel \
@@ -13,12 +8,12 @@ RUN apk add --no-cache \
       py3-aiohttp \
       py3-magic \
       py3-ruamel.yaml \
-      py3-commonmark@edge \
+      py3-commonmark \
       py3-paho-mqtt \
       # For legacy migrations
       py3-sqlalchemy \
       py3-psycopg2 \
-      py3-alembic@edge \
+      py3-alembic \
       # encryption
       olm-dev \
       py3-cffi \
@@ -26,7 +21,7 @@ RUN apk add --no-cache \
       py3-unpaddedbase64 \
       py3-future \
       # proxy support
-      py3-aiohttp-socks@edge \
+      py3-aiohttp-socks \
       py3-pysocks \
       # Other dependencies
       ca-certificates \
@@ -34,7 +29,7 @@ RUN apk add --no-cache \
       bash \
       curl \
       jq \
-      yq@edge
+      yq
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
