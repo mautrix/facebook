@@ -201,6 +201,13 @@ class ThriftReader(io.BytesIO):
         else:
             self.read_val(type)
 
+    def _read_kv(self, key_type: RecursiveType, value_type: RecursiveType, field_path: str,
+                 index: int) -> Tuple[Any, Any]:
+        key = self.read_val_recursive(key_type, field_path=f"{field_path}[{index}::key]")
+        value_path = repr(key) if isinstance(key, (str, bytes, int)) else f"{index}::value"
+        value = self.read_val_recursive(value_type, field_path=f"{field_path}[{value_path}]")
+        return key, value
+
     def read_val_recursive(self, rtype: RecursiveType, field_path: str = "root") -> Any:
         """
         Read any type of value from the buffer.
@@ -227,11 +234,8 @@ class ThriftReader(io.BytesIO):
             elif value_type != rtype.value_type.type:
                 raise ValueError(f"Unexpected value type at {field_path}: "
                                  f"expected {rtype.value_type.type.name}, got {value_type.name}")
-            return {
-                self.read_val_recursive(rtype.key_type, field_path=f"{field_path}[{i}.key]"):
-                    self.read_val_recursive(rtype.value_type, field_path=f"{field_path}[{i}.val]")
-                for i in range(length)
-            }
+            return dict(self._read_kv(rtype.key_type, rtype.value_type, field_path, index)
+                        for index in range(length))
         elif rtype.type in (TType.LIST, TType.SET):
             item_type, length = self.read_list_header()
             if item_type != rtype.item_type.type:
