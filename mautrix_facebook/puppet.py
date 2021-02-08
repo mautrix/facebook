@@ -23,7 +23,7 @@ import magic
 
 from mautrix.types import UserID, RoomID, SyncToken, ContentURI
 from mautrix.appservice import IntentAPI
-from mautrix.bridge import BasePuppet
+from mautrix.bridge import BasePuppet, async_getter_lock
 from mautrix.util.simple_template import SimpleTemplate
 from maufbapi.types.graphql import Participant, Picture
 
@@ -201,7 +201,8 @@ class Puppet(DBPuppet, BasePuppet):
             self.by_custom_mxid[self.custom_mxid] = self
 
     @classmethod
-    async def get_by_fbid(cls, fbid: Union[str, int], create: bool = True) -> Optional['Puppet']:
+    @async_getter_lock
+    async def get_by_fbid(cls, fbid: Union[str, int], *, create: bool = True) -> Optional['Puppet']:
         if isinstance(fbid, str):
             fbid = int(fbid)
         try:
@@ -230,6 +231,7 @@ class Puppet(DBPuppet, BasePuppet):
         return None
 
     @classmethod
+    @async_getter_lock
     async def get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
         try:
             return cls.by_custom_mxid[mxid]

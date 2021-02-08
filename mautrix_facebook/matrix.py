@@ -79,7 +79,8 @@ class MatrixHandler(BaseMatrixHandler):
                                               "multi-user rooms.")
             await intent.leave_room(room_id)
             return
-        portal = await po.Portal.get_by_fbid(puppet.fbid, invited_by.fbid, fb_type=ThreadType.USER)
+        portal = await po.Portal.get_by_fbid(puppet.fbid, fb_receiver=invited_by.fbid,
+                                             fb_type=ThreadType.USER)
         if portal.mxid:
             try:
                 await intent.invite_user(portal.mxid, invited_by.mxid, check_cache=False)

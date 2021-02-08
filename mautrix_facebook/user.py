@@ -21,7 +21,7 @@ import time
 
 from mautrix.types import UserID, RoomID, EventID, TextMessageEventContent, MessageType
 from mautrix.client import Client as MxClient
-from mautrix.bridge import BaseUser
+from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.opt_prometheus import Summary, Gauge, async_time
@@ -165,7 +165,8 @@ class User(DBUser, BaseUser):
                 yield user
 
     @classmethod
-    async def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['User']:
+    @async_getter_lock
+    async def get_by_mxid(cls, mxid: UserID, *, create: bool = True) -> Optional['User']:
         if pu.Puppet.get_id_from_mxid(mxid) or mxid == cls.az.bot_mxid:
             return None
         try:
@@ -188,6 +189,7 @@ class User(DBUser, BaseUser):
         return None
 
     @classmethod
+    @async_getter_lock
     async def get_by_fbid(cls, fbid: int) -> Optional['User']:
         try:
             return cls.by_fbid[fbid]

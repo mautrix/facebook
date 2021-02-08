@@ -32,7 +32,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            EncryptedFile, VideoInfo)
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, IntentError, MatrixError
-from mautrix.bridge import BasePortal, NotificationDisabler
+from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.network_retry import call_with_net_retry
 
@@ -1264,6 +1264,7 @@ class Portal(DBPortal, BasePortal):
                              if self.is_direct else self.az.intent)
 
     @classmethod
+    @async_getter_lock
     async def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
         try:
             return cls.by_mxid[mxid]
@@ -1278,7 +1279,8 @@ class Portal(DBPortal, BasePortal):
         return None
 
     @classmethod
-    async def get_by_fbid(cls, fbid: int, fb_receiver: int = 0, create: bool = True,
+    @async_getter_lock
+    async def get_by_fbid(cls, fbid: int, *, fb_receiver: int = 0, create: bool = True,
                           fb_type: Optional[ThreadType] = None) -> Optional['Portal']:
         if fb_type:
             fb_receiver = fb_receiver if fb_type == ThreadType.USER else 0
@@ -1327,7 +1329,7 @@ class Portal(DBPortal, BasePortal):
     def get_by_thread(cls, key: Union[graphql.ThreadKey, mqtt.ThreadKey],
                       fb_receiver: Optional[int] = None, create: bool = True
                       ) -> Awaitable['Portal']:
-        return cls.get_by_fbid(key.id, fb_receiver, create=create,
+        return cls.get_by_fbid(key.id, fb_receiver=fb_receiver, create=create,
                                fb_type=ThreadType.from_thread_key(key))
 
     # endregion
