@@ -227,7 +227,7 @@ class Puppet(DBPuppet, BasePuppet):
     async def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['Puppet']:
         fbid = cls.get_id_from_mxid(mxid)
         if fbid:
-            return await cls.get_by_fbid(fbid, create)
+            return await cls.get_by_fbid(fbid, create=create)
         return None
 
     @classmethod
