@@ -1,4 +1,9 @@
 # mautrix-facebook
+![Languages](https://img.shields.io/github/languages/top/tulir/mautrix-facebook.svg)
+[![License](https://img.shields.io/github/license/tulir/mautrix-facebook.svg)](LICENSE)
+[![Release](https://img.shields.io/github/release/tulir/mautrix-facebook/all.svg)](https://github.com/tulir/mautrix-facebook/releases)
+[![GitLab CI](https://mau.dev/tulir/mautrix-facebook/badges/master/pipeline.svg)](https://mau.dev/tulir/mautrix-facebook/container_registry)
+
 A Matrix-Facebook Messenger puppeting bridge.
 
 ## Documentation
