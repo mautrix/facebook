@@ -208,17 +208,20 @@ class Portal(DBPortal, BasePortal):
         path = URL(photo).path
         return path[path.rfind("/") + 1:]
 
-    @staticmethod
-    async def _reupload_fb_file(url: str, source: 'u.User', intent: IntentAPI, *,
+    @classmethod
+    async def _reupload_fb_file(cls, url: str, source: 'u.User', intent: IntentAPI, *,
                                 filename: Optional[str] = None, encrypt: bool = False,
                                 referer: str = "messenger_thread_photo", find_size: bool = False,
                                 ) -> Tuple[ContentURI, MediaInfo, Optional[EncryptedFile]]:
         if not url:
-            raise ValueError('URL not provided')
+            raise ValueError("URL not provided")
         headers = {
             "referer": f"fbapp://{source.state.application.client_id}/{referer}"
         }
         async with source.client.get(url, headers=headers) as resp:
+            length = int(resp.headers["Content-Length"])
+            if length > cls.matrix.media_config.upload_size:
+                raise ValueError("File not available: too large")
             data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
         info = FileInfo(mimetype=mime, size=len(data))
@@ -822,8 +825,12 @@ class Portal(DBPortal, BasePortal):
                 return TextMessageEventContent(msgtype=MessageType.TEXT, format=Format.HTML,
                                                external_url=sa.url, body=body,
                                                formatted_body=html)
-            mxc, additional_info, decryption_info = await self._reupload_fb_file(
-                url, source, intent, encrypt=self.encrypted, find_size=False)
+            try:
+                mxc, additional_info, decryption_info = await self._reupload_fb_file(
+                    url, source, intent, encrypt=self.encrypted, find_size=False)
+            except ValueError as e:
+                self.log.debug("Failed to reupload story attachment media", exc_info=True)
+                return TextMessageEventContent(msgtype=MessageType.NOTICE, body=str(e))
             info.size = additional_info.size
             info.mimetype = additional_info.mimetype
             filename = f"{sa.media.typename_str}{mimetypes.guess_extension(info.mimetype)}"
