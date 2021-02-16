@@ -830,7 +830,8 @@ class Portal(DBPortal, BasePortal):
                     url, source, intent, encrypt=self.encrypted, find_size=False)
             except ValueError as e:
                 self.log.debug("Failed to reupload story attachment media", exc_info=True)
-                return TextMessageEventContent(msgtype=MessageType.NOTICE, body=str(e))
+                return TextMessageEventContent(msgtype=MessageType.NOTICE, body=f"{e}\n{sa.url}",
+                                               external_url=sa.url)
             info.size = additional_info.size
             info.mimetype = additional_info.mimetype
             filename = f"{sa.media.typename_str}{mimetypes.guess_extension(info.mimetype)}"
