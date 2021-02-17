@@ -23,7 +23,6 @@ import asyncio
 import re
 
 from yarl import URL
-import magic
 
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
@@ -38,6 +37,7 @@ from mautrix.util.network_retry import call_with_net_retry
 
 from maufbapi.types import mqtt, graphql
 
+from .util.magic import mime_type_magic
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
 from .db import (Portal as DBPortal, Message as DBMessage, Reaction as DBReaction,
@@ -223,7 +223,7 @@ class Portal(DBPortal, BasePortal):
             if length > cls.matrix.media_config.upload_size:
                 raise ValueError("File not available: too large")
             data = await resp.read()
-        mime = magic.from_buffer(data, mime=True)
+        mime = mime_type_magic.buffer(data)
         info = FileInfo(mimetype=mime, size=len(data))
         if Image and mime.startswith("image/") and find_size:
             with Image.open(BytesIO(data)) as img:
@@ -555,7 +555,7 @@ class Portal(DBPortal, BasePortal):
             data = await self.main_intent.download_media(message.url)
         else:
             return None
-        mime = message.info.mimetype or magic.from_buffer(data, mime=True)
+        mime = message.info.mimetype or mime_type_magic.buffer(data)
         oti = sender.mqtt.generate_offline_threading_id()
         self._oti_dedup[oti] = event_id
         reply_to = None
