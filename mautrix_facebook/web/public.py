@@ -275,14 +275,17 @@ class PublicBridgeWebsite:
     async def logout(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
 
-        puppet = await pu.Puppet.get_by_fbid(user.fbid)
+        puppet = await pu.Puppet.get_by_fbid(user.fbid) if not user.is_outbound else None
         await user.logout()
-        if puppet.is_real_user:
+        if puppet and puppet.is_real_user:
             await puppet.switch_mxid(None, None)
         return web.json_response({}, headers=self._acao_headers)
 
     async def disconnect(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
+        if user.is_outbound:
+            return web.HTTPClientError(body='{"error": "This command is not supported for outbound-only users.}',
+                                       headers=self._headers)
         if not user.is_connected:
             raise web.HTTPBadRequest(text='{"error": "User is not connected"}',
                                      headers=self._headers)
@@ -292,6 +295,9 @@ class PublicBridgeWebsite:
 
     async def reconnect(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
+        if user.is_outbound:
+            return web.HTTPClientError(body='{"error": "This command is not supported for outbound-only users.}',
+                                       headers=self._headers)
         if user.is_connected:
             raise web.HTTPConflict(text='{"error": "User is already connected"}',
                                    headers=self._headers)
@@ -300,5 +306,8 @@ class PublicBridgeWebsite:
 
     async def refresh(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
+        if user.is_outbound:
+            return web.HTTPClientError(body='{"error": "This command is not supported for outbound-only users.}',
+                                       headers=self._headers)
         await user.refresh()
         return web.json_response({}, headers=self._acao_headers)

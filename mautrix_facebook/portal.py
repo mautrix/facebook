@@ -680,7 +680,7 @@ class Portal(DBPortal, BasePortal):
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
             self.log.info(f"{user.mxid} left private chat portal with {self.fbid}")
-            if user.fbid == self.fb_receiver:
+            if not user.is_outbound and user.fbid == self.fb_receiver:
                 self.log.info(f"{user.mxid} was the recipient of this portal. "
                               "Cleaning up and deleting...")
                 await self.cleanup_and_delete()

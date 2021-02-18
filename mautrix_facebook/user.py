@@ -101,8 +101,9 @@ class User(DBUser, BaseUser):
 
     def __init__(self, mxid: UserID, fbid: Optional[int] = None,
                  state: Optional[AndroidState] = None,
-                 notice_room: Optional[RoomID] = None) -> None:
-        super().__init__(mxid=mxid, fbid=fbid, state=state, notice_room=notice_room)
+                 notice_room: Optional[RoomID] = None,
+                 ref_mxid: Optional[UserID] = None) -> None:
+        super().__init__(mxid=mxid, fbid=fbid, state=state, notice_room=notice_room, ref_mxid=ref_mxid)
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
@@ -128,6 +129,18 @@ class User(DBUser, BaseUser):
         self.listen_task = None
         self.seq_id = None
 
+    async def init_from_ref_user(self) -> None:
+        ref_user = await User.get_by_mxid(self.ref_mxid)
+        self._copy_from(ref_user)
+
+    def _copy_from(self, ref_user: 'User') -> None:
+        self.fbid = ref_user.fbid
+        self.state = ref_user.state
+        self.client = ref_user.client
+        self.mqtt = ref_user.mqtt
+        #self.listen_task = ref_user.listen_task
+        #self.seq_id = ref_user.seq_id
+
     @classmethod
     def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[bool]]:
         cls.bridge = bridge
@@ -148,12 +161,22 @@ class User(DBUser, BaseUser):
             self._is_connected = val
             self._connection_time = time.monotonic()
 
+    @property
+    def is_outbound(self):
+        return self.ref_mxid is not None
+
     # region Database getters
 
     def _add_to_cache(self) -> None:
-        self.by_mxid[self.mxid] = self
-        if self.fbid:
-            self.by_fbid[self.fbid] = self
+        if not self.is_outbound:
+            self.by_mxid[self.mxid] = self
+            if self.fbid:
+                self.by_fbid[self.fbid] = self
+        else:
+            try:
+                del self.by_mxid[self.mxid]
+            except KeyError:
+                pass
 
     @classmethod
     async def all_logged_in(cls) -> AsyncGenerator['User', None]:
@@ -235,8 +258,7 @@ class User(DBUser, BaseUser):
             self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
-            self.stop_listen()
-            asyncio.create_task(self.post_login())
+            self._prepare_listening()
             return True
         return False
 
@@ -310,6 +332,13 @@ class User(DBUser, BaseUser):
         self._is_refreshing = False
 
     async def logout(self, remove_fbid: bool = True) -> bool:
+        if self.is_outbound:
+            self.fbid = None
+            self.client = None
+            self.ref_mxid = None
+            await self.save()
+            return True
+
         ok = True
         self.stop_listen()
         if self.state:
@@ -338,7 +367,6 @@ class User(DBUser, BaseUser):
 
     async def post_login(self) -> None:
         self.log.info("Running post-login actions")
-        self._add_to_cache()
 
         try:
             puppet = await pu.Puppet.get_by_fbid(self.fbid)
@@ -612,13 +640,29 @@ class User(DBUser, BaseUser):
         self.mqtt = None
         self.listen_task = None
 
+    def _prepare_listening(self) -> None:
+        if self.is_outbound:
+            self.log.debug(f"Not running post-login actions for outbound-only user")
+        else:
+            self.stop_listen()
+            asyncio.create_task(self.post_login())
+        self._add_to_cache()
+
     async def on_logged_in(self, state: AndroidState) -> None:
-        self.fbid = state.session.uid
-        self.state = state
-        self.client = AndroidAPI(state, log=self.log.getChild("api"))
-        await self.save()
-        self.stop_listen()
-        asyncio.create_task(self.post_login())
+        ref_user = await User.get_by_fbid(state.session.uid)
+        if ref_user is not None:
+            # TODO log out if there is a logout API for messenger mobile
+            self.log.debug(f"Setting user {self.mxid} as an outbound-only user sharing the connection of user {ref_user.mxid}")
+            self.ref_mxid = ref_user.mxid
+            await self.save()
+            # Save to DB *before* copying settings
+            self._copy_from(ref_user)
+        else:
+            self.fbid = state.session.uid
+            self.state = state
+            self.client = AndroidAPI(state, log=self.log.getChild("api"))
+            await self.save()
+            self._prepare_listening()
 
     @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: Union[mqtt_t.Message, mqtt_t.ExtendedMessage]) -> None:
