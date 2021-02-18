@@ -140,6 +140,7 @@ class User(DBUser, BaseUser):
         self.mqtt = ref_user.mqtt
         #self.listen_task = ref_user.listen_task
         #self.seq_id = ref_user.seq_id
+        self._is_logged_in = ref_user.is_logged_in()
 
     @classmethod
     def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[bool]]:
