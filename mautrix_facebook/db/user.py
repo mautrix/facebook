@@ -33,44 +33,48 @@ class User:
     fbid: Optional[int]
     state: Optional[AndroidState]
     notice_room: Optional[RoomID]
+    ref_mxid: Optional[UserID]
 
     @property
     def _state_json(self) -> Optional[str]:
         return self.state.json() if self.state else None
 
     @classmethod
-    def _from_row(cls, row: Optional[Record]) -> Optional['User']:
+    async def _from_row(cls, row: Optional[Record]) -> Optional['User']:
         if row is None:
             return None
         data = {**row}
         state = data.pop("state", None)
-        return cls(**data, state=AndroidState.parse_json(state) if state else None)
+        user = cls(**data, state=AndroidState.parse_json(state) if state else None)
+        if user.is_outbound:
+            await user.init_from_ref_user()
+        return user
 
     @classmethod
     async def all_logged_in(cls) -> List['User']:
-        rows = await cls.db.fetch('SELECT mxid, fbid, state, notice_room FROM "user" '
-                                  "WHERE fbid<>0 AND state IS NOT NULL")
-        return [cls._from_row(row) for row in rows]
+        rows = await cls.db.fetch('SELECT mxid, fbid, state, notice_room, ref_mxid FROM "user" '
+                                  "WHERE fbid<>0 AND state IS NOT NULL AND ref_mxid IS NULL")
+        return [await cls._from_row(row) for row in rows]
 
     @classmethod
     async def get_by_fbid(cls, fbid: int) -> Optional['User']:
-        q = 'SELECT mxid, fbid, state, notice_room FROM "user" WHERE fbid=$1'
+        q = 'SELECT mxid, fbid, state, notice_room, ref_mxid FROM "user" WHERE fbid=$1'
         row = await cls.db.fetchrow(q, fbid)
-        return cls._from_row(row)
+        return await cls._from_row(row)
 
     @classmethod
     async def get_by_mxid(cls, mxid: UserID) -> Optional['User']:
-        q = 'SELECT mxid, fbid, state, notice_room FROM "user" WHERE mxid=$1'
+        q = 'SELECT mxid, fbid, state, notice_room, ref_mxid FROM "user" WHERE mxid=$1'
         row = await cls.db.fetchrow(q, mxid)
-        return cls._from_row(row)
+        return await cls._from_row(row)
 
     async def insert(self) -> None:
-        q = 'INSERT INTO "user" (mxid, fbid, state, notice_room) VALUES ($1, $2, $3, $4)'
-        await self.db.execute(q, self.mxid, self.fbid, self._state_json, self.notice_room)
+        q = 'INSERT INTO "user" (mxid, fbid, state, notice_room, ref_mxid) VALUES ($1, $2, $3, $4, $5)'
+        await self.db.execute(q, self.mxid, self.fbid, self._state_json, self.notice_room, self.ref_mxid)
 
     async def delete(self) -> None:
         await self.db.execute('DELETE FROM "user" WHERE mxid=$1', self.mxid)
 
     async def save(self) -> None:
-        await self.db.execute('UPDATE "user" SET fbid=$2, state=$3, notice_room=$4 WHERE mxid=$1',
-                              self.mxid, self.fbid, self._state_json, self.notice_room)
+        await self.db.execute('UPDATE "user" SET fbid=$2, state=$3, notice_room=$4, ref_mxid=$5 WHERE mxid=$1',
+                              self.mxid, self.fbid, self._state_json, self.notice_room, self.ref_mxid)

@@ -31,6 +31,9 @@ async def set_notice_room(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
                  help_text="Disconnect from Facebook Messenger")
 async def disconnect(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("This command is not supported for outbound-only users.")
+        return
     if not evt.sender.mqtt:
         await evt.reply("You don't have a Messenger MQTT connection")
         return
@@ -40,6 +43,9 @@ async def disconnect(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
                  help_text="Connect to Facebook Messenger", aliases=["reconnect"])
 async def connect(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("This command is not supported for outbound-only users.")
+        return
     if evt.sender.listen_task and not evt.sender.listen_task.done():
         await evt.reply("You already have a Messenger MQTT connection")
         return
@@ -60,7 +66,9 @@ async def ping(evt: CommandEvent) -> None:
     #     return
     await evt.reply(f"You're logged in as {own_info.name} (user ID {own_info.id})")
 
-    if not evt.sender.listen_task or evt.sender.listen_task.done():
+    if evt.sender.is_outbound:
+        await evt.reply("Messenger MQTT connections are disabled for this outbound-only account")
+    elif not evt.sender.listen_task or evt.sender.listen_task.done():
         await evt.reply("You don't have a Messenger MQTT connection. Use `connect` to connect.")
     elif not evt.sender.is_connected:
         await evt.reply("The Messenger MQTT listener is **disconnected**.")
@@ -71,4 +79,7 @@ async def ping(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
                  help_text="\"Refresh\" the Facebook Messenger page")
 async def refresh(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("This command is not supported for outbound-only users.")
+        return
     await evt.sender.refresh(force_notice=True)

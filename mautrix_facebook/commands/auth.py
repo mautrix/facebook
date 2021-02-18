@@ -41,6 +41,35 @@ forced_web_login = ("This instance of the Facebook bridge does not allow in-Matr
 send_password = "Please send your password here to log in"
 missing_email = "Please use `$cmdprefix+sp login <email>` to log in here"
 
+async def handle_outbound_only_login(evt: CommandEvent):
+    if evt.sender.is_outbound:
+        own_info = await evt.sender.client.get_self()
+        await evt.reply(f"Logged in as outbound-only user of {own_info.name} (user ID {own_info.id})")
+
+async def check_approved_login(state: AndroidState, api: AndroidAPI, evt: CommandEvent) -> None:
+    while evt.sender.command_status and evt.sender.command_status["action"] == "Login":
+        await asyncio.sleep(5)
+        try:
+            was_approved = await api.check_approved_machine()
+        except Exception as e:
+            evt.log.exception("Error checking if login was approved from another device")
+            await evt.reply(f"Error checking if login was approved from another device: {e}")
+            break
+        if was_approved:
+            prev_cmd_status = evt.sender.command_status
+            evt.sender.command_status = None
+            try:
+                await api.login_approved()
+            except TwoFactorRequired:
+                await evt.reply("Login approved from another device, but Facebook decided that "
+                                "you need to enter the 2FA code anyway.")
+                evt.sender.command_status = prev_cmd_status
+                return
+            await evt.sender.on_logged_in(state)
+            await evt.reply("Login successfully approved from another device")
+            await handle_outbound_only_login(evt)
+            break
+
 
 @command_handler(needs_auth=False, management_only=True, help_section=SECTION_AUTH,
                  help_text="Log in to Facebook", help_args="[_email_]")
@@ -95,6 +124,7 @@ async def enter_password(evt: CommandEvent) -> None:
         await api.login(email, password)
         await evt.sender.on_logged_in(state)
         await evt.reply("Successfully logged in")
+        await handle_outbound_only_login(evt)
     except TwoFactorRequired:
         await evt.reply("You have two-factor authentication turned on. Please either send the code"
                         " from SMS or your authenticator app here, or approve the login from"
@@ -151,6 +181,7 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
         await api.login_2fa(email, "".join(evt.args).strip())
         await evt.sender.on_logged_in(state)
         await evt.reply("Successfully logged in")
+        await handle_outbound_only_login(evt)
         evt.sender.command_status = None
     except IncorrectPassword:
         await evt.reply("Incorrect two-factor authentication code. Pleaase try again.")
@@ -165,9 +196,9 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
 
 @command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
 async def logout(evt: CommandEvent) -> None:
-    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
+    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid) if not evt.sender.is_outbound else None
     await evt.sender.logout()
-    if puppet.is_real_user:
+    if puppet and puppet.is_real_user:
         await puppet.switch_mxid(None, None)
     await evt.reply("Successfully logged out")
 
@@ -176,6 +207,9 @@ async def logout(evt: CommandEvent) -> None:
                  help_section=SECTION_AUTH, help_text="Replace your Facebook Messenger account's "
                                                       "Matrix puppet with your Matrix account")
 async def login_matrix(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("This command is not supported for outbound-only users.")
+        return
     puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
     _, homeserver = Client.parse_mxid(evt.sender.mxid)
     if homeserver != pu.Puppet.hs_domain:
@@ -194,6 +228,9 @@ async def login_matrix(evt: CommandEvent) -> None:
 @command_handler(needs_auth=True, management_only=True, help_section=SECTION_AUTH,
                  help_text="Revert your Facebook Messenger account's Matrix puppet to the original")
 async def logout_matrix(evt: CommandEvent) -> None:
+    if evt.sender.is_outbound:
+        await evt.reply("This command is not supported for outbound-only users.")
+        return
     puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
     if not puppet.is_real_user:
         await evt.reply("You're not logged in with your Matrix account")
