@@ -24,9 +24,6 @@ alembic -x config=/data/config.yaml upgrade head
 
 if [ ! -f /data/registration.yaml ]; then
 	python3 -m mautrix_facebook -g -c /data/config.yaml -r /data/registration.yaml
-	echo "Didn't find a registration file."
-	echo "Generated one for you."
-	echo "Copy that over to synapses app service directory."
 	fixperms
 	exit
 fi
