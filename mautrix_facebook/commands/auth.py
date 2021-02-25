@@ -16,6 +16,7 @@
 import asyncio
 
 from mautrix.client import Client
+from mautrix.errors import MForbidden
 from mautrix.bridge.commands import HelpSection, command_handler
 from mautrix.bridge import custom_puppet as cpu
 
@@ -61,7 +62,10 @@ async def login(evt: CommandEvent) -> None:
         return
 
     email, password = evt.args[0], " ".join(evt.args[1:])
-    await evt.az.intent.redact(evt.room_id, evt.event_id)
+    try:
+        await evt.az.intent.redact(evt.room_id, evt.event_id)
+    except MForbidden:
+        pass
 
     if evt.sender.client:
         await evt.reply("You're already logged in")
@@ -92,9 +96,9 @@ async def login(evt: CommandEvent) -> None:
     except OAuthException as e:
         await evt.reply(f"Error from Messenger:\n\n> {e}")
     except Exception as e:
+        evt.log.exception("Failed to log in")
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
-        evt.log.exception("Failed to log in")
 
 
 async def enter_2fa_code(evt: CommandEvent) -> None:
@@ -114,9 +118,9 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
         await evt.reply(f"Error from Messenger:\n\n> {e}")
         evt.sender.command_status = None
     except Exception as e:
+        evt.log.exception("Failed to log in")
         evt.sender.command_status = None
         await evt.reply(f"Failed to log in: {e}")
-        evt.log.exception("Failed to log in")
 
 
 @command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
