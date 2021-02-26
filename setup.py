@@ -1,5 +1,4 @@
 import setuptools
-import glob
 
 from mautrix_facebook.get_version import git_tag, git_revision, version, linkified_version
 
@@ -72,8 +71,6 @@ setuptools.setup(
         ],
     },
     data_files=[
-        (".", ["alembic.ini", "mautrix_facebook/example-config.yaml"]),
-        ("alembic", ["alembic/env.py"]),
-        ("alembic/versions", glob.glob("alembic/versions/*.py"))
+        (".", ["mautrix_facebook/example-config.yaml"]),
     ],
 )

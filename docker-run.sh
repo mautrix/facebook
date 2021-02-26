@@ -19,9 +19,6 @@ if [ ! -f /data/config.yaml ]; then
 	exit
 fi
 
-# Check that database is in the right state
-alembic -x config=/data/config.yaml upgrade head
-
 if [ ! -f /data/registration.yaml ]; then
 	python3 -m mautrix_facebook -g -c /data/config.yaml -r /data/registration.yaml
 	fixperms

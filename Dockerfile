@@ -10,10 +10,6 @@ RUN apk add --no-cache \
       py3-ruamel.yaml \
       py3-commonmark \
       py3-paho-mqtt \
-      # For legacy migrations
-      py3-sqlalchemy \
-      py3-psycopg2 \
-      py3-alembic \
       # encryption
       olm-dev \
       py3-cffi \
