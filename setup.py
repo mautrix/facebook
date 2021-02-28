@@ -63,7 +63,7 @@ setuptools.setup(
     ],
     package_data={
         "mautrix_facebook": ["example-config.yaml"],
-        "mautrix_facebook.web": ["static/*"],
+        "mautrix_facebook.web": ["static/**/*"],
         "maufbapi.mqtt": ["topics.json"],
     },
     data_files=[
