@@ -46,6 +46,8 @@ appservice:
         # If set to "generate", a random string will be generated on the next startup.
         # If null, integration manager access to the API will not be possible.
         shared_secret: generate
+        # Allow logging in within Matrix. If false, users can only log in using the web interface.
+        allow_matrix_login: true
 
     # The unique ID of this appservice.
     id: facebook

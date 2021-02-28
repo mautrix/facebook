@@ -1,0 +1,44 @@
+<!--
+mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
+Copyright (C) 2021 Tulir Asokan
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<title>mautrix-facebook login</title>
+
+	<link rel="modulepreload" href="lib/jsbn.min.js"/>
+	<link rel="modulepreload" href="lib/rng.min.js"/>
+	<link rel="modulepreload" href="lib/rsa.min.js"/>
+	<link rel="modulepreload" href="lib/asn1hex-1.1.min.js"/>
+	<link rel="modulepreload" href="lib/preact-10.5.12.min.js"/>
+	<link rel="modulepreload" href="lib/htm-3.0.4.min.js"/>
+	<link rel="modulepreload" href="login/crypto.js"/>
+	<link rel="modulepreload" href="login/api.js"/>
+
+	<link rel="stylesheet" href="lib/normalize-8.0.1.min.css"/>
+	<link rel="stylesheet" href="lib/milligram-1.4.1.min.css"/>
+	<link rel="stylesheet" href="lib/spinner.css"/>
+	<link rel="stylesheet" href="login/index.css"/>
+	<script src="login/app.js" type="module"></script>
+	<script nomodule>document.body.innerText = "This login page requires modern JavaScript"</script>
+</head>
+<body>
+	<noscript>This login page requires JavaScript</noscript>
+</body>
+</html>

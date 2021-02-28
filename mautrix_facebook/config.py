@@ -57,6 +57,7 @@ class Config(BaseBridgeConfig):
             base["appservice.public.shared_secret"] = self._new_token()
         else:
             copy("appservice.public.shared_secret")
+        copy("appservice.public.allow_matrix_login")
 
         copy("metrics.enabled")
         copy("metrics.listen_port")

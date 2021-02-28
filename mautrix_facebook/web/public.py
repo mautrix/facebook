@@ -21,6 +21,7 @@ import time
 import json
 
 from aiohttp import web
+import pkg_resources
 
 from mautrix.types import UserID
 from mautrix.util.signed_token import verify_token
@@ -28,6 +29,10 @@ from maufbapi import AndroidState, AndroidAPI
 from maufbapi.http import TwoFactorRequired, OAuthException, IncorrectPassword
 
 from .. import user as u, puppet as pu
+
+
+class InvalidTokenError(Exception):
+    pass
 
 
 class PublicBridgeWebsite:
@@ -40,10 +45,11 @@ class PublicBridgeWebsite:
         self.app = web.Application()
         self.secret_key = "".join(random.choices(string.ascii_lowercase + string.digits, k=64))
         self.shared_secret = shared_secret
-        for path in ("whoami", "login", "login/2fa", "login/check_approved", "login/approved",
-                     "logout", "disconnect", "reconnect", "refresh"):
+        for path in ("whoami", "login", "login/prepare", "login/2fa", "login/check_approved",
+                     "login/approved", "logout", "disconnect", "reconnect", "refresh"):
             self.app.router.add_options(f"/api/{path}", self.login_options)
         self.app.router.add_get("/api/whoami", self.status)
+        self.app.router.add_post("/api/login/prepare", self.login_prepare)
         self.app.router.add_post("/api/login", self.login)
         self.app.router.add_post("/api/login/2fa", self.login_2fa)
         self.app.router.add_get("/api/login/check_approved", self.login_check_approved)
@@ -52,12 +58,16 @@ class PublicBridgeWebsite:
         self.app.router.add_post("/api/disconnect", self.disconnect)
         self.app.router.add_post("/api/reconnect", self.reconnect)
         self.app.router.add_post("/api/refresh", self.refresh)
+        self.app.router.add_static("/", pkg_resources.resource_filename("mautrix_facebook.web",
+                                                                        "static/"))
 
-    def verify_token(self, token: str) -> Optional[UserID]:
+    def verify_token(self, token: str) -> UserID:
         token = verify_token(self.secret_key, token)
-        if token and token.get("expiry", 0) > int(time.time()):
+        if token:
+            if token.get("expiry", 0) < int(time.time()):
+                raise InvalidTokenError("Access token has expired")
             return UserID(token.get("mxid"))
-        return None
+        raise InvalidTokenError("Access token is invalid")
 
     @property
     def _acao_headers(self) -> Dict[str, str]:
@@ -94,9 +104,12 @@ class PublicBridgeWebsite:
                 raise web.HTTPBadRequest(text='{"error": "Missing user_id query param"}',
                                          headers=self._headers)
         else:
-            user_id = self.verify_token(token)
-            if not user_id:
-                raise web.HTTPForbidden(text='{"error": "Invalid token"}', headers=self._headers)
+            try:
+                user_id = self.verify_token(token)
+            except InvalidTokenError as e:
+                raise web.HTTPForbidden(text=json.dumps({"error": f"{e}, please request a new one"
+                                                                  " from the bridge bot"}),
+                                        headers=self._headers)
 
         user = await u.User.get_by_mxid(user_id)
         return user
@@ -122,6 +135,28 @@ class PublicBridgeWebsite:
                                                           f"{user.state.device.name}")
         return web.json_response(data, headers=self._acao_headers)
 
+    async def login_prepare(self, request: web.Request) -> web.Response:
+        user = await self.check_token(request)
+        state = AndroidState()
+        state.generate(user.mxid)
+        api = AndroidAPI(state, log=user.log.getChild("login-api"))
+        user.command_status = {
+            "action": "Login",
+            "state": state,
+            "api": api,
+        }
+        try:
+            await api.mobile_config_sessionless()
+        except Exception as e:
+            self.log.exception("Failed to get mobile_config_sessionless to prepare login "
+                               f"for {user.mxid}")
+            return web.json_response({"error": str(e)}, headers=self._acao_headers)
+        return web.json_response({
+            "status": "login",
+            "password_encryption_key_id": state.session.password_encryption_key_id,
+            "password_encryption_pubkey": state.session.password_encryption_pubkey
+        }, headers=self._acao_headers)
+
     async def login(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
 
@@ -132,16 +167,33 @@ class PublicBridgeWebsite:
 
         try:
             email = data["email"]
-            password = data["password"]
         except KeyError:
-            raise web.HTTPBadRequest(text='{"error": "Missing keys"}', headers=self._headers)
-
-        state = AndroidState()
-        state.generate(user.mxid)
-        api = AndroidAPI(state, log=user.log.getChild("login-api"))
+            raise web.HTTPBadRequest(text='{"error": "Missing email"}', headers=self._headers)
         try:
+            password = data["password"]
+            encrypted_password = None
+        except KeyError:
+            try:
+                encrypted_password = data["encrypted_password"]
+                password = None
+            except KeyError:
+                raise web.HTTPBadRequest(text='{"error": "Missing password"}',
+                                         headers=self._headers)
+
+        if encrypted_password:
+            if not user.command_status or user.command_status["action"] != "Login":
+                raise web.HTTPBadRequest(text='{"error": "No login in progress"}',
+                                         headers=self._headers)
+            state: AndroidState = user.command_status["state"]
+            api: AndroidAPI = user.command_status["api"]
+        else:
+            state = AndroidState()
+            state.generate(user.mxid)
+            api = AndroidAPI(state, log=user.log.getChild("login-api"))
             await api.mobile_config_sessionless()
-            await api.login(email, password)
+
+        try:
+            await api.login(email, password=password, encrypted_password=encrypted_password)
             await user.on_logged_in(state)
             return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
         except TwoFactorRequired as e:

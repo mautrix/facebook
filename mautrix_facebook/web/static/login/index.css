@@ -1,0 +1,10 @@
+.error {
+	background-color: darkred !important;
+	border-color: darkred !important;
+	opacity: 1 !important;
+}
+
+main {
+	max-width: 50rem;
+	margin: 2rem auto 0;
+}
