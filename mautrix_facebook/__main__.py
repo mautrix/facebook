@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from typing import Optional
 import asyncio
 import logging
 
@@ -46,7 +47,7 @@ class MessengerBridge(Bridge):
     db: Database
     config: Config
     matrix: MatrixHandler
-    public_website: PublicBridgeWebsite
+    public_website: Optional[PublicBridgeWebsite]
     state_store: PgBridgeStateStore
 
     periodic_reconnect_task: asyncio.Task
@@ -61,8 +62,11 @@ class MessengerBridge(Bridge):
 
     def prepare_bridge(self) -> None:
         super().prepare_bridge()
-        self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
-        self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
+        if self.config["appservice.public.enabled"]:
+            self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
+            self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
+        else:
+            self.public_website = None
 
     def prepare_stop(self) -> None:
         self.periodic_reconnect_task.cancel()
