@@ -46,31 +46,6 @@ async def handle_outbound_only_login(evt: CommandEvent):
         own_info = await evt.sender.client.get_self()
         await evt.reply(f"Logged in as outbound-only user of {own_info.name} (user ID {own_info.id})")
 
-async def check_approved_login(state: AndroidState, api: AndroidAPI, evt: CommandEvent) -> None:
-    while evt.sender.command_status and evt.sender.command_status["action"] == "Login":
-        await asyncio.sleep(5)
-        try:
-            was_approved = await api.check_approved_machine()
-        except Exception as e:
-            evt.log.exception("Error checking if login was approved from another device")
-            await evt.reply(f"Error checking if login was approved from another device: {e}")
-            break
-        if was_approved:
-            prev_cmd_status = evt.sender.command_status
-            evt.sender.command_status = None
-            try:
-                await api.login_approved()
-            except TwoFactorRequired:
-                await evt.reply("Login approved from another device, but Facebook decided that "
-                                "you need to enter the 2FA code anyway.")
-                evt.sender.command_status = prev_cmd_status
-                return
-            await evt.sender.on_logged_in(state)
-            await evt.reply("Login successfully approved from another device")
-            await handle_outbound_only_login(evt)
-            break
-
-
 @command_handler(needs_auth=False, management_only=True, help_section=SECTION_AUTH,
                  help_text="Log in to Facebook", help_args="[_email_]")
 async def login(evt: CommandEvent) -> None:
