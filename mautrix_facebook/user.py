@@ -297,7 +297,8 @@ class User(DBUser, BaseUser):
 
     async def reconnect(self) -> None:
         self._is_refreshing = True
-        self.mqtt.disconnect()
+        if self.mqtt:
+            self.mqtt.disconnect()
         await self.listen_task
         self.listen_task = None
         self.mqtt = None
