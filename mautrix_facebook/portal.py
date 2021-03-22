@@ -26,12 +26,11 @@ from yarl import URL
 import magic
 
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
-                           ImageInfo, MessageType, LocationMessageEventContent, LocationInfo,
-                           ThumbnailInfo, FileInfo, AudioInfo, Format, RelatesTo, RelationType,
-                           TextMessageEventContent, MediaMessageEventContent, Membership,
-                           EncryptedFile, VideoInfo)
+                           ImageInfo, MessageType, LocationMessageEventContent, FileInfo,
+                           AudioInfo, Format, RelationType, TextMessageEventContent,
+                           MediaMessageEventContent, Membership, EncryptedFile, VideoInfo)
 from mautrix.appservice import IntentAPI
-from mautrix.errors import MForbidden, IntentError, MatrixError
+from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.network_retry import call_with_net_retry
@@ -676,22 +675,35 @@ class Portal(DBPortal, BasePortal):
                 return False
         return True
 
-    async def _add_facebook_reply(self, content: TextMessageEventContent, reply: str) -> None:
-        if reply:
-            message = await DBMessage.get_by_fbid(reply, self.fb_receiver)
-            if message:
-                evt = await self.main_intent.get_event(message.mx_room, message.mxid)
-                if evt:
-                    if isinstance(evt.content, TextMessageEventContent):
-                        evt.content.trim_reply_fallback()
-                    content.set_reply(evt)
+    async def _add_facebook_reply(self, content: MessageEventContent, reply: str) -> None:
+        if not reply:
+            return
 
-    async def _get_facebook_reply(self, reply: str) -> Optional[RelatesTo]:
-        if reply:
-            message = await DBMessage.get_by_fbid(reply, self.fb_receiver)
-            if message:
-                return RelatesTo(rel_type=RelationType.REPLY, event_id=message.mxid)
-        return None
+        message = await DBMessage.get_by_fbid(reply, self.fb_receiver)
+        if not message:
+            return
+
+        content.set_reply(message.mxid)
+        if not isinstance(content, TextMessageEventContent):
+            return
+
+        try:
+            evt = await self.main_intent.get_event(message.mx_room, message.mxid)
+        except (MNotFound, MForbidden):
+            evt = None
+        if not evt:
+            return
+
+        if evt.type == EventType.ROOM_ENCRYPTED:
+            try:
+                evt = await self.matrix.e2ee.decrypt(evt, wait_session_timeout=0)
+            except SessionNotFound:
+                return
+
+        if isinstance(evt.content, TextMessageEventContent):
+            evt.content.trim_reply_fallback()
+
+        content.set_reply(evt)
 
     async def _send_message(self, intent: IntentAPI, content: MessageEventContent,
                             event_type: EventType = EventType.ROOM_MESSAGE, **kwargs) -> EventID:
@@ -842,7 +854,6 @@ class Portal(DBPortal, BasePortal):
                            sa.serialize())
             return None
 
-
     async def _convert_mqtt_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
                                        attachment: mqtt.Attachment) -> MessageEventContent:
         filename = attachment.file_name
@@ -939,11 +950,10 @@ class Portal(DBPortal, BasePortal):
         mxc, info, decryption_info = await self._reupload_fb_file(url, source, intent,
                                                                   encrypt=self.encrypted,
                                                                   find_size=True)
-        return await self._send_message(intent, event_type=EventType.STICKER,
-                                        content=MediaMessageEventContent(
-                                            url=mxc, file=decryption_info, info=info,
-                                            msgtype=MessageType.STICKER, body=sticker.label or "",
-                                            relates_to=await self._get_facebook_reply(reply_to)),
+        content = MediaMessageEventContent(url=mxc, file=decryption_info, info=info,
+                                           msgtype=MessageType.STICKER, body=sticker.label or "")
+        await self._add_facebook_reply(content, reply_to)
+        return await self._send_message(intent, event_type=EventType.STICKER, content=content,
                                         timestamp=timestamp)
 
     async def _handle_facebook_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
@@ -957,7 +967,7 @@ class Portal(DBPortal, BasePortal):
             raise ValueError(f"Invalid attachment type {type(attachment).__name__}")
         if not content:
             return None
-        content.relates_to = await self._get_facebook_reply(reply_to)
+        await self._add_facebook_reply(content, reply_to)
         return await self._send_message(intent, content, timestamp=timestamp)
 
     async def _convert_graphql_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
