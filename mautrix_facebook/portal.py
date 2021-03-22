@@ -325,6 +325,22 @@ class Portal(DBPortal, BasePortal):
             up.in_community = await source._community_helper.add_room(source._community_id,
                                                                       self.mxid)
             await up.save()
+        await self._sync_read_receipts(info.read_receipts.nodes)
+
+    async def _sync_read_receipts(self, receipts: List[graphql.ReadReceipt]) -> None:
+        for receipt in receipts:
+            message = await DBMessage.get_closest_before(self.fbid, self.fb_receiver,
+                                                         receipt.timestamp)
+            if not message:
+                continue
+            puppet = await p.Puppet.get_by_fbid(receipt.actor.id, create=False)
+            if not puppet:
+                continue
+            try:
+                await puppet.intent_for(self).mark_read(message.mx_room, message.mxid)
+            except Exception:
+                self.log.warning(f"Failed to mark {message.mxid} in {message.mx_room} "
+                                 f"as read by {puppet.intent.mxid}", exc_info=True)
 
     async def create_matrix_room(self, source: 'u.User', info: Optional[graphql.Thread] = None
                                  ) -> Optional[RoomID]:
@@ -458,6 +474,8 @@ class Portal(DBPortal, BasePortal):
                 await self.backfill(source, is_initial=True, thread=info)
             except Exception:
                 self.log.exception("Failed to backfill new portal")
+
+            await self._sync_read_receipts(info.read_receipts.nodes)
 
         return self.mxid
 
