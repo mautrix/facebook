@@ -824,7 +824,10 @@ class Portal(DBPortal, BasePortal):
                                         sa: graphql.StoryAttachment
                                         ) -> Optional[MessageEventContent]:
         if sa.target.typename == graphql.AttachmentType.EXTERNAL_URL:
-            target_url = escape(str(sa.clean_url))
+            target_url: str = escape(str(sa.clean_url))
+            if target_url.startswith("fbrpc://"):
+                self.log.debug("Ignoring fbrpc URL in story attachment %s", sa.serialize())
+                return None
             html = f'<a href="{target_url}">{target_url}</a>'
             return TextMessageEventContent(msgtype=MessageType.TEXT, format=Format.HTML,
                                            body=str(sa.clean_url), formatted_body=html)
