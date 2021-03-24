@@ -126,6 +126,9 @@ class ThriftReader(io.BytesIO):
             # Doubles are encoded as little endian
             # https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#double-encoding
             return struct.unpack("<d", self.read(8))
+        elif type == TType.FLOAT:
+            # This seems to be a facebook-specific 32-bit float
+            return struct.unpack("<d", self.read(4))
         else:
             raise ValueError(f"{type.name} is not a primitive type")
 

@@ -36,6 +36,8 @@ class TType(IntEnum):
     SET = 10
     MAP = 11
     STRUCT = 12
+    # Facebook-specific: https://github.com/facebook/fbthrift/blob/v2021.03.22.00/thrift/lib/cpp/protocol/TCompactProtocol-inl.h#L57
+    FLOAT = 13
 
     # Used internally to represent booleans in schemas.
     BOOL = 0xa1
