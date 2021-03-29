@@ -369,6 +369,8 @@ class StoryAttachment(SerializableAttrs['StoryAttachment']):
         url = URL(self.url)
         if url.host == "l.facebook.com":
             url = URL(url.query["u"])
+        elif url.scheme == "fbrpc" and url.host == "facebook" and url.path == "/nativethirdparty":
+            url = URL(url.query["target_url"])
         return url
 
 

@@ -811,7 +811,8 @@ class Portal(DBPortal, BasePortal):
         if len(message.attachments) > 0:
             attach_ids = await asyncio.gather(
                 *[self._handle_facebook_attachment(message.metadata.id, source, intent, attachment,
-                                                   reply_to_id, message.metadata.timestamp)
+                                                   reply_to_id, message.metadata.timestamp,
+                                                   message_text=message.text)
                   for attachment in message.attachments]
             )
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
@@ -821,16 +822,17 @@ class Portal(DBPortal, BasePortal):
         return event_ids
 
     async def _convert_extensible_media(self, source: 'u.User', intent: IntentAPI,
-                                        sa: graphql.StoryAttachment
+                                        sa: graphql.StoryAttachment, message_text: str,
                                         ) -> Optional[MessageEventContent]:
         if sa.target.typename == graphql.AttachmentType.EXTERNAL_URL:
-            target_url: str = escape(str(sa.clean_url))
-            if target_url.startswith("fbrpc://"):
-                self.log.debug("Ignoring fbrpc URL in story attachment %s", sa.serialize())
+            url = str(sa.clean_url)
+            if message_text is not None and url in message_text:
+                # URL is present in message, don't repost
                 return None
-            html = f'<a href="{target_url}">{target_url}</a>'
+            escaped_url = escape(url)
+            html = f'<a href="{escaped_url}">{escaped_url}</a>'
             return TextMessageEventContent(msgtype=MessageType.TEXT, format=Format.HTML,
-                                           body=str(sa.clean_url), formatted_body=html)
+                                              body=str(sa.clean_url), formatted_body=html)
         elif sa.media:
             msgtype = {
                 "Image": MessageType.IMAGE,
@@ -876,7 +878,8 @@ class Portal(DBPortal, BasePortal):
             return None
 
     async def _convert_mqtt_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
-                                       attachment: mqtt.Attachment) -> MessageEventContent:
+                                       attachment: mqtt.Attachment, message_text: str
+                                       ) -> MessageEventContent:
         filename = attachment.file_name
         if attachment.mime_type and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
@@ -884,7 +887,8 @@ class Portal(DBPortal, BasePortal):
         if attachment.extensible_media:
             sa = attachment.parse_extensible().story_attachment
             self.log.trace("Story attachment %s content: %s", attachment.media_id_str, sa)
-            return await self._convert_extensible_media(source, intent, sa)
+            return await self._convert_extensible_media(source, intent, sa,
+                                                        message_text=message_text)
         elif attachment.video_info:
             msgtype = MessageType.VIDEO
             url = attachment.video_info.download_url
@@ -945,13 +949,15 @@ class Portal(DBPortal, BasePortal):
                   for attachment in message.blob_attachments]
             )
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
+        text = message.message.text if message.message else None
         if message.extensible_attachment:
             sa = message.extensible_attachment.story_attachment
-            content = await self._convert_extensible_media(source, intent, sa)
+            content = await self._convert_extensible_media(source, intent, sa,
+                                                           message_text=text)
             if content:
                 event_ids.append(await self._send_message(intent, content,
                                                           timestamp=message.timestamp))
-        if message.message and message.message.text:
+        if text:
             event_ids.append(await self._handle_facebook_text(intent, message.message, reply_to_id,
                                                               message.timestamp))
         return event_ids
@@ -979,11 +985,13 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_facebook_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
                                           attachment: Union[graphql.Attachment, mqtt.Attachment],
-                                          reply_to: str, timestamp: int) -> Optional[EventID]:
+                                          reply_to: str, timestamp: int,
+                                          message_text: Optional[str] = None) -> Optional[EventID]:
         if isinstance(attachment, graphql.Attachment):
             content = await self._convert_graphql_attachment(msg_id, source, intent, attachment)
         elif isinstance(attachment, mqtt.Attachment):
-            content = await self._convert_mqtt_attachment(msg_id, source, intent, attachment)
+            content = await self._convert_mqtt_attachment(msg_id, source, intent, attachment,
+                                                          message_text=message_text)
         else:
             raise ValueError(f"Invalid attachment type {type(attachment).__name__}")
         if not content:
