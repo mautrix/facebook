@@ -702,19 +702,25 @@ class User(DBUser, BaseUser):
 
     @async_time(METRIC_THREAD_CHANGE)
     async def on_thread_change(self, evt: mqtt_t.ThreadChange) -> None:
-        pass
-        # portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
-        # if not portal.mxid:
-        #     return
+        portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
+        if not portal.mxid:
+            return
+
+        if evt.action == mqtt_t.ThreadChangeAction.NICKNAME:
+            target = int(evt.action_data["participant_id"])
+            puppet = await pu.Puppet.get_by_fbid(target)
+            await portal.sync_per_room_nick(puppet, evt.action_data["nickname"])
 
         # TODO
-        # if evt.action == mqtt_t.ThreadChangeAction.ADMINS:
+        # elif evt.action == mqtt_t.ThreadChangeAction.ADMINS:
         #     sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
         #     user = await pu.Puppet.get_by_fbid(evt.action_data["TARGET_ID"])
         #     make_admin = evt.action_data["ADMIN_EVENT"] == "add_admin"
         #     # TODO does the ADMIN_TYPE data matter?
         #     await portal.backfill_lock.wait("admin change")
         #     await portal.handle_facebook_admin(self, sender, user, make_admin)
+        else:
+            self.log.trace("Unhandled thread change: %s", evt)
 
     async def on_message_sync_error(self, evt: mqtt_t.MessageSyncError) -> None:
         self.log.error(f"Message sync error: {evt.value}, resyncing...")

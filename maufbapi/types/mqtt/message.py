@@ -313,6 +313,11 @@ class ThreadChangeAction(ExtensibleEnum):
     #   'THREAD_CATEGORY': 'GROUP'
     APPROVAL_MODE = "change_thread_approval_mode"
 
+    # action_data:
+    #   'nickname': '<per-room displayname>'
+    #   'participant_id': '<user id>'
+    NICKNAME = "change_thread_nickname"
+
 
 @autospec
 @dataclass(kw_only=True)
@@ -349,6 +354,16 @@ class RemoveMember(ThriftObject):
 
 @autospec
 @dataclass(kw_only=True)
+class UnknownReceipt1(ThriftObject):
+    thread: ThreadKey
+    user_id: int = field(TType.I64)
+    # indices 3-5: ???
+    message_id_list: List[str] = field(index=6)
+    timestamp: int = field(TType.I64)
+
+
+@autospec
+@dataclass(kw_only=True)
 class MessageSyncEvent(ThriftObject):
     # index 1: unknown struct (no fields known)
     message: Message = field(index=2, default=None)
@@ -359,16 +374,13 @@ class MessageSyncEvent(ThriftObject):
     avatar_change: AvatarChange = field(index=11, default=None)
     thread_change: ThreadChange = field(index=17, default=None)
     read_receipt: ReadReceipt = field(index=19, default=None)
-    # index 25: unknown struct
-    #   index 1: ThreadKey
-    #   index 2: some user ID
-    #   index 6: list of binary (message IDs)
-    #   index 7: timestamp
+    unknown_receipt_1: UnknownReceipt1 = field(index=25, default=None)
     binary: BinaryData = field(index=42, default=None)
 
     def get_parts(self) -> List[Any]:
         parts = [self.message, self.own_read_receipt, self.add_member, self.remove_member,
-                 self.name_change, self.avatar_change, self.thread_change, self.read_receipt]
+                 self.name_change, self.avatar_change, self.thread_change, self.read_receipt,
+                 self.unknown_receipt_1]
         if self.binary:
             for inner_item in self.binary.parse().items:
                 parts += [inner_item.reaction, inner_item.extended_message,

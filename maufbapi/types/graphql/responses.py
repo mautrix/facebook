@@ -461,6 +461,22 @@ class ThreadKey(SerializableAttrs['ThreadKey']):
 
 
 @dataclass(kw_only=True)
+class ThreadParticipantCustomization(SerializableAttrs['ThreadParticipantCustomization']):
+    participant_id: str
+    nickname: str = ""
+
+
+@dataclass(kw_only=True)
+class ThreadCustomizationInfo(SerializableAttrs['ThreadCustomizationInfo']):
+    custom_like_emoji: Optional[str] = None
+    participant_customizations: List[ThreadParticipantCustomization] = attr.ib(factory=lambda: [])
+
+    @property
+    def nickname_map(self) -> Dict[int, str]:
+        return {int(pc.participant_id): pc.nickname for pc in self.participant_customizations}
+
+
+@dataclass(kw_only=True)
 class Thread(SerializableAttrs['Thread']):
     id: str
     folder: ThreadFolder
@@ -481,6 +497,7 @@ class Thread(SerializableAttrs['Thread']):
     messages: MessageList
     read_receipts: ReadReceiptList
     all_participants: ParticipantList
+    customization_info: ThreadCustomizationInfo
 
     thread_admins: List[ParticipantID]
 

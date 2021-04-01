@@ -131,7 +131,8 @@ class AndroidMQTT:
         #                     "/get_media_resp", "/t_dr_response", "/t_omnistore_sync", "/t_push",
         #                     "/t_thread_typing", "/ixt_trigger", "/rs_resp",
         #                     RealtimeTopic.REGION_HINT, "/t_tn", "/sr_res", "/t_tp", "/t_sp",
-        #                     "/ls_resp", "/t_rtc_multi",  # RealtimeTopic.SEND_MESSAGE_RESP,
+        #                     "/ls_resp", "/t_rtc_multi", RealtimeTopic.SEND_MESSAGE_RESP,
+        #                     RealtimeTopic.MARK_THREAD_READ_RESPONSE,
         #                     ]
         subscribe_topics = [RealtimeTopic.MESSAGE_SYNC, RealtimeTopic.REGION_HINT,
                             RealtimeTopic.SEND_MESSAGE_RESP,
@@ -333,11 +334,11 @@ class AndroidMQTT:
 
     async def _dispatch(self, evt: T) -> None:
         for handler in self._event_handlers[type(evt)]:
+            self.log.trace("Dispatching event %s", evt)
             try:
                 await handler(evt)
             except Exception:
                 self.log.exception(f"Error in {type(evt).__name__} handler")
-                self.log.trace("Event content: %s", evt)
 
     def disconnect(self) -> None:
         self._client.disconnect()

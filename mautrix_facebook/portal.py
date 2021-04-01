@@ -28,7 +28,8 @@ import magic
 from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, EventID,
                            ImageInfo, MessageType, LocationMessageEventContent, FileInfo,
                            AudioInfo, Format, RelationType, TextMessageEventContent,
-                           MediaMessageEventContent, Membership, EncryptedFile, VideoInfo)
+                           MediaMessageEventContent, Membership, EncryptedFile, VideoInfo,
+                           MemberStateEventContent)
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
@@ -285,8 +286,22 @@ class Portal(DBPortal, BasePortal):
             await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
         return True
 
+    async def sync_per_room_nick(self, puppet: 'p.Puppet', name: str) -> None:
+        intent = puppet.intent_for(self)
+        content = MemberStateEventContent(membership=Membership.JOIN,
+                                          avatar_url=puppet.photo_mxc,
+                                          displayname=name or puppet.name)
+        content[self.bridge.real_user_content_key] = True
+        current_state = await intent.state_store.get_member(self.mxid, intent.mxid)
+        if current_state.displayname != content.displayname:
+            self.log.debug("Syncing %s's per-room nick %s to the room",
+                           puppet.fbid, content.displayname)
+            await intent.send_state_event(self.mxid, EventType.ROOM_MEMBER, content,
+                                          state_key=intent.mxid)
+
     async def _update_participants(self, source: 'u.User', info: graphql.Thread) -> bool:
         changed = False
+        nick_map = info.customization_info.nickname_map if info.customization_info else {}
         for participant in info.all_participants.nodes:
             puppet = await p.Puppet.get_by_fbid(int(participant.id))
             await puppet.update_info(source, participant.messaging_actor)
@@ -295,6 +310,8 @@ class Portal(DBPortal, BasePortal):
                 changed = await self._update_photo_from_puppet(puppet) or changed
             if self.mxid and (puppet.fbid != self.fb_receiver or puppet.is_real_user):
                 await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
+            if puppet.fbid in nick_map:
+                await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
         return changed
 
     # endregion
@@ -832,7 +849,7 @@ class Portal(DBPortal, BasePortal):
             escaped_url = escape(url)
             html = f'<a href="{escaped_url}">{escaped_url}</a>'
             return TextMessageEventContent(msgtype=MessageType.TEXT, format=Format.HTML,
-                                              body=str(sa.clean_url), formatted_body=html)
+                                           body=str(sa.clean_url), formatted_body=html)
         elif sa.media:
             msgtype = {
                 "Image": MessageType.IMAGE,

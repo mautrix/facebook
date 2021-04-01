@@ -26,6 +26,7 @@
   * [ ] Room metadata changes
     * [ ] Name
     * [ ] Avatar
+    * [ ] Per-room user nick
 * Messenger → Matrix
   * [ ] Message content
     * [x] Text
@@ -55,9 +56,9 @@
     * [x] Title
     * [x] Avatar
   * [x] Initial chat metadata
-  * [ ] User metadata
+  * [x] User metadata
     * [x] Name
-    * [ ] Per-chat nickname
+    * [x] Per-chat nickname
     * [x] Avatar
 * Misc
   * [x] Multi-user support
