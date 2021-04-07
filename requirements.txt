@@ -1,7 +1,7 @@
 aiohttp>=3,<4
 yarl>=1,<2
-asyncpg>=0.20,<0.22
-ruamel.yaml>=0.15.94,<0.17
+asyncpg>=0.20,<0.23
+ruamel.yaml>=0.15.94,<0.18
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
 mautrix>=0.8.16,<0.9
