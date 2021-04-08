@@ -282,7 +282,11 @@ class AndroidMQTT:
             self.seq_id_update_callback(self.seq_id)
 
     def _on_message_sync(self, payload: bytes) -> None:
-        parsed = MessageSyncPayload.from_thrift(payload)
+        try:
+            parsed = MessageSyncPayload.from_thrift(payload)
+        except Exception:
+            self.log.debug("Failed to parse message sync payload %s", payload, exc_info=True)
+            return
         self._update_seq_id(parsed)
         if parsed.error:
             self._loop.create_task(self._dispatch(parsed.error))
