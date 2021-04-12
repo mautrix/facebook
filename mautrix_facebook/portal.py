@@ -293,7 +293,7 @@ class Portal(DBPortal, BasePortal):
                                           displayname=name or puppet.name)
         content[self.bridge.real_user_content_key] = True
         current_state = await intent.state_store.get_member(self.mxid, intent.mxid)
-        if current_state.displayname != content.displayname:
+        if not current_state or current_state.displayname != content.displayname:
             self.log.debug("Syncing %s's per-room nick %s to the room",
                            puppet.fbid, content.displayname)
             await intent.send_state_event(self.mxid, EventType.ROOM_MEMBER, content,
@@ -308,10 +308,11 @@ class Portal(DBPortal, BasePortal):
             if self.is_direct and self.fbid == puppet.fbid and self.encrypted:
                 changed = await self._update_name(puppet.name) or changed
                 changed = await self._update_photo_from_puppet(puppet) or changed
-            if self.mxid and (puppet.fbid != self.fb_receiver or puppet.is_real_user):
-                await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
-            if puppet.fbid in nick_map:
-                await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
+            if self.mxid:
+                if puppet.fbid != self.fb_receiver or puppet.is_real_user:
+                    await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
+                if puppet.fbid in nick_map:
+                    await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
         return changed
 
     # endregion
@@ -846,7 +847,7 @@ class Portal(DBPortal, BasePortal):
     async def _convert_extensible_media(self, source: 'u.User', intent: IntentAPI,
                                         sa: graphql.StoryAttachment, message_text: str,
                                         ) -> Optional[MessageEventContent]:
-        if sa.target.typename == graphql.AttachmentType.EXTERNAL_URL:
+        if sa.target and sa.target.typename == graphql.AttachmentType.EXTERNAL_URL:
             url = str(sa.clean_url)
             if message_text is not None and url in message_text:
                 # URL is present in message, don't repost
