@@ -562,7 +562,7 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_matrix_text(self, event_id: EventID, sender: 'u.User',
                                   message: TextMessageEventContent) -> None:
-        converted = await matrix_to_facebook(message, self.mxid)
+        converted = await matrix_to_facebook(message, self.mxid, self.log)
         offline_threading_id = sender.mqtt.generate_offline_threading_id()
         # TODO store OTI's in the database because sometimes facebook doesn't echo the message back
         #      immediately. Also need to update things like incoming replies to search the database
@@ -597,6 +597,9 @@ class Portal(DBPortal, BasePortal):
             reply_to_msg = await DBMessage.get_by_mxid(message.relates_to.event_id, self.mxid)
             if reply_to_msg:
                 reply_to = reply_to_msg.fbid
+            else:
+                self.log.warning(f"Couldn't find reply target {message.relates_to.event_id}"
+                                 " to bridge media message reply metadata to Facebook")
         # await sender.mqtt.opened_thread(self.fbid)
         resp = await sender.client.send_media(data, message.body, mime, offline_threading_id=oti,
                                               reply_to=reply_to, chat_id=self.fbid,
@@ -716,6 +719,8 @@ class Portal(DBPortal, BasePortal):
 
         message = await DBMessage.get_by_fbid(reply, self.fb_receiver)
         if not message:
+            self.log.warning(f"Couldn't find reply target {reply}"
+                             " to bridge reply metadata to Matrix")
             return
 
         content.set_reply(message.mxid)
