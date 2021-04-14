@@ -30,10 +30,12 @@ class Message:
 
     mxid: EventID
     mx_room: RoomID
-    fbid: str
+    fbid: Optional[str]
+    fb_txn_id: Optional[int]
+    index: int
     fb_chat: int
     fb_receiver: int
-    index: int
+    fb_sender: int
     timestamp: int
 
     @classmethod
@@ -42,18 +44,27 @@ class Message:
             return None
         return cls(**row)
 
+    columns = "mxid, mx_room, fbid, fb_txn_id, index, fb_chat, fb_receiver, fb_sender, timestamp"
+
     @classmethod
     async def get_all_by_fbid(cls, fbid: str, fb_receiver: int) -> List['Message']:
-        q = ("SELECT mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp "
-             "FROM message WHERE fbid=$1 AND fb_receiver=$2")
+        q = f"SELECT {cls.columns} FROM message WHERE fbid=$1 AND fb_receiver=$2"
         rows = await cls.db.fetch(q, fbid, fb_receiver)
         return [cls._from_row(row) for row in rows]
 
     @classmethod
     async def get_by_fbid(cls, fbid: str, fb_receiver: int, index: int = 0) -> Optional['Message']:
-        q = ("SELECT mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp "
-             "FROM message WHERE fbid=$1 AND fb_receiver=$2 AND index=$3")
+        q = f"SELECT {cls.columns} FROM message WHERE fbid=$1 AND fb_receiver=$2 AND index=$3"
         row = await cls.db.fetchrow(q, fbid, fb_receiver, index)
+        return cls._from_row(row)
+
+    @classmethod
+    async def get_by_fbid_or_oti(cls, fbid: str, oti: int, fb_receiver: int, fb_sender: int,
+                                 index: int = 0) -> Optional['Message']:
+        q = (f"SELECT {cls.columns} "
+             "FROM message WHERE (fbid=$1 OR (fb_txn_id=$2 AND fb_sender=$3)) AND "
+             "                   fb_receiver=$4 AND index=$5")
+        row = await cls.db.fetchrow(q, fbid, oti, fb_sender, fb_receiver, index)
         return cls._from_row(row)
 
     @classmethod
@@ -62,48 +73,52 @@ class Message:
 
     @classmethod
     async def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Optional['Message']:
-        q = ("SELECT mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp "
+        q = (f"SELECT {cls.columns} "
              "FROM message WHERE mxid=$1 AND mx_room=$2")
         row = await cls.db.fetchrow(q, mxid, mx_room)
         return cls._from_row(row)
 
     @classmethod
     async def get_most_recent(cls, fb_chat: int, fb_receiver: int) -> Optional['Message']:
-        q = ("SELECT mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp "
-             "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 ORDER BY timestamp DESC LIMIT 1")
+        q = (f"SELECT {cls.columns} "
+             "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND fbid IS NOT NULL "
+             "ORDER BY timestamp DESC LIMIT 1")
         row = await cls.db.fetchrow(q, fb_chat, fb_receiver)
         return cls._from_row(row)
 
     @classmethod
     async def get_closest_before(cls, fb_chat: int, fb_receiver: int, timestamp: int
                                  ) -> Optional['Message']:
-        q = ("SELECT mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp "
-             "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND timestamp<=$3 "
+        q = (f"SELECT {cls.columns} "
+             "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND timestamp<=$3 AND "
+             "                   fbid IS NOT NULL "
              "ORDER BY timestamp DESC LIMIT 1")
         row = await cls.db.fetchrow(q, fb_chat, fb_receiver, timestamp)
         return cls._from_row(row)
 
     @classmethod
-    async def bulk_create(cls, fbid: str, fb_chat: int, fb_receiver: int, event_ids: List[EventID],
-                          timestamp: int, mx_room: RoomID) -> None:
+    async def bulk_create(cls, fbid: str, oti: int, fb_chat: int, fb_receiver: int, fb_sender: int,
+                          event_ids: List[EventID], timestamp: int, mx_room: RoomID) -> None:
         if not event_ids:
             return
-        columns = ["mxid", "mx_room", "fbid", "fb_chat", "fb_receiver", "index", "timestamp"]
-        records = [(mxid,   mx_room,   fbid,   fb_chat,   fb_receiver,   index,   timestamp)
+        columns = cls.columns.split(", ")
+        records = [(mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
                    for index, mxid in enumerate(event_ids)]
         async with cls.db.acquire() as conn, conn.transaction():
             await conn.copy_records_to_table("message", records=records, columns=columns)
 
     async def insert(self) -> None:
-        q = ("INSERT INTO message (mxid, mx_room, fbid, fb_chat, fb_receiver, index, timestamp) "
-             "VALUES ($1, $2, $3, $4, $5, $6, $7)")
-        await self.db.execute(q, self.mxid, self.mx_room, self.fbid, self.fb_chat,
-                              self.fb_receiver, self.index, self.timestamp)
+        q = ("INSERT INTO message (mxid, mx_room, fbid, fb_txn_id, index, fb_chat, fb_receiver, "
+             "                     fb_sender, timestamp) "
+             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)")
+        await self.db.execute(q, self.mxid, self.mx_room, self.fbid, self.fb_txn_id, self.index,
+                              self.fb_chat, self.fb_receiver, self.fb_sender, self.timestamp)
 
     async def delete(self) -> None:
         q = "DELETE FROM message WHERE fbid=$1 AND fb_receiver=$2 AND index=$3"
         await self.db.execute(q, self.fbid, self.fb_receiver, self.index)
 
-    async def delete_all(self) -> None:
-        q = "DELETE FROM message WHERE fbid=$1 AND fb_receiver=$2"
-        await self.db.execute(q, self.fbid, self.fb_receiver)
+    async def update(self) -> None:
+        await self.db.execute("UPDATE message SET fbid=$1, timestamp=$2 "
+                              "WHERE mxid=$3 AND mx_room=$4",
+                              self.fbid, self.timestamp, self.mxid, self.mx_room)

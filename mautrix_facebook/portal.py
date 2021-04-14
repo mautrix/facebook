@@ -20,6 +20,7 @@ from html import escape
 from io import BytesIO
 import mimetypes
 import asyncio
+import time
 import re
 
 from yarl import URL
@@ -84,7 +85,7 @@ class Portal(DBPortal, BasePortal):
     _main_intent: Optional[IntentAPI]
     _create_room_lock: asyncio.Lock
     _dedup: Deque[str]
-    _oti_dedup: Dict[int, EventID]
+    _oti_dedup: Dict[int, DBMessage]
     _send_locks: Dict[int, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
     _typing: Set['u.User']
@@ -561,23 +562,28 @@ class Portal(DBPortal, BasePortal):
             self.log.warning(f"Unsupported msgtype {message.msgtype} in {event_id}")
             return
 
+    async def _make_dbm(self, sender: 'u.User', event_id: EventID) -> DBMessage:
+        oti = sender.mqtt.generate_offline_threading_id()
+        dbm = DBMessage(mxid=event_id, mx_room=self.mxid, fb_txn_id=oti, index=0,
+                        fb_chat=self.fbid, fb_receiver=self.fb_receiver, fb_sender=sender.fbid,
+                        timestamp=int(time.time() * 1000), fbid=None)
+        self._oti_dedup[oti] = dbm
+        await dbm.insert()
+        return dbm
+
     async def _handle_matrix_text(self, event_id: EventID, sender: 'u.User',
                                   message: TextMessageEventContent) -> None:
         converted = await matrix_to_facebook(message, self.mxid, self.log)
-        offline_threading_id = sender.mqtt.generate_offline_threading_id()
-        # TODO store OTI's in the database because sometimes facebook doesn't echo the message back
-        #      immediately. Also need to update things like incoming replies to search the database
-        #      by OTI instead of only message ID. Outgoing replies may be unsolveable.
-        self._oti_dedup[offline_threading_id] = event_id
+        dbm = await self._make_dbm(sender, event_id)
         resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
                                               message=converted.text, mentions=converted.mentions,
                                               reply_to=converted.reply_to,
-                                              offline_threading_id=offline_threading_id)
+                                              offline_threading_id=dbm.fb_txn_id)
         if not resp.success and resp.error_message:
             self.log.debug(f"Error handling Matrix message {event_id}: {resp.error_message}")
             await self._send_bridge_error(resp.error_message)
         else:
-            self.log.debug(f"Handled Matrix message {event_id} -> OTI: {offline_threading_id}")
+            self.log.debug(f"Handled Matrix message {event_id} -> OTI: {dbm.fb_txn_id}")
             await self._send_delivery_receipt(event_id)
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
@@ -591,8 +597,7 @@ class Portal(DBPortal, BasePortal):
         else:
             return None
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
-        oti = sender.mqtt.generate_offline_threading_id()
-        self._oti_dedup[oti] = event_id
+        dbm = await self._make_dbm(sender, event_id)
         reply_to = None
         if message.relates_to.rel_type == RelationType.REPLY:
             reply_to_msg = await DBMessage.get_by_mxid(message.relates_to.event_id, self.mxid)
@@ -602,7 +607,8 @@ class Portal(DBPortal, BasePortal):
                 self.log.warning(f"Couldn't find reply target {message.relates_to.event_id}"
                                  " to bridge media message reply metadata to Facebook")
         # await sender.mqtt.opened_thread(self.fbid)
-        resp = await sender.client.send_media(data, message.body, mime, offline_threading_id=oti,
+        resp = await sender.client.send_media(data, message.body, mime,
+                                              offline_threading_id=dbm.fb_txn_id,
                                               reply_to=reply_to, chat_id=self.fbid,
                                               is_group=self.fb_type != ThreadType.USER)
         if not resp.media_id and resp.debug_info:
@@ -610,14 +616,16 @@ class Portal(DBPortal, BasePortal):
                            f"{resp.debug_info.message}")
             await self._send_bridge_error(f"Media upload error: {resp.debug_info.message}")
             return
-        # TODO put message ID from response to database if oti is still on _oti_dedup
-        self.log.debug(f"Handled Matrix message {event_id} -> {resp.message_id} / {oti}")
         await self._send_delivery_receipt(event_id)
-        # send_resp = await sender.mqtt.send_message(self.fbid, self.fb_type != ThreadType.USER,
-        #                                            media_ids=[resp.media_id], reply_to=reply_to,
-        #                                            offline_threading_id=oti)
-        # if not send_resp.success and send_resp.error_message:
-        #     await self._send_bridge_error(send_resp.error_message)
+        try:
+            self._oti_dedup.pop(dbm.fb_txn_id)
+        except KeyError:
+            self.log.trace(f"Message ID for OTI {dbm.fb_txn_id} seems to have been found already")
+        else:
+            dbm.fbid = resp.message_id
+            # TODO can we find the timestamp?
+            await dbm.update()
+        self.log.debug(f"Handled Matrix message {event_id} -> {resp.message_id} / {dbm.fb_txn_id}")
 
     async def _handle_matrix_location(self, sender: 'u.User',
                                       message: LocationMessageEventContent) -> str:
@@ -645,8 +653,8 @@ class Portal(DBPortal, BasePortal):
         reaction = await DBReaction.get_by_mxid(event_id, self.mxid)
         if reaction:
             try:
-                await message.delete()
-                await sender.client.react(message.fbid, None)
+                await reaction.delete()
+                await sender.client.react(reaction.fb_msgid, None)
                 await self._send_delivery_receipt(redaction_event_id)
             except Exception:
                 self.log.exception("Removing reaction failed")
@@ -714,13 +722,25 @@ class Portal(DBPortal, BasePortal):
                 return False
         return True
 
-    async def _add_facebook_reply(self, content: MessageEventContent, reply: str) -> None:
-        if not reply:
+    async def _add_facebook_reply(self, content: MessageEventContent,
+                                  reply_to: Union[graphql.MinimalMessage, mqtt.Message]) -> None:
+        if isinstance(reply_to, graphql.MinimalMessage):
+            message = await DBMessage.get_by_fbid(reply_to.message_id, self.fb_receiver)
+        elif isinstance(reply_to, mqtt.Message):
+            meta = reply_to.metadata
+            message = await DBMessage.get_by_fbid_or_oti(meta.id, meta.offline_threading_id,
+                                                         self.fb_receiver, meta.sender)
+            if not message.fbid:
+                self.log.debug(f"Got message ID {meta.id} for offline threading ID "
+                               f"{message.fb_txn_id} / {message.mxid} (in database) from reply")
+                message.fbid = meta.id
+                message.timestamp = meta.timestamp
+                await message.update()
+        else:
             return
 
-        message = await DBMessage.get_by_fbid(reply, self.fb_receiver)
         if not message:
-            self.log.warning(f"Couldn't find reply target {reply}"
+            self.log.warning(f"Couldn't find reply target {reply_to}"
                              " to bridge reply metadata to Matrix")
             return
 
@@ -779,21 +799,35 @@ class Portal(DBPortal, BasePortal):
             timestamp = message.metadata.timestamp
         else:
             raise ValueError(f"Invalid message class {type(message).__name__}")
+
+        # Check in-memory queues for duplicates
         if oti in self._oti_dedup:
-            event_id = self._oti_dedup.pop(oti)
-            self.log.debug("Got message ID %s for offline threading ID %s / %s", msg_id, oti,
-                           event_id)
+            dbm = self._oti_dedup.pop(oti)
+            self.log.debug(f"Got message ID {msg_id} for offline threading ID {oti} / {dbm.mxid}"
+                           " (in dedup queue)")
             self._dedup.appendleft(msg_id)
-            await DBMessage(mxid=event_id, mx_room=self.mxid, fbid=msg_id, fb_chat=self.fbid,
-                            fb_receiver=self.fb_receiver, index=0, timestamp=timestamp).insert()
+            dbm.fbid = msg_id
+            dbm.timestamp = timestamp
+            await dbm.update()
             return
         elif msg_id in self._dedup:
             self.log.trace("Not handling message %s, found ID in dedup queue", msg_id)
             return
-        elif self.backfill_lock.locked and await DBMessage.get_by_fbid(msg_id, self.fb_receiver):
-            self.log.trace("Not handling message %s, found duplicate in database", msg_id)
+
+        # Check database for duplicates
+        dbm = await DBMessage.get_by_fbid_or_oti(msg_id, oti, self.fb_receiver, sender.fbid)
+        if dbm:
+            if not dbm.fbid:
+                self.log.debug(f"Got message ID {msg_id} for offline threading ID {dbm.fb_txn_id} "
+                               f"/ {dbm.mxid} (in database)")
+                dbm.fbid = msg_id
+                dbm.timestamp = timestamp
+                await dbm.update()
+            else:
+                self.log.debug(f"Not handling message {msg_id}, found duplicate in database")
             return
-        self.log.debug("Handling Facebook event %s (/%s)", msg_id, oti)
+
+        self.log.debug(f"Handling Facebook event {msg_id} (/{oti})")
         self._dedup.appendleft(msg_id)
         if not self.mxid:
             mxid = await self.create_matrix_room(source)
@@ -818,29 +852,29 @@ class Portal(DBPortal, BasePortal):
             return
         event_ids = [event_id for event_id in event_ids if event_id]
         self.log.debug(f"Handled Messenger message {msg_id} -> {event_ids}")
-        await DBMessage.bulk_create(fbid=msg_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
-                                    mx_room=self.mxid, timestamp=timestamp, event_ids=event_ids)
+        await DBMessage.bulk_create(fbid=msg_id, oti=oti, fb_chat=self.fbid, fb_sender=sender.fbid,
+                                    fb_receiver=self.fb_receiver, mx_room=self.mxid,
+                                    timestamp=timestamp, event_ids=event_ids)
         await self._send_delivery_receipt(event_ids[-1])
 
     async def _handle_mqtt_message(self, source: 'u.User', intent: IntentAPI,
                                    message: mqtt.Message, reply_to: Optional[mqtt.Message]
                                    ) -> List[EventID]:
-        reply_to_id = reply_to.metadata.id if reply_to else None
         event_ids = []
         if message.sticker:
             event_ids.append(await self._handle_facebook_sticker(
-                source, intent, message.sticker, reply_to_id, message.metadata.timestamp
+                source, intent, message.sticker, reply_to, message.metadata.timestamp
             ))
         if len(message.attachments) > 0:
             attach_ids = await asyncio.gather(
                 *[self._handle_facebook_attachment(message.metadata.id, source, intent, attachment,
-                                                   reply_to_id, message.metadata.timestamp,
+                                                   reply_to, message.metadata.timestamp,
                                                    message_text=message.text)
                   for attachment in message.attachments]
             )
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
         if message.text:
-            event_ids.append(await self._handle_facebook_text(intent, message, reply_to_id,
+            event_ids.append(await self._handle_facebook_text(intent, message, reply_to,
                                                               message.metadata.timestamp))
         return event_ids
 
@@ -958,17 +992,17 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_graphql_message(self, source: 'u.User', intent: IntentAPI,
                                       message: graphql.Message) -> List[EventID]:
-        reply_to_id = (message.replied_to_message.message.message_id
-                       if message.replied_to_message else None)
+        reply_to_msg = (message.replied_to_message.message
+                        if message.replied_to_message else None)
         event_ids = []
         if message.sticker:
             event_ids.append(await self._handle_facebook_sticker(
-                source, intent, int(message.sticker.id), reply_to_id, message.timestamp
+                source, intent, int(message.sticker.id), reply_to_msg, message.timestamp
             ))
         if len(message.blob_attachments) > 0:
             attach_ids = await asyncio.gather(
                 *[self._handle_facebook_attachment(message.message_id, source, intent, attachment,
-                                                   reply_to_id, message.timestamp)
+                                                   reply_to_msg, message.timestamp)
                   for attachment in message.blob_attachments]
             )
             event_ids += [attach_id for attach_id in attach_ids if attach_id]
@@ -981,19 +1015,21 @@ class Portal(DBPortal, BasePortal):
                 event_ids.append(await self._send_message(intent, content,
                                                           timestamp=message.timestamp))
         if text:
-            event_ids.append(await self._handle_facebook_text(intent, message.message, reply_to_id,
-                                                              message.timestamp))
+            event_ids.append(await self._handle_facebook_text(intent, message.message,
+                                                              reply_to_msg, message.timestamp))
         return event_ids
 
     async def _handle_facebook_text(self, intent: IntentAPI,
                                     message: Union[graphql.MessageText, mqtt.Message],
-                                    reply_to_id: str, timestamp: int) -> EventID:
+                                    reply_to: Union[graphql.MinimalMessage, mqtt.Message],
+                                    timestamp: int) -> EventID:
         content = await facebook_to_matrix(message)
-        await self._add_facebook_reply(content, reply_to_id)
+        await self._add_facebook_reply(content, reply_to)
         return await self._send_message(intent, content, timestamp=timestamp)
 
-    async def _handle_facebook_sticker(self, source: 'u.User', intent: IntentAPI,
-                                       sticker_id: int, reply_to: str, timestamp: int) -> EventID:
+    async def _handle_facebook_sticker(self, source: 'u.User', intent: IntentAPI, sticker_id: int,
+                                       reply_to: Union[graphql.MinimalMessage, mqtt.Message],
+                                       timestamp: int) -> EventID:
         resp = await source.client.fetch_stickers([sticker_id], sticker_labels_enabled=True)
         sticker = resp.nodes[0]
         url = (sticker.animated_image or sticker.thread_image).uri
@@ -1008,8 +1044,9 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_facebook_attachment(self, msg_id: str, source: 'u.User', intent: IntentAPI,
                                           attachment: Union[graphql.Attachment, mqtt.Attachment],
-                                          reply_to: str, timestamp: int,
-                                          message_text: Optional[str] = None) -> Optional[EventID]:
+                                          reply_to: Union[graphql.MinimalMessage, mqtt.Message],
+                                          timestamp: int, message_text: Optional[str] = None
+                                          ) -> Optional[EventID]:
         if isinstance(attachment, graphql.Attachment):
             content = await self._convert_graphql_attachment(msg_id, source, intent, attachment)
         elif isinstance(attachment, mqtt.Attachment):

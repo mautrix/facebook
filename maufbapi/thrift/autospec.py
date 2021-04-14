@@ -87,7 +87,7 @@ def _guess_type(python_type, name: str) -> RecursiveType:
     raise ValueError(f"Unknown type {python_type} for {name}")
 
 
-def autospec(clazz: Any) -> Type[ThriftObject]:
+def autospec(clazz: Any) -> Any:
     """
     Automatically generate a thrift_spec dict based on attrs metadata.
 
