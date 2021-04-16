@@ -20,6 +20,7 @@ from . import upgrade_table
 @upgrade_table.register(description="Add offline threading ID to message table")
 async def upgrade_v2(conn: Connection) -> None:
     await conn.execute("ALTER TABLE message RENAME TO message_v1")
+    await conn.execute("DELETE FROM message_v1 WHERE fb_chat IS NULL")
     await conn.execute("""CREATE TABLE message (
         mxid        TEXT NOT NULL,
         mx_room     TEXT NOT NULL,
@@ -39,7 +40,7 @@ async def upgrade_v2(conn: Connection) -> None:
     await conn.execute(
         "INSERT INTO message (mxid, mx_room, fbid, index, fb_chat, fb_receiver, fb_sender, "
         "                     timestamp) "
-        "SELECT mxid, mx_room, fbid, COALESCE(index, 0), COALESCE(fb_chat, 0), fb_receiver, 0, "
+        "SELECT mxid, mx_room, fbid, COALESCE(index, 0), fb_chat, fb_receiver, 0, "
         "       COALESCE(timestamp, 0) "
         "FROM message_v1"
     )
