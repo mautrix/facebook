@@ -11,6 +11,8 @@ homeserver:
     # such as /_matrix/client/unstable/net.maunium.asmux/dms for atomically
     # updating m.direct.
     asmux: false
+    # Number of retries for all HTTP requests if the homeserver isn't reachable.
+    http_retry_count: 4
 
 # Application service host/registration related details
 # Changing these values requires regeneration of the registration.

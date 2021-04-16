@@ -35,7 +35,6 @@ from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.util.simple_lock import SimpleLock
-from mautrix.util.network_retry import call_with_net_retry
 
 from maufbapi.types import mqtt, graphql
 
@@ -236,8 +235,7 @@ class Portal(DBPortal, BasePortal):
             data, decryption_info = encrypt_attachment(data)
             upload_mime_type = "application/octet-stream"
             filename = None
-        url = await call_with_net_retry(intent.upload_media, data, mime_type=upload_mime_type,
-                                        filename=filename, _action="upload media")
+        url = await intent.upload_media(data, mime_type=upload_mime_type, filename=filename)
         if decryption_info:
             decryption_info.url = url
         return url, info, decryption_info
@@ -765,14 +763,6 @@ class Portal(DBPortal, BasePortal):
             evt.content.trim_reply_fallback()
 
         content.set_reply(evt)
-
-    async def _send_message(self, intent: IntentAPI, content: MessageEventContent,
-                            event_type: EventType = EventType.ROOM_MESSAGE, **kwargs) -> EventID:
-        if self.encrypted and self.matrix.e2ee:
-            if intent.api.is_real_user:
-                content[intent.api.real_user_content_key] = True
-            event_type, content = await self.matrix.e2ee.encrypt(self.mxid, event_type, content)
-        return await intent.send_message_event(self.mxid, event_type, content, **kwargs)
 
     async def handle_facebook_message(self, source: 'u.User', sender: 'p.Puppet',
                                       message: Union[graphql.Message, mqtt.Message],
