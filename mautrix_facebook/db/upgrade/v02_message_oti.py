@@ -39,7 +39,8 @@ async def upgrade_v2(conn: Connection) -> None:
     await conn.execute(
         "INSERT INTO message (mxid, mx_room, fbid, index, fb_chat, fb_receiver, fb_sender, "
         "                     timestamp) "
-        "SELECT mxid, mx_room, fbid, index, COALESCE(fb_chat, 0), fb_receiver, 0, timestamp "
+        "SELECT mxid, mx_room, fbid, COALESCE(index, 0), COALESCE(fb_chat, 0), fb_receiver, 0, "
+        "       COALESCE(timestamp, 0) "
         "FROM message_v1"
     )
     await conn.execute("DROP TABLE message_v1")
