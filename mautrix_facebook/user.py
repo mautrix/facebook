@@ -140,7 +140,6 @@ class User(DBUser, BaseUser):
         self.mqtt = ref_user.mqtt
         #self.listen_task = ref_user.listen_task
         #self.seq_id = ref_user.seq_id
-        self._is_logged_in = ref_user.is_logged_in()
 
     @classmethod
     def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[bool]]:
@@ -264,6 +263,13 @@ class User(DBUser, BaseUser):
         return False
 
     async def is_logged_in(self, _override: bool = False) -> bool:
+        if self.is_outbound:
+            ref_user = await User.get_by_mxid(self.ref_mxid)
+            if not ref_user:
+                return False
+            if ref_user._is_logged_in is None or _override:
+                return await ref_user.is_logged_in(_override)
+            return ref_user._is_logged_in
         if not self.state or not self.client:
             return False
         if self._is_logged_in is None or _override:
@@ -352,7 +358,8 @@ class User(DBUser, BaseUser):
             #     ok = False
         self._track_metric(METRIC_LOGGED_IN, False)
         self.state = None
-        self._is_logged_in = False
+        if not self.is_outbound:
+            self._is_logged_in = False
         self.is_connected = None
         self.client = None
         self.mqtt = None
