@@ -21,7 +21,7 @@ ref_mxid_exist_query = ("SELECT EXISTS(SELECT FROM information_schema.columns "
 
 
 @upgrade_table.register(description="Revision to allow outbound-only users", transaction=False)
-async def upgrade_outbound_only(conn: Connection) -> None:
+async def upgrade_v2(conn: Connection) -> None:
     ref_mxid_exist = await conn.fetchval(ref_mxid_exist_query)
     if not ref_mxid_exist:
         await conn.execute('ALTER TABLE "user" ADD COLUMN ref_mxid TEXT')
