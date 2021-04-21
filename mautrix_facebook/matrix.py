@@ -200,6 +200,8 @@ class MatrixHandler(BaseMatrixHandler):
 
     async def handle_read_receipt(self, user: 'u.User', portal: 'po.Portal', event_id: EventID,
                                   data: SingleReceiptEventContent) -> None:
+        if not user.mqtt:
+            return
         timestamp = data.get("ts", int(time.time() * 1000))
         message = await DBMessage.get_by_mxid(event_id, portal.mxid)
         await user.mqtt.mark_read(portal.fbid, portal.fb_type != ThreadType.USER,
