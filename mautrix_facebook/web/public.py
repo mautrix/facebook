@@ -300,5 +300,5 @@ class PublicBridgeWebsite:
 
     async def refresh(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
-        await user.try_refresh()
+        await user.refresh()
         return web.json_response({}, headers=self._acao_headers)

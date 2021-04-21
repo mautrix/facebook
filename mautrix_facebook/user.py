@@ -30,7 +30,7 @@ from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 
 from maufbapi import AndroidState, AndroidMQTT, AndroidAPI
 from maufbapi.mqtt import Disconnect, Connect, MQTTNotLoggedIn, MQTTNotConnected
-from maufbapi.http import InvalidAccessToken
+from maufbapi.http import InvalidAccessToken, ResponseError
 from maufbapi.types import graphql, mqtt as mqtt_t
 
 from .config import Config
@@ -251,23 +251,6 @@ class User(DBUser, BaseUser):
                 self._is_logged_in = False
         return self._is_logged_in
 
-    async def try_refresh(self) -> None:
-        try:
-            await self.refresh()
-        except InvalidAccessToken as e:
-            self.log.exception("Invalid auth error while trying to refresh after connection error")
-            await self.send_bridge_notice("Got authentication error from Messenger:\n\n"
-                                          f"> {e!s}\n\n"
-                                          "If you changed your Facebook password or enabled two-"
-                                          "factor authentication, this is normal and you just "
-                                          "need to log in again.",
-                                          important=True)
-            await self.logout(remove_fbid=False)
-        except Exception:
-            self.log.exception("Fatal error while trying to refresh after connection error")
-            await self.send_bridge_notice("Fatal error while trying to refresh after connection "
-                                          "error (see logs for more info)", important=True)
-
     async def refresh(self, force_notice: bool = False) -> None:
         event_id = None
         self._is_refreshing = True
@@ -289,8 +272,27 @@ class User(DBUser, BaseUser):
                 self.client.sequence_id_callback = None
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice("Refreshing session...", edit=event_id)
+        await self._reload_session(event_id)
+
+    async def _reload_session(self, event_id: EventID, retries: int = 3) -> None:
         try:
             await self.load_session(_override=True, _raise_errors=True)
+        except InvalidAccessToken as e:
+            await self.send_bridge_notice("Got authentication error from Messenger:\n\n"
+                                          f"> {e!s}\n\n"
+                                          "If you changed your Facebook password or enabled two-"
+                                          "factor authentication, this is normal and you just "
+                                          "need to log in again.", edit=event_id, important=True)
+            await self.logout(remove_fbid=False)
+        except ResponseError as e:
+            will_retry = retries > 0
+            retry = "Retrying in 1 minute" if will_retry else "Not retrying"
+            await self.send_bridge_notice("Failed to refresh Messenger session: unknown response "
+                                          f"error {e}. Retrying in 1 minute", edit=event_id,
+                                          important=not will_retry)
+            if will_retry:
+                await asyncio.sleep(60)
+                await self._reload_session(event_id, retries - 1)
         except Exception:
             await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
                                           "(see logs for more details)", edit=event_id)
@@ -564,7 +566,7 @@ class User(DBUser, BaseUser):
                 await self.send_bridge_notice(message, important=not refresh)
             if refresh:
                 self._prev_reconnect_fail_refresh = time.monotonic()
-                asyncio.create_task(self.try_refresh())
+                asyncio.create_task(self.refresh())
             else:
                 self._disconnect_listener_after_error()
         except Exception:
