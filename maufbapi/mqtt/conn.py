@@ -195,7 +195,7 @@ class AndroidMQTT:
                 self.log.error("MQTT Connection Error: %s (%d)", err, rc)
             return
 
-        self._loop.create_task(self._post_connect())
+        asyncio.create_task(self._post_connect())
 
     async def _post_connect(self) -> None:
         self._opened_thread = None
@@ -289,10 +289,10 @@ class AndroidMQTT:
             return
         self._update_seq_id(parsed)
         if parsed.error:
-            self._loop.create_task(self._dispatch(parsed.error))
+            asyncio.create_task(self._dispatch(parsed.error))
         for item in parsed.items:
             for event in item.get_parts():
-                self._loop.create_task(self._dispatch(event))
+                asyncio.create_task(self._dispatch(event))
 
     def _on_region_hint(self, payload: bytes) -> None:
         rhp = RegionHintPayload.from_thrift(payload)

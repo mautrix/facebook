@@ -236,7 +236,7 @@ class User(DBUser, BaseUser):
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listen()
-            asyncio.ensure_future(self.post_login(), loop=self.loop)
+            asyncio.create_task(self.post_login())
             return True
         return False
 
@@ -511,7 +511,7 @@ class User(DBUser, BaseUser):
     # region Facebook event handling
 
     def start_listen(self) -> None:
-        self.listen_task = self.loop.create_task(self._try_listen())
+        self.listen_task = asyncio.create_task(self._try_listen())
 
     def _disconnect_listener_after_error(self) -> None:
         try:
@@ -525,7 +525,7 @@ class User(DBUser, BaseUser):
     def _update_region_hint(self, region_hint: str) -> None:
         self.log.debug(f"Got region hint {region_hint}")
         self.state.session.region_hint = region_hint
-        self.loop.create_task(self.save())
+        asyncio.create_task(self.save())
 
     async def _try_listen(self) -> None:
         try:
@@ -564,7 +564,7 @@ class User(DBUser, BaseUser):
                 await self.send_bridge_notice(message, important=not refresh)
             if refresh:
                 self._prev_reconnect_fail_refresh = time.monotonic()
-                self.loop.create_task(self.try_refresh())
+                asyncio.create_task(self.try_refresh())
             else:
                 self._disconnect_listener_after_error()
         except Exception:
@@ -616,7 +616,7 @@ class User(DBUser, BaseUser):
         self.client = AndroidAPI(state, log=self.log.getChild("api"))
         await self.save()
         self.stop_listen()
-        asyncio.ensure_future(self.post_login(), loop=self.loop)
+        asyncio.create_task(self.post_login())
 
     @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: Union[mqtt_t.Message, mqtt_t.ExtendedMessage]) -> None:
