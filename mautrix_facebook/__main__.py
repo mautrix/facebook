@@ -63,8 +63,10 @@ class MessengerBridge(Bridge):
     def prepare_bridge(self) -> None:
         super().prepare_bridge()
         if self.config["appservice.public.enabled"]:
-            self.public_website = PublicBridgeWebsite(self.config["appservice.public.shared_secret"])
-            self.az.app.add_subapp(self.config["appservice.public.prefix"], self.public_website.app)
+            secret = self.config["appservice.public.shared_secret"]
+            self.public_website = PublicBridgeWebsite(loop=self.loop, shared_secret=secret)
+            self.az.app.add_subapp(self.config["appservice.public.prefix"],
+                                   self.public_website.app)
         else:
             self.public_website = None
 
@@ -95,6 +97,8 @@ class MessengerBridge(Bridge):
         if self.config["bridge.resend_bridge_info"]:
             self.add_startup_actions(self.resend_bridge_info())
         await super().start()
+        if self.public_website:
+            self.public_website.ready_wait.set_result(None)
         self.periodic_reconnect_task = asyncio.create_task(self._try_periodic_reconnect_loop())
 
     async def resend_bridge_info(self) -> None:

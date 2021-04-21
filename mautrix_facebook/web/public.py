@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict
 import logging
+import asyncio
 import random
 import string
 import time
@@ -40,9 +41,11 @@ class PublicBridgeWebsite:
     app: web.Application
     secret_key: str
     shared_secret: str
+    ready_wait: Optional[asyncio.Future]
 
-    def __init__(self, shared_secret: str) -> None:
+    def __init__(self, shared_secret: str, loop: asyncio.AbstractEventLoop) -> None:
         self.app = web.Application()
+        self.ready_wait = loop.create_future()
         self.secret_key = "".join(random.choices(string.ascii_lowercase + string.digits, k=64))
         self.shared_secret = shared_secret
         for path in ("whoami", "login", "login/prepare", "login/2fa", "login/check_approved",
@@ -88,6 +91,9 @@ class PublicBridgeWebsite:
         return web.Response(status=200, headers=self._headers)
 
     async def check_token(self, request: web.Request) -> Optional['u.User']:
+        if self.ready_wait:
+            await self.ready_wait
+            self.ready_wait = None
         try:
             token = request.headers["Authorization"]
             token = token[len("Bearer "):]
