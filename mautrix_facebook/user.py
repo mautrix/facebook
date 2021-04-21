@@ -19,7 +19,9 @@ from collections import defaultdict
 import asyncio
 import time
 
-from mautrix.types import UserID, RoomID, EventID, TextMessageEventContent, MessageType
+from mautrix.errors import MNotFound
+from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
+                           TextMessageEventContent, MessageType)
 from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
@@ -445,6 +447,23 @@ class User(DBUser, BaseUser):
         else:
             await portal.update_matrix_room(self, thread)
             await portal.backfill(self, is_initial=False, thread=thread)
+        await self._mute_room(portal, thread.mute_until)
+
+    async def _mute_room(self, portal: po.Portal, mute_until: int) -> None:
+        if not self.config["bridge.mute_bridging"] or not portal or not portal.mxid:
+            return
+        puppet = await pu.Puppet.get_by_custom_mxid(self.mxid)
+        if not puppet or not puppet.is_real_user:
+            return
+        if mute_until is not None and (mute_until < 0 or mute_until > int(time.time())):
+            await puppet.intent.set_push_rule(PushRuleScope.GLOBAL, PushRuleKind.ROOM, portal.mxid,
+                                              actions=[PushActionType.DONT_NOTIFY])
+        else:
+            try:
+                await puppet.intent.remove_push_rule(PushRuleScope.GLOBAL, PushRuleKind.ROOM,
+                                                     portal.mxid)
+            except MNotFound:
+                pass
 
     async def is_in_portal(self, portal: 'po.Portal') -> bool:
         return await UserPortal.get(self.fbid, portal.fbid, portal.fb_receiver) is not None

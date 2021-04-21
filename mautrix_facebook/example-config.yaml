@@ -208,6 +208,8 @@ bridge:
     # This field will automatically be changed back to false after it,
     # except if the config file is not writable.
     resend_bridge_info: false
+    # When using double puppeting, should muted chats be muted in Matrix?
+    mute_bridging: false
 
     # Permissions for using the bridge.
     # Permitted values:

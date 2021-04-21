@@ -487,6 +487,7 @@ class Thread(SerializableAttrs['Thread']):
     messages_count: int
     unread_count: int
     unsend_limit: int
+    mute_until: Optional[int]
     privacy_mode: int
     thread_pin_timestamp: int
     thread_queue_enabled: bool

@@ -104,6 +104,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.refresh_on_reconnection_fail")
         copy("bridge.resend_bridge_info")
+        copy("bridge.mute_bridging")
 
         copy_dict("bridge.permissions")
 
