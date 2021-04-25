@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import urllib
 from typing import Optional, Dict, TypeVar, Type, List, Union
 from urllib.parse import quote
 import hashlib
@@ -27,6 +28,7 @@ from aiohttp import ClientSession, ClientResponse
 from aiohttp.client import _RequestContextManager
 from mautrix.util.logging import TraceLogger
 from yarl import URL
+from aiohttp_socks import ProxyConnector
 
 from ..state import AndroidState
 from ..types import GraphQLQuery, GraphQLMutation
@@ -54,7 +56,17 @@ class BaseAndroidAPI:
     _tid: int
 
     def __init__(self, state: AndroidState, log: Optional[TraceLogger] = None) -> None:
-        self.http = ClientSession()
+        try:
+            http_proxy = urllib.request.getproxies()["http"]
+        except KeyError:
+            http_proxy = None
+
+        if http_proxy:
+            connector = ProxyConnector.from_url(http_proxy)
+            self.http = ClientSession(connector=connector)
+        else:
+            self.http = ClientSession()
+
         self.state = state
         self.log = log or logging.getLogger("mauigpapi.http")
         self._cid = None
