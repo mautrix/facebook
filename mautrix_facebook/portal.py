@@ -1183,7 +1183,8 @@ class Portal(DBPortal, BasePortal):
         except IntentError:
             event_id = await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
         await DBMessage(mxid=event_id, mx_room=self.mxid, index=0, timestamp=timestamp,
-                        fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
+                        fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
+                        fb_sender=sender.fbid, fb_txn_id=None).insert()
         await self.update_bridge_info()
 
     async def handle_facebook_name(self, source: 'u.User', sender: 'p.Puppet', new_name: str,
@@ -1199,7 +1200,8 @@ class Portal(DBPortal, BasePortal):
         except IntentError:
             event_id = await self.main_intent.set_room_name(self.mxid, self.name)
         await DBMessage(mxid=event_id, mx_room=self.mxid, index=0, timestamp=timestamp,
-                        fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver).insert()
+                        fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
+                        fb_sender=sender.fbid, fb_txn_id=None).insert()
         await self.update_bridge_info()
 
     async def handle_facebook_reaction_add(self, source: 'u.User', sender: 'p.Puppet',
