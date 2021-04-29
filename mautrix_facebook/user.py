@@ -444,12 +444,15 @@ class User(DBUser, BaseUser):
                                   contacts.get(puppet.fbid, None) if puppet else None,
                                   portal, puppet)
 
+        was_created = False
         if not portal.mxid:
             await portal.create_matrix_room(self, thread)
+            was_created = True
         else:
             await portal.update_matrix_room(self, thread)
             await portal.backfill(self, is_initial=False, thread=thread)
-        await self._mute_room(portal, thread.mute_until)
+        if was_created or not self.config["bridge.tag_only_on_create"]:
+            await self._mute_room(portal, thread.mute_until)
 
     async def _mute_room(self, portal: po.Portal, mute_until: int) -> None:
         if not self.config["bridge.mute_bridging"] or not portal or not portal.mxid:
