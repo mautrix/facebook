@@ -793,9 +793,9 @@ class Portal(DBPortal, BasePortal):
         # Check in-memory queues for duplicates
         if oti in self._oti_dedup:
             dbm = self._oti_dedup.pop(oti)
+            self._dedup.appendleft(msg_id)
             self.log.debug(f"Got message ID {msg_id} for offline threading ID {oti} / {dbm.mxid}"
                            " (in dedup queue)")
-            self._dedup.appendleft(msg_id)
             dbm.fbid = msg_id
             dbm.timestamp = timestamp
             await dbm.update()
@@ -803,6 +803,8 @@ class Portal(DBPortal, BasePortal):
         elif msg_id in self._dedup:
             self.log.trace("Not handling message %s, found ID in dedup queue", msg_id)
             return
+
+        self._dedup.appendleft(msg_id)
 
         # Check database for duplicates
         dbm = await DBMessage.get_by_fbid_or_oti(msg_id, oti, self.fb_receiver, sender.fbid)
@@ -818,7 +820,6 @@ class Portal(DBPortal, BasePortal):
             return
 
         self.log.debug(f"Handling Facebook event {msg_id} (/{oti})")
-        self._dedup.appendleft(msg_id)
         if not self.mxid:
             mxid = await self.create_matrix_room(source)
             if not mxid:
