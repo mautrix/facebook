@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import (Dict, List, Optional, AsyncIterable, Awaitable, Union, TypeVar, AsyncGenerator,
                     TYPE_CHECKING, cast)
-from collections import defaultdict
 import asyncio
 import time
 
@@ -23,7 +22,7 @@ from mautrix.errors import MNotFound
 from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
                            TextMessageEventContent, MessageType)
 from mautrix.client import Client as MxClient
-from mautrix.bridge import BaseUser, async_getter_lock
+from mautrix.bridge import BaseUser, BridgeState, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.opt_prometheus import Summary, Gauge, async_time
@@ -69,6 +68,16 @@ except ImportError:
 
 T = TypeVar('T')
 
+BridgeState.human_readable_errors.update({
+    "fb-reconnection-error": "Failed to reconnect to Messenger",
+    "fb-connection-error": "Messenger disconnected unexpectedly",
+    "fb-logged-out": "You logged out from Messenger",
+    "fb-auth-error": "Authentication error from Messenger: {message}",
+    "fb-disconnected": None,
+    "fb-no-mqtt": "You're not connected to Messenger",
+    "fb-not-logged-in": "You're not logged into Messenger",
+})
+
 
 class User(DBUser, BaseUser):
     temp_disconnect_notices: bool = True
@@ -103,6 +112,7 @@ class User(DBUser, BaseUser):
                  state: Optional[AndroidState] = None,
                  notice_room: Optional[RoomID] = None) -> None:
         super().__init__(mxid=mxid, fbid=fbid, state=state, notice_room=notice_room)
+        BaseUser.__init__(self)
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
@@ -118,8 +128,6 @@ class User(DBUser, BaseUser):
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log)
         self._is_refreshing = False
-        self._metric_value = defaultdict(lambda: False)
-        self.dm_update_lock = asyncio.Lock()
 
         self.log = self.log.getChild(self.mxid)
 
@@ -282,20 +290,24 @@ class User(DBUser, BaseUser):
                                           f"> {e!s}\n\n"
                                           "If you changed your Facebook password or enabled two-"
                                           "factor authentication, this is normal and you just "
-                                          "need to log in again.", edit=event_id, important=True)
+                                          "need to log in again.", edit=event_id, important=True,
+                                          error_code="fb-auth-error", error_message=str(e))
             await self.logout(remove_fbid=False)
         except ResponseError as e:
             will_retry = retries > 0
             retry = "Retrying in 1 minute" if will_retry else "Not retrying"
-            await self.send_bridge_notice("Failed to refresh Messenger session: unknown response "
-                                          f"error {e}. Retrying in 1 minute", edit=event_id,
-                                          important=not will_retry)
+            notice = f"Failed to refresh Messenger session: unknown response error {e}. {retry}"
             if will_retry:
+                await self.send_bridge_notice(notice, edit=event_id)
                 await asyncio.sleep(60)
                 await self._reload_session(event_id, retries - 1)
+            else:
+                await self.send_bridge_notice(notice, edit=event_id, important=True,
+                                              error_code="fb-reconnection-error")
         except Exception:
             await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
-                                          "(see logs for more details)", edit=event_id)
+                                          "(see logs for more details)", edit=event_id,
+                                          error_code="fb-reconnection-error")
         finally:
             self._is_refreshing = False
 
@@ -320,6 +332,8 @@ class User(DBUser, BaseUser):
             # except fbchat.FacebookError:
             #     self.log.exception("Error while logging out")
             #     ok = False
+        if remove_fbid:
+            await self.push_bridge_state(False, "fb-logged-out")
         self._track_metric(METRIC_LOGGED_IN, False)
         self.state = None
         self._is_logged_in = False
@@ -498,7 +512,12 @@ class User(DBUser, BaseUser):
         return self.notice_room
 
     async def send_bridge_notice(self, text: str, edit: Optional[EventID] = None,
-                                 important: bool = False) -> Optional[EventID]:
+                                 important: bool = False, error_code: Optional[str] = None,
+                                 error_message: Optional[str] = None) -> Optional[EventID]:
+        if error_code:
+            await self.push_bridge_state(ok=False, error=error_code, message=error_message)
+        if self.config["bridge.disable_bridge_notices"]:
+            return None
         event_id = None
         try:
             self.log.debug("Sending bridge notice: %s", text)
@@ -512,6 +531,13 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.warning("Failed to send bridge notice", exc_info=True)
         return edit or event_id
+
+    async def get_bridge_state(self) -> BridgeState:
+        if not self.client:
+            return BridgeState(ok=False, error="fb-not-logged-in")
+        elif not self.listen_task or self.listen_task.done() or not self.is_connected:
+            return BridgeState(ok=False, error="fb-no-mqtt")
+        return BridgeState(ok=True)
 
     # region Facebook event handling
 
@@ -555,7 +581,8 @@ class User(DBUser, BaseUser):
             await self.mqtt.listen(self.seq_id)
             self.is_connected = False
             if not self._is_refreshing and not self.shutdown:
-                await self.send_bridge_notice("Facebook Messenger connection closed without error")
+                await self.send_bridge_notice("Facebook Messenger connection closed without error",
+                                              error_code="fb-disconnected")
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
             refresh = (self.config["bridge.refresh_on_reconnection_fail"]
@@ -565,8 +592,11 @@ class User(DBUser, BaseUser):
                      else "Failed to connect to")
             message = f"{event} Facebook Messenger: {e}. {next_action}"
             self.log.warning(message)
-            if not refresh or self.temp_disconnect_notices:
-                await self.send_bridge_notice(message, important=not refresh)
+            if not refresh:
+                await self.send_bridge_notice(message, important=True,
+                                              error_code="fb-connection-error")
+            elif self.temp_disconnect_notices:
+                await self.send_bridge_notice(message)
             if refresh:
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 asyncio.create_task(self.refresh())
@@ -576,7 +606,7 @@ class User(DBUser, BaseUser):
             self.is_connected = False
             self.log.exception("Fatal error in listener")
             await self.send_bridge_notice("Fatal error in listener (see logs for more info)",
-                                          important=True)
+                                          important=True, error_code="fb-connection-error")
             self._disconnect_listener_after_error()
 
     # @async_time(METRIC_UNKNOWN_EVENT)
@@ -595,6 +625,7 @@ class User(DBUser, BaseUser):
             self.log.debug("Disconnection lasted %d seconds, not re-syncing threads...", duration)
         elif self.temp_disconnect_notices:
             await self.send_bridge_notice("Connected to Facebook Messenger")
+        await self.push_bridge_state(True)
 
     async def on_disconnect(self, evt: Disconnect) -> None:
         self.is_connected = False

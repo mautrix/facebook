@@ -13,6 +13,10 @@ homeserver:
     asmux: false
     # Number of retries for all HTTP requests if the homeserver isn't reachable.
     http_retry_count: 4
+    # The URL to push real-time bridge status to.
+    # If set, the bridge will make POST requests to this URL whenever a user's Facebook MQTT connection state changes.
+    # The bridge will use the appservice as_token to authorize requests.
+    status_endpoint: null
 
 # Application service host/registration related details
 # Changing these values requires regeneration of the registration.
@@ -201,6 +205,8 @@ bridge:
     # If this is false, disconnections will never send messages and connections will only send
     # messages if it was disconnected for more than resync_max_disconnected_time seconds.
     temporary_disconnect_notices: true
+    # Disable bridge notices entirely
+    disable_bridge_notices: false
     # Whether or not the bridge should try to "refresh" the connection if a normal reconnection
     # attempt fails.
     refresh_on_reconnection_fail: false
