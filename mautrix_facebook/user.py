@@ -71,11 +71,10 @@ T = TypeVar('T')
 BridgeState.human_readable_errors.update({
     "fb-reconnection-error": "Failed to reconnect to Messenger",
     "fb-connection-error": "Messenger disconnected unexpectedly",
-    "fb-logged-out": "You logged out from Messenger",
     "fb-auth-error": "Authentication error from Messenger: {message}",
     "fb-disconnected": None,
     "fb-no-mqtt": "You're not connected to Messenger",
-    "fb-not-logged-in": "You're not logged into Messenger",
+    "logged-out": "You're not logged into Messenger",
 })
 
 
@@ -333,7 +332,7 @@ class User(DBUser, BaseUser):
             #     self.log.exception("Error while logging out")
             #     ok = False
         if remove_fbid:
-            await self.push_bridge_state(False, "fb-logged-out")
+            await self.push_bridge_state(ok=False, error="logged-out")
         self._track_metric(METRIC_LOGGED_IN, False)
         self.state = None
         self._is_logged_in = False
@@ -532,9 +531,15 @@ class User(DBUser, BaseUser):
             self.log.warning("Failed to send bridge notice", exc_info=True)
         return edit or event_id
 
+    async def fill_bridge_state(self, state: BridgeState) -> None:
+        await super().fill_bridge_state(state)
+        state.remote_id = str(self.fbid)
+        puppet = await pu.Puppet.get_by_fbid(self.fbid)
+        state.remote_name = puppet.name
+
     async def get_bridge_state(self) -> BridgeState:
         if not self.client:
-            return BridgeState(ok=False, error="fb-not-logged-in")
+            return BridgeState(ok=False, error="logged-out")
         elif not self.listen_task or self.listen_task.done() or not self.is_connected:
             return BridgeState(ok=False, error="fb-no-mqtt")
         return BridgeState(ok=True)
@@ -625,7 +630,7 @@ class User(DBUser, BaseUser):
             self.log.debug("Disconnection lasted %d seconds, not re-syncing threads...", duration)
         elif self.temp_disconnect_notices:
             await self.send_bridge_notice("Connected to Facebook Messenger")
-        await self.push_bridge_state(True)
+        await self.push_bridge_state(ok=True)
 
     async def on_disconnect(self, evt: Disconnect) -> None:
         self.is_connected = False
