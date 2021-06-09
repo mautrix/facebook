@@ -113,8 +113,10 @@ async def matrix_to_facebook(
                     fbid = puppet.fbid
                 else:
                     continue
+            offset = len(text[:mention.offset].encode("utf-16")) // 2 - 1
+            length = len(text[mention.offset:mention.offset+mention.length].encode("utf-16")) // 2 - 1
             mentions.append(
-                Mention(user_id=str(fbid), offset=mention.offset, length=mention.length)
+                Mention(user_id=str(fbid), offset=offset, length=length)
             )
     else:
         text = content.body

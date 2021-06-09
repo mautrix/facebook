@@ -132,11 +132,14 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
     mention_user_ids = []
     for m in reversed(mentions):
-        original = text[m.offset : m.offset + m.length]
-        if len(original) > 0 and original[0] == "@":
-            original = original[1:]
+        offset = m.offset*2 + 2
+        length = m.length*2
+        b = text.encode("utf-16")
+        before = b[:offset].decode("utf-16")
+        original = b[offset : offset + length].decode("utf-16").removeprefix("@")
+        after = b[offset + length:].decode("utf-16")
+        text = f"{before}@{m.user_id}\u2063{original}\u2063{after}"
         mention_user_ids.append(int(m.user_id))
-        text = f"{text[:m.offset]}@{m.user_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
     html = escape(text)
     output = []
     if html:
