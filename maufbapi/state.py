@@ -24,7 +24,7 @@ from mautrix.types import SerializableAttrs
 
 
 @dataclass
-class AndroidApplication(SerializableAttrs['AndroidApplication']):
+class AndroidApplication(SerializableAttrs):
     name: str = "Orca-Android"
     version: str = "294.0.0.24.129"
     id: str = "com.facebook.orca"
@@ -41,7 +41,7 @@ class AndroidApplication(SerializableAttrs['AndroidApplication']):
 
 
 @dataclass
-class AndroidDevice(SerializableAttrs['AndroidDevice']):
+class AndroidDevice(SerializableAttrs):
     manufacturer: str = "Google"
     builder: str = "google"
     name: str = "Pixel 3"
@@ -62,13 +62,13 @@ class AndroidDevice(SerializableAttrs['AndroidDevice']):
 
 
 @dataclass
-class AndroidCarrier(SerializableAttrs['AndroidCarrier']):
+class AndroidCarrier(SerializableAttrs):
     name: str = "Verizon"
     hni: int = 311390
 
 
 @dataclass
-class AndroidSession(SerializableAttrs['AndroidSession']):
+class AndroidSession(SerializableAttrs):
     access_token: Optional[str] = None
     uid: Optional[int] = None
     password_encryption_pubkey: Optional[str] = None
@@ -80,7 +80,7 @@ class AndroidSession(SerializableAttrs['AndroidSession']):
 
 
 @dataclass
-class AndroidState(SerializableAttrs['AndroidState']):
+class AndroidState(SerializableAttrs):
     application: AndroidApplication = attr.ib(factory=lambda: AndroidApplication())
     device: AndroidDevice = attr.ib(factory=lambda: AndroidDevice())
     carrier: AndroidCarrier = attr.ib(factory=lambda: AndroidCarrier())

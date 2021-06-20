@@ -153,7 +153,7 @@ class MentionType(SerializableEnum):
 
 
 @dataclass
-class Mention(SerializableAttrs['Mention']):
+class Mention(SerializableAttrs):
     offset: int = attr.ib(metadata={"json": "o"})
     length: int = attr.ib(metadata={"json": "l"})
     user_id: str = attr.ib(metadata={"json": "i"})

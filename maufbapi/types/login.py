@@ -20,7 +20,7 @@ from attr import dataclass
 
 
 @dataclass
-class LoginResponse(SerializableAttrs['LoginResponse']):
+class LoginResponse(SerializableAttrs):
     session_key: str
     uid: int
     secret: str
@@ -33,7 +33,7 @@ class LoginResponse(SerializableAttrs['LoginResponse']):
 
 
 @dataclass
-class MobileConfigField(SerializableAttrs['MobileConfigField']):
+class MobileConfigField(SerializableAttrs):
     k: int
     bln: Optional[int] = None
     i64: Optional[int] = None
@@ -42,13 +42,13 @@ class MobileConfigField(SerializableAttrs['MobileConfigField']):
 
 
 @dataclass
-class MobileConfigItem(SerializableAttrs['MobileConfigItem']):
+class MobileConfigItem(SerializableAttrs):
     fields: List[MobileConfigField]
     hash: str
 
 
 @dataclass
-class MobileConfig(SerializableAttrs['MobileConfig']):
+class MobileConfig(SerializableAttrs):
     configs: Dict[str, MobileConfigItem]
     query_hash: Optional[str]
     one_query_hash: Optional[str]
@@ -68,7 +68,7 @@ class MobileConfig(SerializableAttrs['MobileConfig']):
 
 
 @dataclass
-class PasswordKeyResponse(SerializableAttrs['PasswordKeyResponse']):
+class PasswordKeyResponse(SerializableAttrs):
     public_key: str
     key_id: int
     seconds_to_live: int

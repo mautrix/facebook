@@ -4,6 +4,6 @@ asyncpg>=0.20,<0.24
 ruamel.yaml>=0.15.94,<0.18
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
-mautrix>=0.9.4,<0.10
+mautrix>=0.9.6,<0.10
 pycryptodome>=3,<4
 paho-mqtt>=1.5,<2

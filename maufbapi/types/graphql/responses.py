@@ -24,12 +24,12 @@ from ..common import ThreadFolder, MessageUnsendability
 
 
 @dataclass
-class ParticipantID(SerializableAttrs['ParticipantID']):
+class ParticipantID(SerializableAttrs):
     id: str
 
 
 @dataclass
-class ReadReceipt(SerializableAttrs['ReadReceipt']):
+class ReadReceipt(SerializableAttrs):
     action_timestamp_precise: str
     timestamp_precise: str
     actor: ParticipantID
@@ -44,12 +44,12 @@ class ReadReceipt(SerializableAttrs['ReadReceipt']):
 
 
 @dataclass
-class ReadReceiptList(SerializableAttrs['ReadReceiptList']):
+class ReadReceiptList(SerializableAttrs):
     nodes: List[ReadReceipt]
 
 
 @dataclass
-class Picture(SerializableAttrs['Picture']):
+class Picture(SerializableAttrs):
     uri: str
     height: Optional[int] = None
     width: Optional[int] = None
@@ -66,14 +66,14 @@ class StructuredNamePart(ExtensibleEnum):
 
 
 @dataclass
-class StructuredNameChunk(SerializableAttrs['StructuredNameChunk']):
+class StructuredNameChunk(SerializableAttrs):
     length: int
     offset: int
     part: StructuredNamePart
 
 
 @dataclass
-class StructuredName(SerializableAttrs['StructuredName']):
+class StructuredName(SerializableAttrs):
     parts: List[StructuredNameChunk]
     phonetic_name: Optional[str]
     text: str
@@ -86,12 +86,12 @@ class StructuredName(SerializableAttrs['StructuredName']):
 
 
 @dataclass
-class FriendCount(SerializableAttrs['FriendCount']):
+class FriendCount(SerializableAttrs):
     count: int
 
 
 @dataclass(kw_only=True)
-class MinimalParticipant(ParticipantID, SerializableAttrs['MinimalParticipant']):
+class MinimalParticipant(ParticipantID, SerializableAttrs):
     name: Optional[str] = None
 
 
@@ -114,7 +114,7 @@ class ParticipantType(ExtensibleEnum):
 
 
 @dataclass(kw_only=True)
-class Participant(MinimalParticipant, SerializableAttrs['Participant']):
+class Participant(MinimalParticipant, SerializableAttrs):
     typename: ParticipantType = attr.ib(metadata={"json": "__typename"})
 
     username: Optional[str] = None
@@ -148,24 +148,24 @@ class Participant(MinimalParticipant, SerializableAttrs['Participant']):
 
 
 @dataclass
-class ParticipantNode(SerializableAttrs['ParticipantNode']):
+class ParticipantNode(SerializableAttrs):
     id: str
     messaging_actor: Participant
 
 
 @dataclass
-class ParticipantList(SerializableAttrs['ParticipantList']):
+class ParticipantList(SerializableAttrs):
     nodes: List[ParticipantNode]
 
 
 @dataclass
-class MessageSender(SerializableAttrs['MessageSender']):
+class MessageSender(SerializableAttrs):
     id: str
     messaging_actor: MinimalParticipant
 
 
 @dataclass
-class MessageRange(SerializableAttrs['MessageRange']):
+class MessageRange(SerializableAttrs):
     length: int
     offset: int
     entity: Optional[ParticipantID] = None
@@ -184,25 +184,25 @@ class MessagePowerUpType(ExtensibleEnum):
 
 
 @dataclass
-class MessagePowerUp(SerializableAttrs['MessagePowerUp']):
+class MessagePowerUp(SerializableAttrs):
     style: MessagePowerUpType
 
 
 @dataclass
-class MessageText(SerializableAttrs['MessageText']):
+class MessageText(SerializableAttrs):
     text: str
     ranges: List[MessageRange] = attr.ib(factory=lambda: [])
 
 
 @dataclass
-class Reaction(SerializableAttrs['Reaction']):
+class Reaction(SerializableAttrs):
     reaction: str
     reaction_timestamp: int
     user: ParticipantID
 
 
 @dataclass
-class Dimensions(SerializableAttrs['Dimensions']):
+class Dimensions(SerializableAttrs):
     x: int
     y: int
 
@@ -235,7 +235,7 @@ class VideoType(ExtensibleEnum):
 
 
 @dataclass
-class Attachment(SerializableAttrs['Attachment']):
+class Attachment(SerializableAttrs):
     typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
     id: str
     attachment_fbid: str
@@ -280,13 +280,13 @@ class Attachment(SerializableAttrs['Attachment']):
 
 
 @dataclass
-class MinimalSticker(SerializableAttrs['MinimalSticker']):
+class MinimalSticker(SerializableAttrs):
     # 369239263222822 = "like"
     id: str
 
 
 @dataclass
-class StickerPackMeta(SerializableAttrs['StickerPackMeta']):
+class StickerPackMeta(SerializableAttrs):
     id: str
     is_comments_capable: bool
     is_composer_capable: bool
@@ -304,7 +304,7 @@ class StickerType(ExtensibleEnum):
 
 
 @dataclass
-class Sticker(MinimalSticker, SerializableAttrs['Sticker']):
+class Sticker(MinimalSticker, SerializableAttrs):
     pack: StickerPackMeta
     animated_image: Picture
     preview_image: Picture
@@ -314,18 +314,18 @@ class Sticker(MinimalSticker, SerializableAttrs['Sticker']):
 
 
 @dataclass
-class ExtensibleText(SerializableAttrs['ExtensibleText']):
+class ExtensibleText(SerializableAttrs):
     text: str
 
 
 @dataclass
-class Coordinates(SerializableAttrs['Coordinates']):
+class Coordinates(SerializableAttrs):
     latitude: float
     longitude: float
 
 
 @dataclass
-class StoryTarget(SerializableAttrs['StoryTarget']):
+class StoryTarget(SerializableAttrs):
     typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
     id: Optional[str] = None
     url: Optional[str] = None
@@ -333,7 +333,7 @@ class StoryTarget(SerializableAttrs['StoryTarget']):
 
 
 @dataclass
-class StoryMediaAttachment(SerializableAttrs['StoryMediaAttachment']):
+class StoryMediaAttachment(SerializableAttrs):
     typename_str: str = attr.ib(metadata={"json": "__typename"})
     id: Optional[str] = None
     width: Optional[int] = None
@@ -351,7 +351,7 @@ class StoryMediaAttachment(SerializableAttrs['StoryMediaAttachment']):
 
 
 @dataclass
-class StoryAttachment(SerializableAttrs['StoryAttachment']):
+class StoryAttachment(SerializableAttrs):
     title: str
     url: str
     # TODO enum? share, message_location, attached_story, photo, games_app, messenger_native_templates, unavailable, fallback
@@ -375,14 +375,14 @@ class StoryAttachment(SerializableAttrs['StoryAttachment']):
 
 
 @dataclass
-class ExtensibleAttachment(SerializableAttrs['ExtensibleAttachment']):
+class ExtensibleAttachment(SerializableAttrs):
     id: str
     is_forwardable: bool
     story_attachment: Optional[StoryAttachment] = None
 
 
 @dataclass(kw_only=True)
-class MinimalMessage(SerializableAttrs['MinimalMessage']):
+class MinimalMessage(SerializableAttrs):
     # IDs and message are not present in some action messages like adding to group
     id: Optional[str] = None
     message_id: Optional[str] = None
@@ -399,13 +399,13 @@ class ReplyStatus(ExtensibleEnum):
 
 
 @dataclass
-class Reply(SerializableAttrs['Reply']):
+class Reply(SerializableAttrs):
     message: MinimalMessage
     status: ReplyStatus
 
 
 @dataclass(kw_only=True)
-class Message(MinimalMessage, SerializableAttrs['Message']):
+class Message(MinimalMessage, SerializableAttrs):
     snippet: str
     timestamp_precise: str
     unsent_timestamp_precise: Optional[str] = None
@@ -430,7 +430,7 @@ class Message(MinimalMessage, SerializableAttrs['Message']):
 
 
 @dataclass
-class PageInfo(SerializableAttrs['PageInfo']):
+class PageInfo(SerializableAttrs):
     has_next_page: bool = False
     has_previous_page: bool = False
 
@@ -439,14 +439,14 @@ class PageInfo(SerializableAttrs['PageInfo']):
 
 
 @dataclass
-class MessageList(SerializableAttrs['MessageList']):
+class MessageList(SerializableAttrs):
     nodes: List[Message]
     # Not present in last_message and other such "lists"
     page_info: PageInfo = attr.ib(factory=lambda: PageInfo())
 
 
 @dataclass(eq=True, frozen=True)
-class ThreadKey(SerializableAttrs['ThreadKey']):
+class ThreadKey(SerializableAttrs):
     other_user_id: Optional[str] = None
     thread_fbid: Optional[str] = None
 
@@ -461,13 +461,13 @@ class ThreadKey(SerializableAttrs['ThreadKey']):
 
 
 @dataclass(kw_only=True)
-class ThreadParticipantCustomization(SerializableAttrs['ThreadParticipantCustomization']):
+class ThreadParticipantCustomization(SerializableAttrs):
     participant_id: str
     nickname: str = ""
 
 
 @dataclass(kw_only=True)
-class ThreadCustomizationInfo(SerializableAttrs['ThreadCustomizationInfo']):
+class ThreadCustomizationInfo(SerializableAttrs):
     custom_like_emoji: Optional[str] = None
     participant_customizations: List[ThreadParticipantCustomization] = attr.ib(factory=lambda: [])
 
@@ -477,7 +477,7 @@ class ThreadCustomizationInfo(SerializableAttrs['ThreadCustomizationInfo']):
 
 
 @dataclass(kw_only=True)
-class Thread(SerializableAttrs['Thread']):
+class Thread(SerializableAttrs):
     id: str
     folder: ThreadFolder
     name: Optional[str]
@@ -516,7 +516,7 @@ class Thread(SerializableAttrs['Thread']):
 
 
 @dataclass
-class ThreadListResponse(SerializableAttrs['ThreadListResponse']):
+class ThreadListResponse(SerializableAttrs):
     count: int
     unread_count: int
     unseen_count: int
@@ -527,24 +527,24 @@ class ThreadListResponse(SerializableAttrs['ThreadListResponse']):
 
 
 @dataclass
-class ThreadQueryResponse(SerializableAttrs['ThreadQueryResponse']):
+class ThreadQueryResponse(SerializableAttrs):
     message_threads: List[Thread]
 
 
 @dataclass
-class StickerPreviewResponse(SerializableAttrs['StickerPreviewResponse']):
+class StickerPreviewResponse(SerializableAttrs):
     nodes: List[Sticker]
 
 
 @dataclass
-class MessageUnsendResponse(SerializableAttrs['MessageUnsendResponse']):
+class MessageUnsendResponse(SerializableAttrs):
     did_succeed: bool
     error_code: str
     error_message: str
 
 
 @dataclass
-class ImageFragment(SerializableAttrs['ImageFragment']):
+class ImageFragment(SerializableAttrs):
     typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
     id: str
     animated_gif: Optional[Picture] = None
@@ -552,7 +552,7 @@ class ImageFragment(SerializableAttrs['ImageFragment']):
 
 
 @dataclass
-class SubsequentMediaNode(SerializableAttrs['SubsequentMediaNode']):
+class SubsequentMediaNode(SerializableAttrs):
     typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
     id: str
     legacy_attachment_id: str
@@ -565,13 +565,13 @@ class SubsequentMediaNode(SerializableAttrs['SubsequentMediaNode']):
 
 
 @dataclass
-class SubsequentMediaResponse(SerializableAttrs['SubsequentMediaResponse']):
+class SubsequentMediaResponse(SerializableAttrs):
     nodes: List[SubsequentMediaNode]
     page_info: PageInfo
 
 
 @dataclass
-class FileAttachmentWithURL(SerializableAttrs['FileAttachmentWithURL']):
+class FileAttachmentWithURL(SerializableAttrs):
     typename: AttachmentType = attr.ib(metadata={"json": "__typename"})
     attachment_fbid: str
     id: str
@@ -579,13 +579,13 @@ class FileAttachmentWithURL(SerializableAttrs['FileAttachmentWithURL']):
 
 
 @dataclass
-class FileAttachmentURLResponse(SerializableAttrs['FileAttachmentURLResponse']):
+class FileAttachmentURLResponse(SerializableAttrs):
     id: str
     blob_attachments: List[FileAttachmentWithURL]
 
 
 @dataclass(kw_only=True)
-class OwnInfo(SerializableAttrs['OwnInfo']):
+class OwnInfo(SerializableAttrs):
     id: str
     birthday: Optional[str] = None
     gender: Optional[str] = None
@@ -604,7 +604,7 @@ class OwnInfo(SerializableAttrs['OwnInfo']):
 
 
 @dataclass
-class MessageSearchResult(SerializableAttrs['MessageSearchResult']):
+class MessageSearchResult(SerializableAttrs):
     thread_id: str
     name: Optional[str]
     # TODO message_thread, matched_message
@@ -625,17 +625,17 @@ def deserialize_search_node(val: JSON) -> SearchResultNode:
 
 
 @dataclass
-class SearchResult(SerializableAttrs['SearchResult']):
+class SearchResult(SerializableAttrs):
     node: SearchResultNode
     # there's a header field with some random metadata too
 
 
 @dataclass
-class SearchResults(SerializableAttrs['SearchResults']):
+class SearchResults(SerializableAttrs):
     edges: List[SearchResult]
 
 
 @dataclass
-class SearchEntitiesResponse(SerializableAttrs['SearchEntitiesResponse']):
+class SearchEntitiesResponse(SerializableAttrs):
     cache_id: str
     search_results: SearchResults

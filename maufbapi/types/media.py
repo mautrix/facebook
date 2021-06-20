@@ -22,14 +22,14 @@ from mautrix.types import SerializableAttrs
 
 
 @dataclass
-class UploadErrorData(SerializableAttrs['UploadErrorData']):
+class UploadErrorData(SerializableAttrs):
     retriable: bool
     type: str
     message: str
 
 
 @dataclass
-class UploadResponse(SerializableAttrs['UploadResponse']):
+class UploadResponse(SerializableAttrs):
     media_id: Optional[int] = None
     err_code: Optional[str] = None
     err_str: Optional[str] = None

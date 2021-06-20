@@ -33,14 +33,14 @@ class GraphQLMutation(GraphQLQuery, ABC):
 
 
 @dataclass
-class NTContext(SerializableAttrs['ThreadListQueryNTContext']):
+class NTContext(SerializableAttrs):
     styles_id: str = "7d328425a4dfa3aa76b1310fa8dc30bf"
     using_white_navbar: bool = True
     pixel_ratio: int = 3
 
 
 @dataclass
-class ThreadQuery(GraphQLQuery, SerializableAttrs['ThreadQuery']):
+class ThreadQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 5487678687924830
 
     thread_ids: List[str]
@@ -67,7 +67,7 @@ class ThreadQuery(GraphQLQuery, SerializableAttrs['ThreadQuery']):
 
 
 @dataclass
-class ThreadListQuery(GraphQLQuery, SerializableAttrs['ThreadListQuery']):
+class ThreadListQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 3562683343826563
 
     msg_count: int = 20
@@ -91,7 +91,7 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs['ThreadListQuery']):
 
 
 @dataclass
-class MoreMessagesQuery(GraphQLQuery, SerializableAttrs['MoreMessagesQuery']):
+class MoreMessagesQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 3447218621980314
 
     before_time_ms: str
@@ -116,7 +116,7 @@ class ThreadNameMutationSource(SerializableEnum):
 
 
 @dataclass
-class ThreadNameMutation(GraphQLMutation, SerializableAttrs['ThreadNameMutation']):
+class ThreadNameMutation(GraphQLMutation, SerializableAttrs):
     doc_id: ClassVar[int] = 3090707060965997
 
     new_thread_name: str
@@ -127,8 +127,7 @@ class ThreadNameMutation(GraphQLMutation, SerializableAttrs['ThreadNameMutation'
 
 
 @dataclass
-class FetchStickersWithPreviewsQuery(GraphQLQuery,
-                                     SerializableAttrs['FetchStickersWithPreviewsQuery']):
+class FetchStickersWithPreviewsQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 3154119451330002
     caller_class: ClassVar[str] = "com.facebook.messaging.sync.delta.NewMessageHandlerHelper"
 
@@ -142,7 +141,7 @@ class FetchStickersWithPreviewsQuery(GraphQLQuery,
 
 
 @dataclass
-class MessageUndoSend(GraphQLMutation, SerializableAttrs['MessageUndoSend']):
+class MessageUndoSend(GraphQLMutation, SerializableAttrs):
     doc_id: ClassVar[int] = 1015037405287590
 
     message_id: str
@@ -156,7 +155,7 @@ class ReactionAction(SerializableEnum):
 
 
 @dataclass
-class MessageReactionMutation(GraphQLMutation, SerializableAttrs['MessageReactionMutation']):
+class MessageReactionMutation(GraphQLMutation, SerializableAttrs):
     doc_id: ClassVar[int] = 1415891828475683
 
     message_id: str
@@ -167,7 +166,7 @@ class MessageReactionMutation(GraphQLMutation, SerializableAttrs['MessageReactio
 
 
 @dataclass
-class DownloadImageFragment(GraphQLQuery, SerializableAttrs['DownloadImageFragment']):
+class DownloadImageFragment(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 3063616537053520
 
     fbid: str
@@ -175,7 +174,7 @@ class DownloadImageFragment(GraphQLQuery, SerializableAttrs['DownloadImageFragme
 
 
 @dataclass
-class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs['FbIdToCursorQuery']):
+class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 2015407048575350
 
     fbid: str
@@ -183,7 +182,7 @@ class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs['FbIdToCursorQuery']):
 
 
 @dataclass
-class SubsequentMediaQuery(GraphQLQuery, SerializableAttrs['SubsequentMediaQuery']):
+class SubsequentMediaQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 2948398158550055
 
     thread_id: str
@@ -195,20 +194,20 @@ class SubsequentMediaQuery(GraphQLQuery, SerializableAttrs['SubsequentMediaQuery
 
 
 @dataclass(frozen=True, eq=True)
-class ThreadMessageID(SerializableAttrs['ThreadMessageID']):
+class ThreadMessageID(SerializableAttrs):
     thread_id: str
     message_id: str
 
 
 @dataclass
-class FileAttachmentUrlQuery(GraphQLQuery, SerializableAttrs['FileAttachmentUrlQuery']):
+class FileAttachmentUrlQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 3200288700012393
 
     thread_msg_id: ThreadMessageID
 
 
 @dataclass
-class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs['SearchEntitiesNamedQuery']):
+class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 3414226858659179
 
     search_query: str
