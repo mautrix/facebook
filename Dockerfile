@@ -1,4 +1,4 @@
-FROM docker.io/alpine:3.13
+FROM docker.io/alpine:3.14
 
 ARG TARGETARCH=amd64
 
@@ -10,8 +10,9 @@ RUN apk add --no-cache \
       py3-ruamel.yaml \
       py3-commonmark \
       py3-paho-mqtt \
+      py3-prometheus-client \
       # encryption
-      olm-dev \
+      py3-olm \
       py3-cffi \
       py3-pycryptodome \
       py3-unpaddedbase64 \
