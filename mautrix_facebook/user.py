@@ -652,6 +652,7 @@ class User(DBUser, BaseUser):
         self.listen_task = None
 
     async def on_logged_in(self, state: AndroidState) -> None:
+        self.log.debug(f"Successfully logged in as {state.session.uid}")
         self.fbid = state.session.uid
         self.state = state
         self.client = AndroidAPI(state, log=self.log.getChild("api"))
