@@ -331,7 +331,10 @@ class Portal(DBPortal, BasePortal):
         if puppet and puppet.is_real_user:
             await puppet.intent.ensure_joined(self.mxid)
 
-        await self.update_info(source, info)
+        info = await self.update_info(source, info)
+        if not info:
+            self.log.warning("Canceling _update_matrix_room as update_info didn't return info")
+            return
 
         up = await UserPortal.get(source.fbid, self.fbid, self.fb_receiver)
         if not up:
