@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, TypeVar, Type, List, Union
 from urllib.parse import quote
+import urllib.request
 import hashlib
 import logging
 import base64
@@ -31,6 +32,12 @@ from yarl import URL
 from ..state import AndroidState
 from ..types import GraphQLQuery, GraphQLMutation
 from .errors import ResponseError, error_class_map, error_code_map
+
+try:
+    from aiohttp_socks import ProxyConnector
+except ImportError:
+    ProxyConnector = None
+
 
 T = TypeVar('T')
 
@@ -54,9 +61,21 @@ class BaseAndroidAPI:
     _tid: int
 
     def __init__(self, state: AndroidState, log: Optional[TraceLogger] = None) -> None:
-        self.http = ClientSession()
-        self.state = state
         self.log = log or logging.getLogger("mauigpapi.http")
+
+        connector = None
+        try:
+            http_proxy = urllib.request.getproxies()["http"]
+        except KeyError:
+            pass
+        else:
+            if ProxyConnector:
+                connector = ProxyConnector.from_url(http_proxy)
+            else:
+                self.log.warning("http_proxy is set, but aiohttp-socks is not installed")
+
+        self.http = ClientSession(connector=connector)
+        self.state = state
         self._cid = None
         self._cid_ts = 0
         self.freeze_cid = False

@@ -96,18 +96,21 @@ class AndroidMQTT:
             http_proxy = urllib.request.getproxies()["http"]
         except KeyError:
             http_proxy = None
-        if http_proxy and socks and URL:
-            proxy_url = URL(http_proxy)
-            proxy_type = {
-                "http": socks.HTTP,
-                "https": socks.HTTP,
-                "socks": socks.SOCKS5,
-                "socks5": socks.SOCKS5,
-                "socks4": socks.SOCKS4,
-            }[proxy_url.scheme]
-            self._client.proxy_set(proxy_type=proxy_type, proxy_addr=proxy_url.host,
-                                   proxy_port=proxy_url.port, proxy_username=proxy_url.user,
-                                   proxy_password=proxy_url.password)
+        else:
+            if not socks:
+                self.log.warning("http_proxy is set, but pysocks is not installed")
+            else:
+                proxy_url = URL(http_proxy)
+                proxy_type = {
+                    "http": socks.HTTP,
+                    "https": socks.HTTP,
+                    "socks": socks.SOCKS5,
+                    "socks5": socks.SOCKS5,
+                    "socks4": socks.SOCKS4,
+                }[proxy_url.scheme]
+                self._client.proxy_set(proxy_type=proxy_type, proxy_addr=proxy_url.host,
+                                       proxy_port=proxy_url.port, proxy_username=proxy_url.user,
+                                       proxy_password=proxy_url.password)
         self._client.enable_logger()
         self._client.tls_set()
         # mqtt.max_inflight_messages_set(20)  # The rest will get queued
