@@ -392,7 +392,7 @@ class Portal(DBPortal, BasePortal):
                 "avatar_url": self.config["appservice.bot_avatar"],
             },
             "channel": {
-                "id": self.fbid,
+                "id": str(self.fbid),
                 "displayname": self.name,
                 "avatar_url": self.avatar_url,
             }
