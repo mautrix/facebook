@@ -556,13 +556,6 @@ class User(DBUser, BaseUser):
         puppet = await pu.Puppet.get_by_fbid(self.fbid)
         state.remote_name = puppet.name
 
-    async def get_bridge_state(self) -> BridgeState:
-        if not self.client:
-            return BridgeState(ok=False, error="logged-out")
-        elif not self.listen_task or self.listen_task.done() or not self.is_connected:
-            return BridgeState(ok=False, error="fb-no-mqtt")
-        return BridgeState(ok=True)
-
     # region Facebook event handling
 
     def start_listen(self) -> None:
