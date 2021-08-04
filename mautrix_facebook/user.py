@@ -532,7 +532,7 @@ class User(DBUser, BaseUser):
                                  error_message: Optional[str] = None) -> Optional[EventID]:
         if state_event:
             await self.push_bridge_state(state_event, error=error_code,
-                                         message=f"{text}. Error Message: {error_message}")
+                                         message=error_message if error_code else text)
         if self.config["bridge.disable_bridge_notices"]:
             return None
         event_id = None
