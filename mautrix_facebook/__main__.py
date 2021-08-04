@@ -21,6 +21,7 @@ from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
 from mautrix.bridge.state_store.asyncpg import PgBridgeStateStore
 from mautrix.util.async_db import Database
+from mautrix.util.bridge_state import BridgeState, BridgeStateEvent
 
 from .config import Config
 from .db import upgrade_table, init as init_db
@@ -91,6 +92,11 @@ class MessengerBridge(Bridge):
         await self.state_store.upgrade_table.upgrade(self.db.pool)
         if self.matrix.e2ee:
             self.matrix.e2ee.crypto_db.override_pool(self.db.pool)
+
+        # Let the API server know that we are alive.
+        state = BridgeState(state_event=BridgeStateEvent.UNCONFIGURED)
+        await state.send(self.config["homeserver.status_endpoint"], self.az.as_token, self.log)
+
         self.add_startup_actions(User.init_cls(self))
         self.add_startup_actions(Puppet.init_cls(self))
         Portal.init_cls(self)
