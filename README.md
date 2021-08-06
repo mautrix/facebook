@@ -1,8 +1,8 @@
 # mautrix-facebook
-![Languages](https://img.shields.io/github/languages/top/tulir/mautrix-facebook.svg)
-[![License](https://img.shields.io/github/license/tulir/mautrix-facebook.svg)](LICENSE)
-[![Release](https://img.shields.io/github/release/tulir/mautrix-facebook/all.svg)](https://github.com/tulir/mautrix-facebook/releases)
-[![GitLab CI](https://mau.dev/tulir/mautrix-facebook/badges/master/pipeline.svg)](https://mau.dev/tulir/mautrix-facebook/container_registry)
+![Languages](https://img.shields.io/github/languages/top/mautrix/facebook.svg)
+[![License](https://img.shields.io/github/license/mautrix/facebook.svg)](LICENSE)
+[![Release](https://img.shields.io/github/release/mautrix/facebook/all.svg)](https://github.com/mautrix/facebook/releases)
+[![GitLab CI](https://mau.dev/mautrix/facebook/badges/master/pipeline.svg)](https://mau.dev/mautrix/facebook/container_registry)
 
 A Matrix-Facebook Messenger puppeting bridge.
 
@@ -16,7 +16,7 @@ Some quick links:
 * Basic usage: [Authentication](https://docs.mau.fi/bridges/python/facebook/authentication.html)
 
 ### Features & Roadmap
-[ROADMAP.md](https://github.com/tulir/mautrix-facebook/blob/master/ROADMAP.md)
+[ROADMAP.md](https://github.com/mautrix/facebook/blob/master/ROADMAP.md)
 contains a general overview of what is supported by the bridge.
 
 ## Discussion

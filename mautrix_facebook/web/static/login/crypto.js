@@ -63,7 +63,7 @@ function getKey(pem) {
 // encryptPassword encrypts a login password using AES-256-GCM, then encrypts the AES key
 // for Facebook's RSA-2048 key using PKCS#1 v1.5 padding.
 //
-// See https://github.com/tulir/mautrix-facebook/blob/v0.2.0/maufbapi/http/login.py#L164-L192
+// See https://github.com/mautrix/facebook/blob/v0.3.0/maufbapi/http/login.py#L164-L192
 // for the Python implementation of the same encryption protocol.
 async function encryptPassword(pubkey, keyID, password) {
 	// Key and IV for AES encryption

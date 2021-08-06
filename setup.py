@@ -35,7 +35,7 @@ linkified_version = {linkified_version!r}
 setuptools.setup(
     name="mautrix-facebook",
     version=version,
-    url="https://github.com/tulir/mautrix-facebook",
+    url="https://github.com/mautrix/facebook",
 
     author="Tulir Asokan",
     author_email="tulir@maunium.net",
