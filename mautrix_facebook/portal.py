@@ -94,8 +94,10 @@ class Portal(DBPortal, BasePortal):
     def __init__(self, fbid: int, fb_receiver: int, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, name: Optional[str] = None,
                  photo_id: Optional[str] = None, avatar_url: Optional[ContentURI] = None,
-                 encrypted: bool = False) -> None:
-        super().__init__(fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted)
+                 encrypted: bool = False, name_set: bool = False, avatar_set: bool = False
+                 ) -> None:
+        super().__init__(fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
+                         name_set, avatar_set)
         self.log = self.log.getChild(self.fbid_log)
 
         self._main_intent = None
@@ -244,11 +246,16 @@ class Portal(DBPortal, BasePortal):
         if not name:
             self.log.warning("Got empty name in _update_name call")
             return False
-        if self.name != name:
+        if self.name != name or not self.name_set:
             self.log.trace("Updating name %s -> %s", self.name, name)
             self.name = name
             if self.mxid and (self.encrypted or not self.is_direct):
-                await self.main_intent.set_room_name(self.mxid, self.name)
+                try:
+                    await self.main_intent.set_room_name(self.mxid, self.name)
+                    self.name_set = True
+                except Exception:
+                    self.log.exception("Failed to set room name")
+                    self.name_set = False
             return True
         return False
 
@@ -256,21 +263,29 @@ class Portal(DBPortal, BasePortal):
         if self.is_direct and not self.encrypted:
             return False
         photo_id = self.get_photo_id(photo)
-        if self.photo_id != photo_id:
+        if self.photo_id != photo_id or not self.avatar_set:
             self.photo_id = photo_id
             if photo:
-                self.avatar_url = await p.Puppet.reupload_avatar(
-                    source, self.main_intent, photo.uri,
-                    self.fbid, use_graph=self.is_direct and (photo.height or 0) < 500)
+                if self.photo_id != photo_id or not self.avatar_url:
+                    # Reset avatar_url first in case the upload fails
+                    self.avatar_url = None
+                    self.avatar_url = await p.Puppet.reupload_avatar(
+                        source, self.main_intent, photo.uri,
+                        self.fbid, use_graph=self.is_direct and (photo.height or 0) < 500)
             else:
                 self.avatar_url = ContentURI("")
             if self.mxid:
-                await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
+                try:
+                    await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
+                    self.avatar_set = True
+                except Exception:
+                    self.log.exception("Failed to set room avatar")
+                    self.avatar_set = False
             return True
         return False
 
     async def _update_photo_from_puppet(self, puppet: 'p.Puppet') -> bool:
-        if self.photo_id == puppet.photo_id:
+        if self.photo_id == puppet.photo_id and self.avatar_set:
             return False
         self.photo_id = puppet.photo_id
         if puppet.photo_mxc:
@@ -282,7 +297,12 @@ class Portal(DBPortal, BasePortal):
         else:
             self.avatar_url = ContentURI("")
         if self.mxid:
-            await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
+            try:
+                await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
+                self.avatar_set = True
+            except Exception:
+                self.log.exception("Failed to set room avatar")
+                self.avatar_set = False
         return True
 
     async def sync_per_room_nick(self, puppet: 'p.Puppet', name: str) -> None:
