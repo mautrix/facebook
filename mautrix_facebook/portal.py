@@ -448,7 +448,7 @@ class Portal(DBPortal, BasePortal):
         if self.encrypted or not self.is_direct:
             name = self.name
             initial_state.append({"type": str(EventType.ROOM_AVATAR),
-                                  "content": {"avatar_url": self.avatar_url}})
+                                  "content": {"url": self.avatar_url}})
         if self.config["appservice.community_id"]:
             initial_state.append({
                 "type": "m.room.related_groups",
