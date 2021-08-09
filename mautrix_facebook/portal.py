@@ -217,10 +217,9 @@ class Portal(DBPortal, BasePortal):
                                 ) -> Tuple[ContentURI, MediaInfo, Optional[EncryptedFile]]:
         if not url:
             raise ValueError("URL not provided")
-        headers = {
-            "referer": f"fbapp://{source.state.application.client_id}/{referer}"
-        }
-        async with source.client.get(url, headers=headers) as resp:
+        headers = {"referer": f"fbapp://{source.state.application.client_id}/{referer}"}
+        sandbox = cls.config["bridge.sandbox_media_download"]
+        async with source.client.get(url, headers=headers, sandbox=sandbox) as resp:
             length = int(resp.headers["Content-Length"])
             if length > cls.matrix.media_config.upload_size:
                 raise ValueError("File not available: too large")

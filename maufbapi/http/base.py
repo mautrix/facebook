@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, Dict, TypeVar, Type, List, Union
+from contextlib import asynccontextmanager
 from urllib.parse import quote
 import urllib.request
 import hashlib
@@ -40,6 +41,12 @@ except ImportError:
 
 
 T = TypeVar('T')
+
+
+@asynccontextmanager
+async def sandboxed_get(url: URL) -> _RequestContextManager:
+    async with ClientSession() as sess, sess.get(url) as resp:
+        yield resp
 
 
 class BaseAndroidAPI:
@@ -76,7 +83,7 @@ class BaseAndroidAPI:
 
         self.http = ClientSession(connector=connector)
         self.state = state
-        self._cid = None
+        self._cid = ""
         self._cid_ts = 0
         self.freeze_cid = False
         self.nid = base64.b64encode(bytes([random.getrandbits(8) for _ in range(9)])
@@ -139,7 +146,7 @@ class BaseAndroidAPI:
         }
 
     def get(self, url: Union[str, URL], headers: Optional[Dict[str, str]] = None,
-            include_auth: bool = True, **kwargs) -> _RequestContextManager:
+            include_auth: bool = True, sandbox: bool = False, **kwargs) -> _RequestContextManager:
         headers = {
             **self._headers,
             **(headers or {}),
@@ -147,6 +154,8 @@ class BaseAndroidAPI:
         url = URL(url)
         if not url.host.endswith(".facebook.com") or not include_auth:
             headers.pop("authorization")
+            if sandbox:
+                return sandboxed_get(url)
         return self.http.get(url, headers=headers, **kwargs)
 
     async def graphql(self, req: GraphQLQuery, headers: Optional[Dict[str, str]] = None,

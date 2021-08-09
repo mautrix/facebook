@@ -218,6 +218,9 @@ bridge:
     mute_bridging: false
     # Whether or not mute status and tags should only be bridged when the portal room is created.
     tag_only_on_create: true
+    # If set to true, downloading media from the CDN will use a plain aiohttp client without the usual headers or
+    # other configuration. This may be useful if you don't want to use the default proxy for large files.
+    sandbox_media_download: false
 
     # Permissions for using the bridge.
     # Permitted values:
