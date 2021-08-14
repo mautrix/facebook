@@ -82,6 +82,17 @@ metrics:
     enabled: false
     listen_port: 8000
 
+# Manhole config.
+manhole:
+    # Whether or not opening the manhole is allowed.
+    enabled: false
+    # The path for the unix socket.
+    path: /var/tmp/mautrix-facebook.manhole
+    # The list of UIDs who can be added to the whitelist.
+    # If empty, any UIDs can be specified in the open-manhole command.
+    whitelist:
+    - 0
+
 # Bridge config
 bridge:
     # Localpart template of MXIDs for Facebook users.
