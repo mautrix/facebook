@@ -236,8 +236,9 @@ class PublicBridgeWebsite:
         try:
             email = data["email"]
             code = data["code"]
-        except KeyError:
-            raise web.HTTPBadRequest(text='{"error": "Missing keys"}', headers=self._headers)
+        except KeyError as e:
+            raise web.HTTPBadRequest(text=json.dumps({"error": f"Missing key {e}"}),
+                                     headers=self._headers)
 
         state: AndroidState = user.command_status["state"]
         api: AndroidAPI = user.command_status["api"]
