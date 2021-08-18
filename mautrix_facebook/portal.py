@@ -343,12 +343,23 @@ class Portal(DBPortal, BasePortal):
         except Exception:
             self.log.exception("Failed to update portal")
 
+    def _get_invite_content(self, double_puppet: Optional['p.Puppet']) -> Dict[str, Any]:
+        invite_content = {}
+        if double_puppet:
+            invite_content["fi.mau.will_auto_accept"] = True
+        if self.is_direct:
+            invite_content["is_direct"] = True
+        return invite_content
+
     async def _update_matrix_room(self, source: 'u.User', info: Optional[graphql.Thread] = None
                                   ) -> None:
-        await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=False)
         puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
-        if puppet and puppet.is_real_user:
-            await puppet.intent.ensure_joined(self.mxid)
+        await self.main_intent.invite_user(self.mxid, source.mxid, check_cache=True,
+                                           extra_content=self._get_invite_content(puppet))
+        if puppet:
+            did_join = await puppet.intent.ensure_joined(self.mxid)
+            if did_join and self.is_direct:
+                await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
 
         info = await self.update_info(source, info)
         if not info:
@@ -449,7 +460,7 @@ class Portal(DBPortal, BasePortal):
             "state_key": self.bridge_info_state_key,
             "content": self.bridge_info,
         }]
-        invites = [source.mxid]
+        invites = []
         if self.config["bridge.encryption.default"] and self.matrix.e2ee:
             self.encrypted = True
             initial_state.append({
@@ -492,18 +503,21 @@ class Portal(DBPortal, BasePortal):
             await self.save()
             self.log.debug(f"Matrix room created: {self.mxid}")
             self.by_mxid[self.mxid] = self
+
+            puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
+            await self.main_intent.invite_user(self.mxid, source.mxid,
+                                               extra_content=self._get_invite_content(puppet))
+            if puppet:
+                try:
+                    if self.is_direct:
+                        await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
+                    await puppet.intent.join_room_by_id(self.mxid)
+                except MatrixError:
+                    self.log.debug("Failed to join custom puppet into newly created portal",
+                                   exc_info=True)
+
             if not self.is_direct:
                 await self._update_participants(source, info)
-            else:
-                puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
-                if puppet:
-                    try:
-                        did_join = await puppet.intent.join_room_by_id(self.mxid)
-                        if did_join and self.fb_type == ThreadType.USER:
-                            await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
-                    except MatrixError:
-                        self.log.debug("Failed to join custom puppet into newly created portal",
-                                       exc_info=True)
 
             in_community = await source._community_helper.add_room(source._community_id, self.mxid)
             await UserPortal(user=source.fbid, portal=self.fbid, portal_receiver=self.fb_receiver,
