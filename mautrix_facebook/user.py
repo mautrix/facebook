@@ -551,9 +551,20 @@ class User(DBUser, BaseUser):
 
     async def fill_bridge_state(self, state: BridgeState) -> None:
         await super().fill_bridge_state(state)
-        state.remote_id = str(self.fbid)
-        puppet = await pu.Puppet.get_by_fbid(self.fbid)
-        state.remote_name = puppet.name
+        if self.fbid:
+            state.remote_id = str(self.fbid)
+            puppet = await pu.Puppet.get_by_fbid(self.fbid)
+            state.remote_name = puppet.name
+
+    async def get_bridge_states(self) -> List[BridgeState]:
+        if not self.state:
+            return []
+        state = BridgeState(state_event=BridgeStateEvent.UNKNOWN_ERROR)
+        if self.is_connected:
+            state.state_event = BridgeStateEvent.CONNECTED
+        elif self._is_refreshing or self.mqtt:
+            state.state_event = BridgeStateEvent.TRANSIENT_DISCONNECT
+        return [state]
 
     # region Facebook event handling
 
