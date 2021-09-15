@@ -764,7 +764,7 @@ class Portal(DBPortal, BasePortal):
             meta = reply_to.metadata
             message = await DBMessage.get_by_fbid_or_oti(meta.id, meta.offline_threading_id,
                                                          self.fb_receiver, meta.sender)
-            if not message.fbid:
+            if message and not message.fbid:
                 self.log.debug(f"Got message ID {meta.id} for offline threading ID "
                                f"{message.fb_txn_id} / {message.mxid} (in database) from reply")
                 message.fbid = meta.id
