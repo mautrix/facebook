@@ -94,6 +94,7 @@ async def enter_password(evt: CommandEvent) -> None:
         await api.mobile_config_sessionless()
         await api.login(email, password)
         await evt.sender.on_logged_in(state)
+        evt.sender.command_status = None
         await evt.reply("Successfully logged in")
     except TwoFactorRequired:
         await evt.reply("You have two-factor authentication turned on. Please either send the code"
