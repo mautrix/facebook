@@ -18,6 +18,8 @@ from typing import (Dict, List, Optional, AsyncIterable, Awaitable, Union, TypeV
 import asyncio
 import time
 
+from aiohttp import ClientConnectionError
+
 from mautrix.errors import MNotFound
 from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
                            TextMessageEventContent, MessageType)
@@ -226,7 +228,8 @@ class User(DBUser, BaseUser):
             try:
                 user_info = await client.get_self()
                 break
-            except (ProxyError, ProxyTimeoutError, ProxyConnectionError, ConnectionError) as e:
+            except (ProxyError, ProxyTimeoutError, ProxyConnectionError,
+                    ClientConnectionError, ConnectionError) as e:
                 attempt += 1
                 wait = min(attempt * 10, 60)
                 self.log.warning(f"{e.__class__.__name__} while trying to restore session, "
