@@ -569,6 +569,11 @@ class User(DBUser, BaseUser):
             state.state_event = BridgeStateEvent.TRANSIENT_DISCONNECT
         return [state]
 
+    async def get_puppet(self) -> Optional['pu.Puppet']:
+        if not self.fbid:
+            return None
+        return await pu.Puppet.get_by_fbid(self.fbid)
+
     # region Facebook event handling
 
     def start_listen(self) -> None:
