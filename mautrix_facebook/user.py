@@ -22,7 +22,7 @@ from aiohttp import ClientConnectionError
 
 from mautrix.errors import MNotFound
 from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
-                           TextMessageEventContent, MessageType)
+                           TextMessageEventContent, MessageType, PresenceState)
 from mautrix.client import Client as MxClient
 from mautrix.bridge import BaseUser, BridgeState, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
@@ -607,6 +607,7 @@ class User(DBUser, BaseUser):
                 self.mqtt.add_event_handler(mqtt_t.ReadReceipt, self.on_message_seen)
                 self.mqtt.add_event_handler(mqtt_t.OwnReadReceipt, self.on_message_seen_self)
                 self.mqtt.add_event_handler(mqtt_t.Reaction, self.on_reaction)
+                self.mqtt.add_event_handler(mqtt_t.Presence, self.on_presence)
                 self.mqtt.add_event_handler(mqtt_t.AddMember, self.on_members_added)
                 self.mqtt.add_event_handler(mqtt_t.RemoveMember, self.on_member_removed)
                 self.mqtt.add_event_handler(mqtt_t.ThreadChange, self.on_thread_change)
@@ -761,14 +762,16 @@ class User(DBUser, BaseUser):
         else:
             await portal.handle_facebook_reaction_add(self, puppet, evt.message_id, evt.reaction)
 
-    # @async_time(METRIC_PRESENCE)
-    # async def on_presence(self, evt: fbchat.Presence) -> None:
-    #     for user, status in evt.statuses.items():
-    #         puppet = pu.Puppet.get_by_fbid(user, create=False)
-    #         if puppet:
-    #             await puppet.default_mxid_intent.set_presence(
-    #                 presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
-    #                 ignore_cache=True)
+    @async_time(METRIC_PRESENCE)
+    async def on_presence(self, evt: mqtt_t.Presence) -> None:
+        for update in evt.updates:
+            puppet = await pu.Puppet.get_by_fbid(update.user_id, create=False)
+            if puppet:
+                self.log.trace(f"Received presence for: {puppet.name} - {update.status}")
+                await puppet.intent.set_presence(
+                    presence=PresenceState.ONLINE if update.status == 2 else PresenceState.OFFLINE,
+                    ignore_cache=True)
+            # TODO: No-sync timeout of 1 MINUTE
     #
     # @async_time(METRIC_TYPING)
     # async def on_typing(self, evt: fbchat.Typing) -> None:

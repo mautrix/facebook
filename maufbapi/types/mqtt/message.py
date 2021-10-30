@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Mapping
 import base64
 import json
 
@@ -146,6 +146,18 @@ class Reaction(ThriftObject):
     reaction: str = field(default=None)
     message_sender_id: int = field(TType.I64)
     # index 7: unknown number as string, similar to MessageMetadata's index 3
+
+@dataclass
+class PresenceInfo(SerializableAttrs):
+    user_id: int = attr.ib(metadata={"json": "u"})
+    status: int = attr.ib(metadata={"json": "p"})
+    last_seen: int = attr.ib(metadata={"json": "l"}, default=0)
+
+
+@dataclass
+class Presence(SerializableAttrs):
+    updates: List[PresenceInfo] = attr.ib(metadata={"json": "list"})
+    list_type: str
 
 
 class MentionType(SerializableEnum):
