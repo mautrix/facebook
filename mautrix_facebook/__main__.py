@@ -30,6 +30,7 @@ from .puppet import Puppet
 from .matrix import MatrixHandler
 from .version import version, linkified_version
 from .web import PublicBridgeWebsite
+from .presence import PresenceUpdater
 
 
 class MessengerBridge(Bridge):
@@ -93,6 +94,7 @@ class MessengerBridge(Bridge):
             self.matrix.e2ee.crypto_db.override_pool(self.db.pool)
         self.add_startup_actions(User.init_cls(self))
         self.add_startup_actions(Puppet.init_cls(self))
+        self.add_startup_actions(PresenceUpdater.refresh_periodically())
         Portal.init_cls(self)
         if self.config["bridge.resend_bridge_info"]:
             self.add_startup_actions(self.resend_bridge_info())

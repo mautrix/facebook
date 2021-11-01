@@ -39,6 +39,7 @@ from .config import Config
 from .commands import enter_2fa_code
 from .db import User as DBUser, UserPortal, UserContact
 from . import portal as po, puppet as pu
+from .presence import PresenceUpdater
 
 METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
 METRIC_RESYNC = Summary('bridge_on_resync', 'calls to on_resync')
@@ -768,11 +769,8 @@ class User(DBUser, BaseUser):
             puppet = await pu.Puppet.get_by_fbid(update.user_id, create=False)
             if puppet:
                 self.log.trace(f"Received presence for: {puppet.name} - {update.status}")
-                await puppet.intent.set_presence(
-                    presence=PresenceState.ONLINE if update.status == 2 else PresenceState.OFFLINE,
-                    ignore_cache=True)
-            # TODO: No-sync timeout of 1 MINUTE
-    #
+                await PresenceUpdater.set_presence(puppet, PresenceState.ONLINE if update.status == 2 else PresenceState.OFFLINE)
+    
     # @async_time(METRIC_TYPING)
     # async def on_typing(self, evt: fbchat.Typing) -> None:
     #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
