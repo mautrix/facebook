@@ -14,37 +14,40 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import Union
 import asyncio
-import logging
 from mautrix.types import PresenceState
 from .puppet import Puppet
 
-PRESENCE_SYNC_TIMEOUT = 25; # synapse has a timeout of 30s, an extra 5s gives some slack
+# synapse has a timeout of 30s, an extra 5s gives some slack
+PRESENCE_SYNC_TIMEOUT = 25; 
 
-# idea stolen from <https://github.com/Sorunome/mx-puppet-bridge>
+# idea taken from <https://github.com/Sorunome/mx-puppet-bridge>
 class PresenceUpdater:
     puppets = {}
-    log = logging.getLogger("mau.user")
 
     @classmethod
-    async def set_presence(cls, puppet: Puppet, state: PresenceState):
-        await puppet.intent.set_presence(presence=state, ignore_cache=True)
-        cls.puppets[puppet.fbid] = (puppet, state)
-    
+    async def set_presence(cls, puppet: Puppet, presence: PresenceState):
+        # user is online -> schedule for periodic refresh and also update now
+        if presence == PresenceState.ONLINE:
+            cls.puppets[puppet.fbid] = (puppet, presence)
+            await puppet.intent.set_presence(presence, ignore_cache=True)
+        # user is offline but scheduled for an update -> cancel it and update now
+        elif puppet.fbid in cls.puppets:
+            cls.puppets.pop(fbid, None)
+            await puppet.intent.set_presence(presence, ignore_cache=True)
+
     @classmethod
     async def _refresh_presence(cls):
-        for fbid, (puppet, state) in list(cls.puppets.items()):
-            await puppet.intent.set_presence(presence=state, ignore_cache=True)
+        for fbid, (puppet, presence) in list(cls.puppets.items()):
+            await puppet.intent.set_presence(presence, ignore_cache=True)
             
             # stop updating if the user is no longer online
-            if state != PresenceState.ONLINE:
-                del cls.puppets[fbid]
+            if presence != PresenceState.ONLINE:
+                cls.puppets.pop(fbid, None)
 
     @classmethod
     async def refresh_periodically(cls):
         while True:
-            cls.log.trace(f"Refreshing presence for {len(cls.puppets)} puppets.")
             await asyncio.gather(
                 asyncio.sleep(PRESENCE_SYNC_TIMEOUT),
                 cls._refresh_presence(),

@@ -44,7 +44,7 @@
   * [x] Message unsend
   * [x] Message reactions
   * [x] Message history
-  * [ ] Presence
+  * [x] Presence
   * [ ] Typing notifications
   * [x] Read receipts
   * [ ] Admin status
