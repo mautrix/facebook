@@ -35,7 +35,7 @@ class PresenceUpdater:
                 await puppet.intent.set_presence(presence, ignore_cache=True)
             # user is offline but scheduled for an update -> cancel it and update now
             elif puppet.fbid in cls.puppets:
-                cls.puppets.pop(fbid, None)
+                cls.puppets.pop(puppet.fbid, None)
                 await puppet.intent.set_presence(presence, ignore_cache=True)
 
     @classmethod
