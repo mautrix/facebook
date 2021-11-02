@@ -24,17 +24,19 @@ PRESENCE_SYNC_TIMEOUT = 25;
 # idea taken from <https://github.com/Sorunome/mx-puppet-bridge>
 class PresenceUpdater:
     puppets = {}
+    running = False
 
     @classmethod
     async def set_presence(cls, puppet: Puppet, presence: PresenceState):
-        # user is online -> schedule for periodic refresh and also update now
-        if presence == PresenceState.ONLINE:
-            cls.puppets[puppet.fbid] = (puppet, presence)
-            await puppet.intent.set_presence(presence, ignore_cache=True)
-        # user is offline but scheduled for an update -> cancel it and update now
-        elif puppet.fbid in cls.puppets:
-            cls.puppets.pop(fbid, None)
-            await puppet.intent.set_presence(presence, ignore_cache=True)
+        if cls.running:
+            # user is online -> schedule for periodic refresh and also update now
+            if presence == PresenceState.ONLINE:
+                cls.puppets[puppet.fbid] = (puppet, presence)
+                await puppet.intent.set_presence(presence, ignore_cache=True)
+            # user is offline but scheduled for an update -> cancel it and update now
+            elif puppet.fbid in cls.puppets:
+                cls.puppets.pop(fbid, None)
+                await puppet.intent.set_presence(presence, ignore_cache=True)
 
     @classmethod
     async def _refresh_presence(cls):
@@ -47,6 +49,7 @@ class PresenceUpdater:
 
     @classmethod
     async def refresh_periodically(cls):
+        cls.running = True
         while True:
             await asyncio.gather(
                 asyncio.sleep(PRESENCE_SYNC_TIMEOUT),
