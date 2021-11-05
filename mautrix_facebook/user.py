@@ -627,8 +627,7 @@ class User(DBUser, BaseUser):
                                               error_code="fb-disconnected")
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
-            refresh = (self.config["bridge.refresh_on_reconnection_fail"]
-                       and self._prev_reconnect_fail_refresh + 120 < time.monotonic())
+            refresh = self.config["bridge.refresh_on_reconnection_fail"]
             next_action = ("Refreshing session..." if refresh else "Not retrying!")
             event = ("Disconnected from" if isinstance(e, MQTTNotLoggedIn)
                      else "Failed to connect to")
@@ -641,6 +640,7 @@ class User(DBUser, BaseUser):
             elif self.temp_disconnect_notices:
                 await self.send_bridge_notice(message)
             if refresh:
+                await asyncio.sleep(self._prev_reconnect_fail_refresh + 120 - time.monotonic())
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 asyncio.create_task(self.refresh())
             else:
