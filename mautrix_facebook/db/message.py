@@ -21,7 +21,7 @@ from attr import dataclass
 from mautrix.types import RoomID, EventID
 from mautrix.util.async_db import Database
 
-fake_db = Database("") if TYPE_CHECKING else None
+fake_db = Database.create("") if TYPE_CHECKING else None
 
 
 @dataclass
@@ -44,7 +44,7 @@ class Message:
             return None
         return cls(**row)
 
-    columns = "mxid, mx_room, fbid, fb_txn_id, index, fb_chat, fb_receiver, fb_sender, timestamp"
+    columns = 'mxid, mx_room, fbid, fb_txn_id, "index", fb_chat, fb_receiver, fb_sender, timestamp'
 
     @classmethod
     async def get_all_by_fbid(cls, fbid: str, fb_receiver: int) -> List['Message']:
@@ -54,7 +54,7 @@ class Message:
 
     @classmethod
     async def get_by_fbid(cls, fbid: str, fb_receiver: int, index: int = 0) -> Optional['Message']:
-        q = f"SELECT {cls.columns} FROM message WHERE fbid=$1 AND fb_receiver=$2 AND index=$3"
+        q = f'SELECT {cls.columns} FROM message WHERE fbid=$1 AND fb_receiver=$2 AND "index"=$3'
         row = await cls.db.fetchrow(q, fbid, fb_receiver, index)
         return cls._from_row(row)
 
@@ -63,7 +63,7 @@ class Message:
                                  index: int = 0) -> Optional['Message']:
         q = (f"SELECT {cls.columns} "
              "FROM message WHERE (fbid=$1 OR (fb_txn_id=$2 AND fb_sender=$3)) AND "
-             "                   fb_receiver=$4 AND index=$5")
+             '                   fb_receiver=$4 AND "index"=$5')
         row = await cls.db.fetchrow(q, fbid, oti, fb_sender, fb_receiver, index)
         return cls._from_row(row)
 
@@ -73,8 +73,7 @@ class Message:
 
     @classmethod
     async def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Optional['Message']:
-        q = (f"SELECT {cls.columns} "
-             "FROM message WHERE mxid=$1 AND mx_room=$2")
+        q = f"SELECT {cls.columns} FROM message WHERE mxid=$1 AND mx_room=$2"
         row = await cls.db.fetchrow(q, mxid, mx_room)
         return cls._from_row(row)
 
@@ -96,26 +95,33 @@ class Message:
         row = await cls.db.fetchrow(q, fb_chat, fb_receiver, timestamp)
         return cls._from_row(row)
 
+    _insert_query = (
+        'INSERT INTO message (mxid, mx_room, fbid, fb_txn_id, "index", fb_chat, fb_receiver, '
+        "                     fb_sender, timestamp) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+    )
+
     @classmethod
     async def bulk_create(cls, fbid: str, oti: int, fb_chat: int, fb_receiver: int, fb_sender: int,
                           event_ids: List[EventID], timestamp: int, mx_room: RoomID) -> None:
         if not event_ids:
             return
-        columns = cls.columns.split(", ")
+        columns = [col.strip('"') for col in cls.columns.split(", ")]
         records = [(mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
                    for index, mxid in enumerate(event_ids)]
         async with cls.db.acquire() as conn, conn.transaction():
-            await conn.copy_records_to_table("message", records=records, columns=columns)
+            if cls.db.scheme == "postgres":
+                await conn.copy_records_to_table("message", records=records, columns=columns)
+            else:
+                await conn.executemany(cls._insert_query, records)
 
     async def insert(self) -> None:
-        q = ("INSERT INTO message (mxid, mx_room, fbid, fb_txn_id, index, fb_chat, fb_receiver, "
-             "                     fb_sender, timestamp) "
-             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)")
+        q = self._insert_query
         await self.db.execute(q, self.mxid, self.mx_room, self.fbid, self.fb_txn_id, self.index,
                               self.fb_chat, self.fb_receiver, self.fb_sender, self.timestamp)
 
     async def delete(self) -> None:
-        q = "DELETE FROM message WHERE fbid=$1 AND fb_receiver=$2 AND index=$3"
+        q = 'DELETE FROM message WHERE fbid=$1 AND fb_receiver=$2 AND "index"=$3'
         await self.db.execute(q, self.fbid, self.fb_receiver, self.index)
 
     async def update(self) -> None:

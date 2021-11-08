@@ -20,7 +20,7 @@ from attr import dataclass
 
 from mautrix.util.async_db import Database
 
-fake_db = Database("") if TYPE_CHECKING else None
+fake_db = Database.create("") if TYPE_CHECKING else None
 
 
 @dataclass
@@ -68,9 +68,9 @@ class UserPortal:
                               'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3', self.user)
 
     async def save(self) -> None:
-        await self.db.execute('UPDATE user_portal SET in_community=$4 '
-                              'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3',
-                              self.user, self.portal, self.portal_receiver, self.in_community)
+        await self.db.execute('UPDATE user_portal SET in_community=$1 '
+                              'WHERE "user"=$2 AND portal=$3 AND portal_receiver=$4',
+                              self.in_community, self.user, self.portal, self.portal_receiver)
 
     @classmethod
     async def delete_all(cls, user: int) -> None:

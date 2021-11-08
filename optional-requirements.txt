@@ -9,7 +9,7 @@ python-olm>=3,<4
 unpaddedbase64>=1,<2
 
 #/metrics
-prometheus_client>=0.6,<0.12
+prometheus_client>=0.6,<0.13
 
 #/proxy
 pysocks
@@ -17,3 +17,6 @@ aiohttp-socks
 
 #/weblogin
 setuptools
+
+#/sqlite
+aiosqlite>=0.16,<0.18

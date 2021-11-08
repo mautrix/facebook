@@ -24,7 +24,7 @@ from mautrix.util.async_db import Database
 from maufbapi.types.mqtt import ThreadKey as MQTTThreadKey
 from maufbapi.types.graphql import ThreadKey as GraphQLThreadKey
 
-fake_db = Database("") if TYPE_CHECKING else None
+fake_db = Database.create("") if TYPE_CHECKING else None
 
 
 class ThreadType(Enum):
@@ -111,8 +111,8 @@ class Portal:
         await self.db.execute(q, self.fbid, self.fb_receiver)
 
     async def save(self) -> None:
-        await self.db.execute("UPDATE portal SET mxid=$3, name=$4, photo_id=$5, avatar_url=$6,"
-                              "                  encrypted=$7, name_set=$8, avatar_set=$9 "
-                              "WHERE fbid=$1 AND fb_receiver=$2",
-                              self.fbid, self.fb_receiver, self.mxid, self.name, self.photo_id,
-                              self.avatar_url, self.encrypted, self.name_set, self.avatar_set)
+        await self.db.execute("UPDATE portal SET mxid=$1, name=$2, photo_id=$3, avatar_url=$4,"
+                              "                  encrypted=$5, name_set=$6, avatar_set=$7 "
+                              "WHERE fbid=$8 AND fb_receiver=$9",
+                              self.mxid, self.name, self.photo_id, self.avatar_url, self.encrypted,
+                              self.name_set, self.avatar_set, self.fbid, self.fb_receiver)
