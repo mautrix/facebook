@@ -34,6 +34,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
+from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
 
 from maufbapi.types import mqtt, graphql
@@ -573,7 +574,22 @@ class Portal(DBPortal, BasePortal):
                                     event_id: EventID) -> None:
         # TODO handle errors?
         # try:
-        await self._handle_matrix_message(sender, message, event_id)
+        try:
+            await self._handle_matrix_message(sender, message, event_id)
+        except Exception as e:
+            sender.send_remote_checkpoint(
+                MessageSendCheckpointStatus.PERM_FAILURE,
+                event_id,
+                self.mxid,
+                EventType.ROOM_MESSAGE,
+                message.msgtype,
+                error=e,
+            )
+            await self._send_bridge_error(str(e))
+            self.log.exception("Failed to handle matrix message.", e)
+            raise
+        else:
+            await self._send_delivery_receipt(event_id)
         # except fbchat.PleaseRefresh:
         #     self.log.debug(f"Got PleaseRefresh error while trying to bridge {event_id}")
         #     await sender.refresh()
@@ -600,8 +616,7 @@ class Portal(DBPortal, BasePortal):
         # elif message.msgtype == MessageType.LOCATION:
         #     await self._handle_matrix_location(sender, message)
         else:
-            self.log.warning(f"Unsupported msgtype {message.msgtype} in {event_id}")
-            return
+            raise ValueError(f"Unsupported msgtype {message.msgtype} in {event_id}")
 
     async def _make_dbm(self, sender: 'u.User', event_id: EventID) -> DBMessage:
         oti = sender.mqtt.generate_offline_threading_id()
@@ -622,10 +637,16 @@ class Portal(DBPortal, BasePortal):
                                               offline_threading_id=dbm.fb_txn_id)
         if not resp.success and resp.error_message:
             self.log.debug(f"Error handling Matrix message {event_id}: {resp.error_message}")
-            await self._send_bridge_error(resp.error_message)
+            raise Exception(resp.error_message)
         else:
             self.log.debug(f"Handled Matrix message {event_id} -> OTI: {dbm.fb_txn_id}")
-            await self._send_delivery_receipt(event_id)
+            sender.send_remote_checkpoint(
+                MessageSendCheckpointStatus.SUCCESS,
+                event_id,
+                self.mxid,
+                EventType.ROOM_MESSAGE,
+                message.msgtype,
+            )
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
                                    message: MediaMessageEventContent) -> None:
@@ -655,9 +676,16 @@ class Portal(DBPortal, BasePortal):
         if not resp.media_id and resp.debug_info:
             self.log.debug(f"Error uploading media for Matrix message {event_id}: "
                            f"{resp.debug_info.message}")
-            await self._send_bridge_error(f"Media upload error: {resp.debug_info.message}")
-            return
-        await self._send_delivery_receipt(event_id)
+            raise Exception(f"Media upload error: {resp.debug_info.message}")
+        else:
+            sender.send_remote_checkpoint(
+                MessageSendCheckpointStatus.SUCCESS,
+                event_id,
+                self.mxid,
+                EventType.ROOM_MESSAGE,
+                message.msgtype,
+            )
+
         try:
             self._oti_dedup.pop(dbm.fb_txn_id)
         except KeyError:
@@ -687,8 +715,22 @@ class Portal(DBPortal, BasePortal):
                 await message.delete()
                 await sender.client.unsend(message.fbid)
                 await self._send_delivery_receipt(redaction_event_id)
-            except Exception:
+            except Exception as e:
                 self.log.exception("Unsend failed")
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.PERM_FAILURE,
+                    event_id,
+                    self.mxid,
+                    EventType.ROOM_REDACTION,
+                    error=e,
+                )
+            else:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    event_id,
+                    self.mxid,
+                    EventType.ROOM_REDACTION,
+                )
             return
 
         reaction = await DBReaction.get_by_mxid(event_id, self.mxid)
@@ -697,8 +739,22 @@ class Portal(DBPortal, BasePortal):
                 await reaction.delete()
                 await sender.client.react(reaction.fb_msgid, None)
                 await self._send_delivery_receipt(redaction_event_id)
-            except Exception:
+            except Exception as e:
                 self.log.exception("Removing reaction failed")
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.PERM_FAILURE,
+                    event_id,
+                    self.mxid,
+                    EventType.ROOM_REDACTION,
+                    error=e,
+                )
+            else:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    event_id,
+                    self.mxid,
+                    EventType.ROOM_REDACTION,
+                )
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
                                      reacting_to: EventID, reaction: str) -> None:
@@ -715,10 +771,27 @@ class Portal(DBPortal, BasePortal):
             if existing and existing.reaction == reaction:
                 return
 
-            await sender.client.react(message.fbid, reaction)
-            await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
-                                        reaction)
-        await self._send_delivery_receipt(event_id)
+            try:
+                await sender.client.react(message.fbid, reaction)
+            except Exception as e:
+                self.log.exception(f"Failed to react to {event_id}")
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.PERM_FAILURE,
+                    event_id,
+                    self.mxid,
+                    EventType.REACTION,
+                    error=e,
+                )
+            else:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    event_id,
+                    self.mxid,
+                    EventType.REACTION,
+                )
+                await self._send_delivery_receipt(event_id)
+                await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
+                                            reaction)
 
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
@@ -1279,9 +1352,9 @@ class Portal(DBPortal, BasePortal):
 
         await self._upsert_reaction(existing, intent, mxid, message, sender, reaction)
 
-    async def _upsert_reaction(self, existing: DBReaction, intent: IntentAPI, mxid: EventID,
-                               message: DBMessage, sender: Union['u.User', 'p.Puppet'],
-                               reaction: str) -> None:
+    async def _upsert_reaction(self, existing: Optional[DBReaction], intent: IntentAPI,
+                               mxid: EventID, message: DBMessage,
+                               sender: Union['u.User', 'p.Puppet'], reaction: str) -> None:
         if existing:
             self.log.debug(f"_upsert_reaction redacting {existing.mxid} and inserting {mxid}"
                            f" (message: {message.mxid})")
