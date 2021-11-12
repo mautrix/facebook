@@ -572,8 +572,6 @@ class Portal(DBPortal, BasePortal):
 
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
-        # TODO handle errors?
-        # try:
         try:
             await self._handle_matrix_message(sender, message, event_id)
         except Exception as e:
@@ -587,21 +585,8 @@ class Portal(DBPortal, BasePortal):
             )
             await self._send_bridge_error(str(e))
             self.log.exception("Failed to handle matrix message.", e)
-            raise
         else:
             await self._send_delivery_receipt(event_id)
-        # except fbchat.PleaseRefresh:
-        #     self.log.debug(f"Got PleaseRefresh error while trying to bridge {event_id}")
-        #     await sender.refresh()
-        #     try:
-        #         await self._handle_matrix_message(sender, message, event_id)
-        #     except fbchat.FacebookError as e:
-        #         self.log.exception(f"Got FacebookError while trying to bridge {event_id} "
-        #                            "after auto-refreshing")
-        #         await self._send_bridge_error(getattr(e, "description", e.message))
-        # except fbchat.FacebookError as e:
-        #     self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
-        #     await self._send_bridge_error(getattr(e, "description", e.message))
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
