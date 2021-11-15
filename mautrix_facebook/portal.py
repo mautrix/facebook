@@ -590,10 +590,6 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
-        if ((message.get(self.az.real_user_content_key, False)
-             and await p.Puppet.get_by_custom_mxid(sender.mxid))):
-            self.log.debug(f"Ignoring puppet-sent message by confirmed puppet user {sender.mxid}")
-            return
         if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
             await self._handle_matrix_text(event_id, sender, message)
         elif message.msgtype.is_media:
