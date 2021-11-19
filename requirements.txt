@@ -1,9 +1,9 @@
 aiohttp>=3,<4
 yarl>=1,<2
-asyncpg>=0.20,<0.25
+asyncpg>=0.20,<0.26
 ruamel.yaml>=0.15.94,<0.18
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
-mautrix>=0.11.4,<0.12
+mautrix>=0.11.4,<0.13
 pycryptodome>=3,<4
 paho-mqtt>=1.5,<2
