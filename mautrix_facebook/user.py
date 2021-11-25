@@ -24,9 +24,9 @@ from mautrix.errors import MNotFound
 from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
                            TextMessageEventContent, MessageType)
 from mautrix.client import Client as MxClient
-from mautrix.bridge import BaseUser, BridgeState, async_getter_lock
+from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
-from mautrix.util.bridge_state import BridgeStateEvent
+from mautrix.util.bridge_state import BridgeState, BridgeStateEvent
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 

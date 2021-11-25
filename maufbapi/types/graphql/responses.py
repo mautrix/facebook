@@ -587,8 +587,6 @@ class FileAttachmentURLResponse(SerializableAttrs):
 @dataclass(kw_only=True)
 class OwnInfo(SerializableAttrs):
     id: str
-    birthday: Optional[str] = None
-    gender: Optional[str] = None
     locale: Optional[str] = None
     email: Optional[str] = None
     name: str
@@ -596,7 +594,6 @@ class OwnInfo(SerializableAttrs):
     middle_name: Optional[str] = None
     last_name: Optional[str] = None
     link: Optional[str] = None
-    is_employee: bool = False
     verified: bool = False
     published_timeline: bool = False
     timezone: int = 0

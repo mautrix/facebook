@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import attr
 from typing import List, Optional, Union, Dict
 from uuid import uuid4
 
@@ -139,6 +140,8 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
         return None
 
     async def get_self(self) -> OwnInfo:
-        async with self.get(self.graph_url / str(self.state.session.uid)) as resp:
+        fields = ",".join(field.name for field in attr.fields(OwnInfo))
+        url = (self.graph_url / str(self.state.session.uid)).with_query({"fields": fields})
+        async with self.get(url) as resp:
             json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)
