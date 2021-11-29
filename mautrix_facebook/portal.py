@@ -563,7 +563,7 @@ class Portal(DBPortal, BasePortal):
             try:
                 await self.az.intent.mark_read(self.mxid, event_id)
             except Exception:
-                self.log.exception("Failed to send delivery receipt for %s", event_id)
+                self.log.exception(f"Failed to send delivery receipt for {event_id}")
 
     async def _send_bridge_error(self, msg: str) -> None:
         await self._send_message(self.main_intent, TextMessageEventContent(
@@ -695,7 +695,6 @@ class Portal(DBPortal, BasePortal):
             try:
                 await message.delete()
                 await sender.client.unsend(message.fbid)
-                await self._send_delivery_receipt(redaction_event_id)
             except Exception as e:
                 self.log.exception("Unsend failed")
                 sender.send_remote_checkpoint(
@@ -712,6 +711,7 @@ class Portal(DBPortal, BasePortal):
                     self.mxid,
                     EventType.ROOM_REDACTION,
                 )
+                await self._send_delivery_receipt(redaction_event_id)
             return
 
         reaction = await DBReaction.get_by_mxid(event_id, self.mxid)
@@ -719,7 +719,6 @@ class Portal(DBPortal, BasePortal):
             try:
                 await reaction.delete()
                 await sender.client.react(reaction.fb_msgid, None)
-                await self._send_delivery_receipt(redaction_event_id)
             except Exception as e:
                 self.log.exception("Removing reaction failed")
                 sender.send_remote_checkpoint(
@@ -736,6 +735,16 @@ class Portal(DBPortal, BasePortal):
                     self.mxid,
                     EventType.ROOM_REDACTION,
                 )
+                await self._send_delivery_receipt(redaction_event_id)
+            return
+
+        sender.send_remote_checkpoint(
+            MessageSendCheckpointStatus.PERM_FAILURE,
+            event_id,
+            self.mxid,
+            EventType.ROOM_REDACTION,
+            error=Exception(f"No message or reaction found for redaction"),
+        )
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
                                      reacting_to: EventID, reaction: str) -> None:
