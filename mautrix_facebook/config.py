@@ -112,6 +112,10 @@ class Config(BaseBridgeConfig):
 
         copy_dict("bridge.permissions")
 
+        reconnect_interval = base.get("bridge.periodic_reconnect.interval")
+        if isinstance(reconnect_interval, list) and len(reconnect_interval) != 2:
+            raise ValueError("bridge.periodic_reconnect.interval must only be a list of two items")
+
     def _get_permissions(self, key: str) -> Tuple[bool, bool, str]:
         level = self["bridge.permissions"].get(key, "")
         admin = level == "admin"
