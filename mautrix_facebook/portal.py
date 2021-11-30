@@ -740,7 +740,7 @@ class Portal(DBPortal, BasePortal):
             redaction_event_id,
             self.mxid,
             EventType.ROOM_REDACTION,
-            error=Exception(f"No message or reaction found for redaction"),
+            error=f"No message or reaction found for redaction",
         )
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
