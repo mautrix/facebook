@@ -687,9 +687,6 @@ class Portal(DBPortal, BasePortal):
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
                                       redaction_event_id: EventID) -> None:
-        if not self.mxid:
-            return
-
         message = await DBMessage.get_by_mxid(event_id, self.mxid)
         if message:
             try:
@@ -699,7 +696,7 @@ class Portal(DBPortal, BasePortal):
                 self.log.exception("Unsend failed")
                 sender.send_remote_checkpoint(
                     MessageSendCheckpointStatus.PERM_FAILURE,
-                    event_id,
+                    redaction_event_id,
                     self.mxid,
                     EventType.ROOM_REDACTION,
                     error=e,
@@ -707,7 +704,7 @@ class Portal(DBPortal, BasePortal):
             else:
                 sender.send_remote_checkpoint(
                     MessageSendCheckpointStatus.SUCCESS,
-                    event_id,
+                    redaction_event_id,
                     self.mxid,
                     EventType.ROOM_REDACTION,
                 )
@@ -723,7 +720,7 @@ class Portal(DBPortal, BasePortal):
                 self.log.exception("Removing reaction failed")
                 sender.send_remote_checkpoint(
                     MessageSendCheckpointStatus.PERM_FAILURE,
-                    event_id,
+                    redaction_event_id,
                     self.mxid,
                     EventType.ROOM_REDACTION,
                     error=e,
@@ -731,7 +728,7 @@ class Portal(DBPortal, BasePortal):
             else:
                 sender.send_remote_checkpoint(
                     MessageSendCheckpointStatus.SUCCESS,
-                    event_id,
+                    redaction_event_id,
                     self.mxid,
                     EventType.ROOM_REDACTION,
                 )
@@ -740,7 +737,7 @@ class Portal(DBPortal, BasePortal):
 
         sender.send_remote_checkpoint(
             MessageSendCheckpointStatus.PERM_FAILURE,
-            event_id,
+            redaction_event_id,
             self.mxid,
             EventType.ROOM_REDACTION,
             error=Exception(f"No message or reaction found for redaction"),
