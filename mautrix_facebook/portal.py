@@ -590,6 +590,8 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
+        if not sender.mqtt:
+            raise Exception("Not connected to MQTT")
         if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
             await self._handle_matrix_text(event_id, sender, message)
         elif message.msgtype.is_media:
