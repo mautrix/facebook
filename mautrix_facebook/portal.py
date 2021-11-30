@@ -584,7 +584,7 @@ class Portal(DBPortal, BasePortal):
                 error=e,
             )
             await self._send_bridge_error(str(e))
-            self.log.exception("Failed to handle matrix message.", e)
+            self.log.exception("Failed to handle Matrix message")
         else:
             await self._send_delivery_receipt(event_id)
 
