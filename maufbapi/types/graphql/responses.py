@@ -595,7 +595,6 @@ class OwnInfo(SerializableAttrs):
     last_name: Optional[str] = None
     link: Optional[str] = None
     verified: bool = False
-    published_timeline: bool = False
     timezone: int = 0
     updated_time: Optional[str] = None
 
