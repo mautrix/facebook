@@ -20,8 +20,6 @@ import random
 
 from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
-from mautrix.bridge.state_store.asyncpg import PgBridgeStateStore
-from mautrix.util.async_db import Database
 
 from .config import Config
 from .db import upgrade_table, init as init_db
@@ -44,21 +42,16 @@ class MessengerBridge(Bridge):
     markdown_version = linkified_version
     config_class = Config
     matrix_class = MatrixHandler
+    upgrade_table = upgrade_table
 
-    db: Database
     config: Config
     matrix: MatrixHandler
     public_website: Optional[PublicBridgeWebsite]
-    state_store: PgBridgeStateStore
 
     periodic_reconnect_task: asyncio.Task
 
-    def make_state_store(self) -> None:
-        self.state_store = PgBridgeStateStore(self.db, self.get_puppet, self.get_double_puppet)
-
     def prepare_db(self) -> None:
-        self.db = Database.create(self.config["appservice.database"], upgrade_table=upgrade_table,
-                                  db_args=self.config["appservice.database_opts"])
+        super().prepare_db()
         init_db(self.db)
 
     def prepare_bridge(self) -> None:
@@ -80,19 +73,9 @@ class MessengerBridge(Bridge):
         User.shutdown = True
         for user in User.by_fbid.values():
             user.stop_listen()
-
-    async def stop(self) -> None:
-        await super().stop()
-        self.log.debug("Saving user sessions")
-        for user in User.by_mxid.values():
-            await user.save()
-        await self.db.stop()
+        self.add_shutdown_actions(user.save() for user in User.by_mxid.values())
 
     async def start(self) -> None:
-        await self.db.start()
-        await self.state_store.upgrade_table.upgrade(self.db)
-        if self.matrix.e2ee:
-            self.matrix.e2ee.crypto_db.override_pool(self.db)
         self.add_startup_actions(User.init_cls(self))
         self.add_startup_actions(Puppet.init_cls(self))
         Portal.init_cls(self)
