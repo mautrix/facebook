@@ -122,10 +122,17 @@ class MessengerBridge(Bridge):
             except asyncio.CancelledError:
                 log.debug("Periodic reconnect loop stopped")
                 return
+            must_be_connected_before = time.monotonic()
+            min_connected_time = self.config["bridge.periodic_reconnect.min_connected_time"]
+            if min_connected_time:
+                must_be_connected_before -= min_connected_time
             log.info("Executing periodic reconnections")
             for user in User.by_fbid.values():
                 if not user.is_connected and not always_reconnect:
                     log.debug("Not reconnecting %s: not connected", user.mxid)
+                    continue
+                if user.is_connected and user.connection_time >= must_be_connected_before:
+                    log.debug("No reconnecting %s: connected too recently", user.mxid)
                     continue
                 log.debug("Executing periodic reconnect for %s", user.mxid)
                 try:

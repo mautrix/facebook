@@ -101,6 +101,7 @@ class Config(BaseBridgeConfig):
             copy("bridge.periodic_reconnect.interval")
             copy("bridge.periodic_reconnect.mode")
             copy("bridge.periodic_reconnect.always")
+            copy("bridge.periodic_reconnect.min_connected_time")
         copy("bridge.resync_max_disconnected_time")
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")

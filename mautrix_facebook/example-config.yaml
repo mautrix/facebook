@@ -219,6 +219,8 @@ bridge:
         mode: refresh
         # Should even disconnected users be reconnected?
         always: false
+        # Only reconnect if the user has been connected for longer than this value
+        min_connected_time: 0
     # The number of seconds that a disconnection can last without triggering an automatic re-sync
     # and missed message backfilling when reconnecting.
     # Set to 0 to always re-sync, or -1 to never re-sync automatically.
