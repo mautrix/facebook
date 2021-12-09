@@ -353,7 +353,7 @@ class StoryMediaAttachment(SerializableAttrs):
 @dataclass
 class StoryAttachment(SerializableAttrs):
     title: str
-    url: str
+    url: Optional[str] = None
     # TODO enum? share, message_location, attached_story, photo, games_app, messenger_native_templates, unavailable, fallback
     style_list: List[str] = attr.ib(factory=lambda: [])
     title_with_entities: Optional[ExtensibleText] = None

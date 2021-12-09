@@ -356,7 +356,7 @@ class RemoveMember(ThriftObject):
 @dataclass(kw_only=True)
 class UnknownReceipt1(ThriftObject):
     thread: ThreadKey
-    user_id: int = field(TType.I64)
+    user_id: Optional[int] = field(TType.I64, default=None)
     # indices 3-5: ???
     message_id_list: List[str] = field(index=6)
     timestamp: int = field(TType.I64)
