@@ -105,7 +105,12 @@ class Config(BaseBridgeConfig):
         copy("bridge.resync_max_disconnected_time")
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")
-        copy("bridge.refresh_on_reconnection_fail")
+        if "bridge.refresh_on_reconnection_fail" in self:
+            base["bridge.on_reconnection_fail.refresh"] = self["bridge.refresh_on_reconnection_fail"]
+            base["bridge.on_reconnection_fail.wait_for"] = 0
+        else:
+            copy("bridge.on_reconnection_fail.refresh")
+            copy("bridge.on_reconnection_fail.wait_for")
         copy("bridge.resend_bridge_info")
         copy("bridge.mute_bridging")
         copy("bridge.tag_only_on_create")
@@ -113,9 +118,10 @@ class Config(BaseBridgeConfig):
 
         copy_dict("bridge.permissions")
 
-        reconnect_interval = base.get("bridge.periodic_reconnect.interval", None)
-        if isinstance(reconnect_interval, list) and len(reconnect_interval) != 2:
-            raise ValueError("bridge.periodic_reconnect.interval must only be a list of two items")
+        for key in ("bridge.periodic_reconnect.interval", "bridge.on_reconnection_fail.wait_for"):
+            value = base.get(key, None)
+            if isinstance(value, list) and len(value) != 2:
+                raise ValueError(f"{key} must only be a list of two items")
 
     def _get_permissions(self, key: str) -> Tuple[bool, bool, str]:
         level = self["bridge.permissions"].get(key, "")

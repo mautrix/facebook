@@ -16,7 +16,6 @@
 from typing import Optional, Dict, Any
 import asyncio
 import logging
-import random
 
 from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
@@ -29,6 +28,7 @@ from .puppet import Puppet
 from .matrix import MatrixHandler
 from .version import version, linkified_version
 from .web import PublicBridgeWebsite
+from .util.interval import get_interval
 
 
 class MessengerBridge(Bridge):
@@ -103,9 +103,7 @@ class MessengerBridge(Bridge):
     async def _periodic_reconnect_loop(self) -> None:
         log = logging.getLogger("mau.periodic_reconnect")
         always_reconnect = self.config["bridge.periodic_reconnect.always"]
-        interval = self.config["bridge.periodic_reconnect.interval"]
-        if isinstance(interval, list):
-            interval = random.randint(*interval)
+        interval = get_interval(self.config["bridge.periodic_reconnect.interval"])
         if interval <= 0:
             log.debug("Periodic reconnection is not enabled")
             return
