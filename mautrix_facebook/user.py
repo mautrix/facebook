@@ -158,6 +158,10 @@ class User(DBUser, BaseUser):
             self._is_connected = val
             self._connection_time = time.monotonic()
 
+    @property
+    def connection_time(self) -> float:
+        return self._connection_time
+
     # region Database getters
 
     def _add_to_cache(self) -> None:
