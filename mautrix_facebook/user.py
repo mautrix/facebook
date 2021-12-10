@@ -39,6 +39,7 @@ from .config import Config
 from .commands import enter_2fa_code
 from .db import User as DBUser, UserPortal, UserContact
 from . import portal as po, puppet as pu
+from .util.interval import get_interval
 
 METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
 METRIC_RESYNC = Summary('bridge_on_resync', 'calls to on_resync')
@@ -627,7 +628,7 @@ class User(DBUser, BaseUser):
                                               error_code="fb-disconnected")
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
-            refresh = self.config["bridge.refresh_on_reconnection_fail"]
+            refresh = self.config["bridge.on_reconnection_fail.refresh"]
             next_action = ("Refreshing session..." if refresh else "Not retrying!")
             event = ("Disconnected from" if isinstance(e, MQTTNotLoggedIn)
                      else "Failed to connect to")
@@ -640,6 +641,10 @@ class User(DBUser, BaseUser):
             elif self.temp_disconnect_notices:
                 await self.send_bridge_notice(message)
             if refresh:
+                wait_for = self.config["bridge.on_reconnection_fail.wait_for"]
+                if wait_for:
+                    await asyncio.sleep(get_interval(wait_for))
+                # Ensure a minimum of 120s between reconnection attempts, even if wait is disabled
                 await asyncio.sleep(self._prev_reconnect_fail_refresh + 120 - time.monotonic())
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 asyncio.create_task(self.refresh())

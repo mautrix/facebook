@@ -229,9 +229,13 @@ bridge:
     temporary_disconnect_notices: true
     # Disable bridge notices entirely
     disable_bridge_notices: false
-    # Whether or not the bridge should try to "refresh" the connection if a normal reconnection
-    # attempt fails.
-    refresh_on_reconnection_fail: false
+    on_reconnection_fail:
+        # Whether or not the bridge should try to "refresh" the connection if a normal reconnection
+        # attempt fails.
+        refresh: false
+        # Seconds to wait before attempting to refresh the connection, set a list of two items to
+        # to randomize the interval (min, max).
+        wait_for: 0
     # Set this to true to tell the bridge to re-send m.bridge events to all rooms on the next run.
     # This field will automatically be changed back to false after it,
     # except if the config file is not writable.
