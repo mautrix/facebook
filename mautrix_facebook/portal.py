@@ -30,7 +30,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            ImageInfo, MessageType, LocationMessageEventContent, FileInfo,
                            AudioInfo, Format, RelationType, TextMessageEventContent,
                            MediaMessageEventContent, Membership, EncryptedFile, VideoInfo,
-                           MemberStateEventContent)
+                           MemberStateEventContent, UserID)
 from mautrix.appservice import IntentAPI
 from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
@@ -95,10 +95,10 @@ class Portal(DBPortal, BasePortal):
     def __init__(self, fbid: int, fb_receiver: int, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, name: Optional[str] = None,
                  photo_id: Optional[str] = None, avatar_url: Optional[ContentURI] = None,
-                 encrypted: bool = False, name_set: bool = False, avatar_set: bool = False
-                 ) -> None:
+                 encrypted: bool = False, name_set: bool = False, avatar_set: bool = False,
+                 relay_user_id: Optional[UserID] = None) -> None:
         super().__init__(fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
-                         name_set, avatar_set)
+                         name_set, avatar_set, relay_user_id)
         self.log = self.log.getChild(self.fbid_log)
 
         self._main_intent = None
@@ -111,6 +111,8 @@ class Portal(DBPortal, BasePortal):
         self.backfill_lock = SimpleLock("Waiting for backfilling to finish before handling %s",
                                         log=self.log)
         self._backfill_leave = None
+
+        self._relay_user = None
 
     @classmethod
     def init_cls(cls, bridge: 'MessengerBridge') -> None:
@@ -588,14 +590,19 @@ class Portal(DBPortal, BasePortal):
         else:
             await self._send_delivery_receipt(event_id)
 
-    async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
+    async def _handle_matrix_message(self, orig_sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
-        if not sender.mqtt:
-            raise Exception("Not connected to MQTT")
+        sender, is_relay = await self.get_relay_sender(orig_sender, f"message {event_id}")
+        if not sender:
+            raise Exception("not logged in")
+        elif not sender.mqtt:
+            raise Exception("not connected to MQTT")
+        elif is_relay:
+            await self.apply_relay_message_format(orig_sender, message)
         if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
             await self._handle_matrix_text(event_id, sender, message)
         elif message.msgtype.is_media:
-            await self._handle_matrix_media(event_id, sender, message)
+            await self._handle_matrix_media(event_id, sender, message, is_relay)
         # elif message.msgtype == MessageType.LOCATION:
         #     await self._handle_matrix_location(sender, message)
         else:
@@ -632,7 +639,7 @@ class Portal(DBPortal, BasePortal):
             )
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
-                                   message: MediaMessageEventContent) -> None:
+                                   message: MediaMessageEventContent, is_relay: bool) -> None:
         if message.file and decrypt_attachment:
             data = await self.main_intent.download_media(message.file.url)
             data = decrypt_attachment(data, message.file.key.key,
@@ -651,8 +658,12 @@ class Portal(DBPortal, BasePortal):
             else:
                 self.log.warning(f"Couldn't find reply target {message.relates_to.event_id}"
                                  " to bridge media message reply metadata to Facebook")
+        if is_relay:
+            caption = (await matrix_to_facebook(message, self.mxid, self.log)).text
+        else:
+            caption = None
         # await sender.mqtt.opened_thread(self.fbid)
-        resp = await sender.client.send_media(data, message.body, mime,
+        resp = await sender.client.send_media(data, message.body, mime, caption=caption,
                                               offline_threading_id=dbm.fb_txn_id,
                                               reply_to=reply_to, chat_id=self.fbid,
                                               is_group=self.fb_type != ThreadType.USER)
@@ -689,6 +700,9 @@ class Portal(DBPortal, BasePortal):
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
                                       redaction_event_id: EventID) -> None:
+        sender, _ = await self.get_relay_sender(sender, f"redaction {event_id}")
+        if not sender:
+            raise Exception("not logged in")
         message = await DBMessage.get_by_mxid(event_id, self.mxid)
         if message:
             try:
@@ -747,6 +761,9 @@ class Portal(DBPortal, BasePortal):
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
                                      reacting_to: EventID, reaction: str) -> None:
+        sender, is_relay = await self.get_relay_sender(sender, f"reaction {event_id}")
+        if not sender or is_relay:
+            return
         # Facebook doesn't use variation selectors, Matrix does
         reaction = reaction.rstrip("\ufe0f")
 

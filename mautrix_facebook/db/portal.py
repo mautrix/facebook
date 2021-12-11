@@ -19,7 +19,7 @@ from enum import Enum
 from asyncpg import Record
 from attr import dataclass
 
-from mautrix.types import RoomID, ContentURI
+from mautrix.types import RoomID, ContentURI, UserID
 from mautrix.util.async_db import Database
 from maufbapi.types.mqtt import ThreadKey as MQTTThreadKey
 from maufbapi.types.graphql import ThreadKey as GraphQLThreadKey
@@ -57,6 +57,7 @@ class Portal:
     encrypted: bool
     name_set: bool
     avatar_set: bool
+    relay_user_id: Optional[UserID]
 
     @classmethod
     def _from_row(cls, row: Optional[Record]) -> Optional['Portal']:
@@ -69,7 +70,7 @@ class Portal:
     @classmethod
     async def get_by_fbid(cls, fbid: int, fb_receiver: int) -> Optional['Portal']:
         q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted, "
-             "       name_set, avatar_set "
+             "       name_set, avatar_set, relay_user_id "
              "FROM portal WHERE fbid=$1 AND fb_receiver=$2")
         row = await cls.db.fetchrow(q, fbid, fb_receiver)
         return cls._from_row(row)
@@ -77,7 +78,7 @@ class Portal:
     @classmethod
     async def get_by_mxid(cls, mxid: RoomID) -> Optional['Portal']:
         q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted, "
-             "       name_set, avatar_set "
+             "       name_set, avatar_set, relay_user_id "
              "FROM portal WHERE mxid=$1")
         row = await cls.db.fetchrow(q, mxid)
         return cls._from_row(row)
@@ -85,7 +86,7 @@ class Portal:
     @classmethod
     async def get_all_by_receiver(cls, fb_receiver: int) -> List['Portal']:
         q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted, "
-             "       name_set, avatar_set "
+             "       name_set, avatar_set, relay_user_id "
              "FROM portal WHERE fb_receiver=$1 AND fb_type='USER'")
         rows = await cls.db.fetch(q, fb_receiver)
         return [cls._from_row(row) for row in rows]
@@ -93,18 +94,18 @@ class Portal:
     @classmethod
     async def all(cls) -> List['Portal']:
         q = ("SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted, "
-             "       name_set, avatar_set "
+             "       name_set, avatar_set, relay_user_id "
              "FROM portal")
         rows = await cls.db.fetch(q)
         return [cls._from_row(row) for row in rows]
 
     async def insert(self) -> None:
         q = ("INSERT INTO portal (fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, "
-             "                    encrypted, name_set, avatar_set) "
-             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)")
+             "                    encrypted, name_set, avatar_set, relay_user_id) "
+             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)")
         await self.db.execute(q, self.fbid, self.fb_receiver, self.fb_type.name, self.mxid,
                               self.name, self.photo_id, self.avatar_url, self.encrypted,
-                              self.name_set, self.avatar_set)
+                              self.name_set, self.avatar_set, self.relay_user_id)
 
     async def delete(self) -> None:
         q = "DELETE FROM portal WHERE fbid=$1 AND fb_receiver=$2"
@@ -112,7 +113,9 @@ class Portal:
 
     async def save(self) -> None:
         await self.db.execute("UPDATE portal SET mxid=$1, name=$2, photo_id=$3, avatar_url=$4,"
-                              "                  encrypted=$5, name_set=$6, avatar_set=$7 "
-                              "WHERE fbid=$8 AND fb_receiver=$9",
+                              "                  encrypted=$5, name_set=$6, avatar_set=$7,"
+                              "                  relay_user_id=$8 "
+                              "WHERE fbid=$9 AND fb_receiver=$10",
                               self.mxid, self.name, self.photo_id, self.avatar_url, self.encrypted,
-                              self.name_set, self.avatar_set, self.fbid, self.fb_receiver)
+                              self.name_set, self.avatar_set, self.relay_user_id, self.fbid,
+                              self.fb_receiver)

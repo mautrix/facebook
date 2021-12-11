@@ -13,8 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Union
+from typing import Optional
 import hashlib
+import base64
 import time
 import json
 
@@ -26,7 +27,8 @@ class UploadAPI(BaseAndroidAPI):
     async def send_media(self, data: bytes, file_name: str, mimetype: str,
                          offline_threading_id: int, chat_id: Optional[int] = None,
                          is_group: Optional[bool] = None, timestamp: Optional[int] = None,
-                         reply_to: Optional[str] = None) -> UploadResponse:
+                         reply_to: Optional[str] = None, caption: Optional[str] = None
+                         ) -> UploadResponse:
         headers = {
             **self._headers,
             "app_id": self.state.application.client_id,
@@ -52,6 +54,8 @@ class UploadAPI(BaseAndroidAPI):
             headers["ttl"] = "0"
             if reply_to:
                 headers["replied_to_message_id"] = reply_to
+            if caption:
+                headers["caption"] = base64.b64encode(caption.encode("utf-8")).decode("ascii")
         else:
             headers["send_message_by_server"] = "0"
             headers["thread_type_hint"] = "thread"

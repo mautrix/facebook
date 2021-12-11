@@ -120,7 +120,7 @@ class User(DBUser, BaseUser):
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
         self.command_status = None
-        (self.is_whitelisted, self.is_admin,
+        (self.relay_whitelisted, self.is_whitelisted, self.is_admin,
          self.permission_level) = self.config.get_permissions(mxid)
         self._is_logged_in = None
         self._is_connected = None
