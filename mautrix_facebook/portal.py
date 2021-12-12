@@ -197,8 +197,7 @@ class Portal(DBPortal, BasePortal):
         changed = False
         if not self.is_direct:
             changed = any(await asyncio.gather(self._update_name(info.name),
-                                               self._update_photo(source, info.image),
-                                               loop=self.loop))
+                                               self._update_photo(source, info.image)))
         changed = await self._update_participants(source, info) or changed
         if changed:
             await self.update_bridge_info()
@@ -828,7 +827,7 @@ class Portal(DBPortal, BasePortal):
         # stopped_typing = [self.thread_for(user).stop_typing() for user in self._typing - users]
         # started_typing = [self.thread_for(user).start_typing() for user in users - self._typing]
         # self._typing = users
-        # await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
+        # await asyncio.gather(*stopped_typing, *started_typing)
 
     async def enable_dm_encryption(self) -> bool:
         ok = await super().enable_dm_encryption()

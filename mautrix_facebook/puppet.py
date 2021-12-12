@@ -78,7 +78,7 @@ class Puppet(DBPuppet, BasePuppet):
         # Make the user join all private chat portals.
         await asyncio.gather(*[self.intent.ensure_joined(portal.mxid)
                                async for portal in p.Portal.get_all_by_receiver(self.fbid)
-                               if portal.mxid], loop=self.loop)
+                               if portal.mxid])
 
     def intent_for(self, portal: 'p.Portal') -> IntentAPI:
         if portal.fbid == self.fbid or (portal.backfill_lock.locked
