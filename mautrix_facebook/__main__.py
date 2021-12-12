@@ -16,6 +16,7 @@
 from typing import Optional, Dict, Any
 import asyncio
 import logging
+import time
 
 from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
