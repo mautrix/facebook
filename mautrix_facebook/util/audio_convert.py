@@ -33,7 +33,7 @@ async def convert_audio(data: bytes, mime: str) -> Optional[bytes]:
     default_ext = mimetypes.guess_extension(mime)
     with tempfile.TemporaryDirectory(prefix="mxfb_audio_") as tmpdir:
         input_file_name = os.path.join(tmpdir, f"input{default_ext}")
-        output_file_name = os.path.join(tmpdir, f"output.mp4")
+        output_file_name = os.path.join(tmpdir, f"output.m4a")
         with open(input_file_name, "wb") as file:
             file.write(data)
         proc = await asyncio.create_subprocess_exec("ffmpeg",

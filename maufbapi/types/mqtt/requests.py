@@ -51,11 +51,12 @@ class SendMessageRequest(ThriftObject):
     extra_metadata: Dict[str, str] = field(index=20, default=None)
     unknown_int64: int = field(TType.I64, index=21, default=0)
     # index 22: ???
-    unknown_bool: bool = field(TType.BOOL, index=23, default=False)
+    unknown_bool: bool = field(TType.BOOL, index=23, default=True)
     # this is weird int64 that looks like offline_threading_id, but isn't quite the same
     tid2: int = field(TType.I64, index=24)
     # indices 25-27: ???
     reply_to: str = field(index=28)
+    # index 33: possibly audio clip id (int64)
 
 
 @autospec

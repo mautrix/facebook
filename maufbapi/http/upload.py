@@ -31,6 +31,7 @@ class UploadAPI(BaseAndroidAPI):
                          duration: Optional[int] = None) -> UploadResponse:
         headers = {
             **self._headers,
+            "accept-encoding": "x-fb-dz;d=1, gzip, deflate",
             "app_id": self.state.application.client_id,
             "device_id": self.state.device.uuid,
             "attempt_id": str(offline_threading_id),

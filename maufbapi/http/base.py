@@ -19,6 +19,7 @@ from urllib.parse import quote
 import urllib.request
 import hashlib
 import logging
+import pkgutil
 import base64
 import random
 import json
@@ -29,6 +30,7 @@ from aiohttp import ClientSession, ClientResponse
 from aiohttp.client import _RequestContextManager
 from mautrix.util.logging import TraceLogger
 from yarl import URL
+import zstandard as zstd
 
 from ..state import AndroidState
 from ..types import GraphQLQuery, GraphQLMutation
@@ -47,6 +49,10 @@ T = TypeVar('T')
 async def sandboxed_get(url: URL) -> _RequestContextManager:
     async with ClientSession() as sess, sess.get(url) as resp:
         yield resp
+
+
+zstd_dict = zstd.ZstdCompressionDict(data=pkgutil.get_data("maufbapi.http", "zstd-dict.dat"))
+zstd_decomp = zstd.ZstdDecompressor(zstd_dict)
 
 
 class BaseAndroidAPI:
@@ -168,6 +174,8 @@ class BaseAndroidAPI:
             **(headers or {}),
             "content-type": "application/x-www-form-urlencoded",
             "x-fb-friendly-name": req.__class__.__name__,
+            "x-fb-request-analytics-tags": "graphservice",
+            "accept-encoding": "x-fb-dz;d=1, gzip, deflate",
         }
         variables = req.serialize()
         if isinstance(req, GraphQLMutation):
@@ -179,14 +187,17 @@ class BaseAndroidAPI:
             "doc_id": req.doc_id,
             "format": "json",
             "pretty": "false",
-            "query_name": req.__class__.__name__,
+            # "query_name": req.__class__.__name__,
             "strip_defaults": "false",
             "strip_nulls": "false",
             "fb_api_req_friendly_name": req.__class__.__name__,
             "fb_api_caller_class": req.caller_class,
+            "fb_api_analytics_tags": ["GraphServices"],
+            "server_timestamps": "true",
         }
         resp = await self.http.post(url=(self.b_graph_url if b else self.graph_url) / "graphql",
                                     data=params, headers=headers)
+        await self._decompress_zstd(resp)
         self.log.trace(f"GraphQL {req} response: {await resp.text()}")
         if response_type is None:
             self._handle_response_headers(resp)
@@ -199,7 +210,20 @@ class BaseAndroidAPI:
             return response_type.deserialize(json_data)
         return json_data
 
+    async def _decompress_zstd(self, resp: ClientResponse) -> None:
+        if (
+            resp.headers.get("content-encoding") == "x-fb-dz"
+            and resp.headers.get("x-fb-dz-dict") == "1"
+            and not getattr(resp, "_zstd_decompressed", None)
+        ):
+            compressed = await resp.read()
+            resp._body = zstd_decomp.decompress(compressed)
+            self.log.trace(f"Decompressed {len(compressed)} bytes of zstd "
+                           f"into {len(resp._body)} bytes of (hopefully) JSON")
+            setattr(resp, "_zstd_decompressed", True)
+
     async def _handle_response(self, resp: ClientResponse) -> JSON:
+        await self._decompress_zstd(resp)
         self._handle_response_headers(resp)
         body = await resp.json()
         error = body.get("error", None)

@@ -26,14 +26,21 @@ from mautrix.types import SerializableAttrs
 @dataclass
 class AndroidApplication(SerializableAttrs):
     name: str = "Orca-Android"
-    version: str = "294.0.0.24.129"
+    version: str = "341.0.0.6.237"
     id: str = "com.facebook.orca"
     locale: str = "en_US"
-    build: int = 263695262
-    version_id: int = 3402226163209239
+    build: int = 336996394
+    version_id: int = 4768178896567799
 
     client_id = "256002347743983"
     client_secret = "374e60f8b9bb6b8cbb30f78030438895"
+
+    @classmethod
+    def deserialize(cls, data) -> 'AndroidApplication':
+        data.pop("build")
+        data.pop("version_id")
+        data.pop("version")
+        return super().deserialize(data)
 
     @property
     def access_token(self) -> str:
@@ -45,10 +52,10 @@ class AndroidDevice(SerializableAttrs):
     manufacturer: str = "Google"
     builder: str = "google"
     name: str = "Pixel 3"
-    software: str = "10"
+    software: str = "11"
     architecture: str = "arm64-v8a:null"
     dimensions: str = "{density=2.75,width=1080,height=2028}"
-    user_agent: str = "Dalvik/2.1.0 (Linux; U; Android 10; Pixel 3 Build/QQ3A.200605.001)"
+    user_agent: str = "Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ3A.211001.001)"
 
     connection_type: str = "WIFI"
     connection_quality: str = "EXCELLENT"
@@ -59,6 +66,12 @@ class AndroidDevice(SerializableAttrs):
     adid: Optional[str] = None
 
     device_group: Optional[str] = None  # 7761
+
+    @classmethod
+    def deserialize(cls, data) -> 'AndroidDevice':
+        data.pop("software")
+        data.pop("user_agent")
+        return super().deserialize(data)
 
 
 @dataclass

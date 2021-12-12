@@ -670,7 +670,7 @@ class Portal(DBPortal, BasePortal):
                 if not data:
                     raise Exception("Failed to convert audio file to mpeg")
                 mime = "audio/mpeg"
-                filename = "audio.mp3"
+                filename = "audio.m4a"
             duration = message.info.duration
         else:
             duration = None
