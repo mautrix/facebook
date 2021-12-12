@@ -606,7 +606,7 @@ class Portal(DBPortal, BasePortal):
         # elif message.msgtype == MessageType.LOCATION:
         #     await self._handle_matrix_location(sender, message)
         else:
-            raise ValueError(f"Unsupported msgtype {message.msgtype} in {event_id}")
+            raise ValueError(f"unsupported msgtype {message.msgtype}")
 
     async def _make_dbm(self, sender: 'u.User', event_id: EventID) -> DBMessage:
         oti = sender.mqtt.generate_offline_threading_id()
