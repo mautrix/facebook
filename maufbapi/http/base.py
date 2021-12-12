@@ -128,11 +128,13 @@ class BaseAndroidAPI:
             "x-tigon-is-retry": "False",
             "x-fb-http-engine": "Liger",
             "x-fb-client-ip": "True",
+            "x-fb-server-cluster": "True",
             "x-fb-connection-token": self.cid,
             "x-fb-session-id": self.session_id,
             "x-fb-device-group": self.state.device.device_group,
             "x-fb-sim-hni": str(self.state.carrier.hni),
             "x-fb-net-hni": str(self.state.carrier.hni),
+            "x-fb-rmd": "cached=0;state=NO_MATCH",
             # "x-fb-background-state": "1",
             "authorization": f"OAuth {self.state.session.access_token or 'null'}",
         }

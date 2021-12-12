@@ -41,6 +41,7 @@ from maufbapi.types import mqtt, graphql
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
+from .util import convert_audio
 from .db import (Portal as DBPortal, Message as DBMessage, Reaction as DBReaction,
                  UserPortal as UserPortal, ThreadType)
 from . import puppet as p, user as u
@@ -658,15 +659,27 @@ class Portal(DBPortal, BasePortal):
             else:
                 self.log.warning(f"Couldn't find reply target {message.relates_to.event_id}"
                                  " to bridge media message reply metadata to Facebook")
+        filename = message.body
         if is_relay:
             caption = (await matrix_to_facebook(message, self.mxid, self.log)).text
         else:
             caption = None
+        if message.msgtype == MessageType.AUDIO:
+            if not mime.startswith("audio/mp"):
+                data = await convert_audio(data, mime)
+                if not data:
+                    raise Exception("Failed to convert audio file to mpeg")
+                mime = "audio/mpeg"
+                filename = "audio.mp3"
+            duration = message.info.duration
+        else:
+            duration = None
         # await sender.mqtt.opened_thread(self.fbid)
-        resp = await sender.client.send_media(data, message.body, mime, caption=caption,
+        resp = await sender.client.send_media(data, filename, mime, caption=caption,
                                               offline_threading_id=dbm.fb_txn_id,
                                               reply_to=reply_to, chat_id=self.fbid,
-                                              is_group=self.fb_type != ThreadType.USER)
+                                              is_group=self.fb_type != ThreadType.USER,
+                                              duration=duration)
         if not resp.media_id and resp.debug_info:
             self.log.debug(f"Error uploading media for Matrix message {event_id}: "
                            f"{resp.debug_info.message}")
