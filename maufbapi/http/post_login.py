@@ -102,7 +102,7 @@ class PostLoginAPI(BaseAndroidAPI):
                 "name": "fetchFacebookEmployeeStatus",
                 "omit_response_on_success": False,
                 "relative_url": "graphql",
-            }
+            },
         ]
 
     @property
@@ -117,8 +117,8 @@ class PostLoginAPI(BaseAndroidAPI):
             "dialtone_enabled": "false",
             "needs_backup_rules": "true",
             "request_reason": "login",
-            "locale": "en_US",
-            "client_country_code": "US",
+            "locale": self.state.device.language,
+            "client_country_code": self.state.device.country_code,
             "fb_api_req_friendly_name": "fetchZeroToken",
         }
         return [
@@ -127,14 +127,14 @@ class PostLoginAPI(BaseAndroidAPI):
                 "body": urlencode(fetch_zero_token_params),
                 "name": "fetchZeroToken",
                 "omit_response_on_success": False,
-                "relative_url": "mobile_zero_campaign"
+                "relative_url": "mobile_zero_campaign",
             },
             {
                 "method": "POST",
                 "body": urlencode({**fetch_zero_token_params, "dialtone_enabled": "true"}),
                 "name": "fetchZeroTokenForDialtone",
                 "omit_response_on_success": False,
-                "relative_url": "mobile_zero_campaign"
+                "relative_url": "mobile_zero_campaign",
             },
             self._resync_params[0],
             {
@@ -156,7 +156,8 @@ class PostLoginAPI(BaseAndroidAPI):
                         "device_id": self.state.device.uuid,
                         "nt_context": NTContext().serialize(),
                         "avatar_nux_image_width": 1080,
-                        "is_from_internal_tool": False, "scale": "3"
+                        "is_from_internal_tool": False,
+                        "scale": "3",
                     }, separators=(",", ":")),
                     "method": "post",
                     "doc_id": "4618754314834440",
@@ -169,7 +170,7 @@ class PostLoginAPI(BaseAndroidAPI):
                 }),
                 "name": "fetch_interstititals_graphql",
                 "omit_response_on_success": False,
-                "relative_url": "graphql"
+                "relative_url": "graphql",
             },
             {
                 "method": "POST",
@@ -183,6 +184,6 @@ class PostLoginAPI(BaseAndroidAPI):
                 }),
                 "name": "gk",
                 "omit_response_on_success": False,
-                "relative_url": "mobile_gatekeepers"
-            }
+                "relative_url": "mobile_gatekeepers",
+            },
         ]
