@@ -19,7 +19,7 @@ from yarl import URL
 from attr import dataclass
 import attr
 
-from mautrix.types import ExtensibleEnum, SerializableAttrs, JSON, Obj, deserializer
+from mautrix.types import ExtensibleEnum, SerializableAttrs, JSON, Obj, deserializer, field
 from ..common import ThreadFolder, MessageUnsendability
 
 
@@ -75,8 +75,8 @@ class StructuredNameChunk(SerializableAttrs):
 @dataclass
 class StructuredName(SerializableAttrs):
     parts: List[StructuredNameChunk]
-    phonetic_name: Optional[str]
     text: str
+    phonetic_name: Optional[str] = None
 
     def to_dict(self) -> Dict[str, str]:
         return {
@@ -597,6 +597,19 @@ class OwnInfo(SerializableAttrs):
     verified: bool = False
     timezone: int = 0
     updated_time: Optional[str] = None
+
+
+@dataclass(kw_only=True)
+class LoggedInUser(MinimalParticipant, SerializableAttrs):
+    username: Optional[str] = None
+    structured_name: Optional[StructuredName] = None
+    primary_email: Optional[str] = None
+    registration_time: Optional[int] = None
+    is_verified: bool = False
+
+    profile_pic_small: Optional[Picture] = field(default=None, json="squareProfilePicSmall")
+    profile_pic_big: Optional[Picture] = field(default=None, json="squareProfilePicBig")
+    profile_pic_huge: Optional[Picture] = field(default=None, json="squareProfilePicHuge")
 
 
 @dataclass

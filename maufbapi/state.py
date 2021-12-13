@@ -79,6 +79,14 @@ class AndroidCarrier(SerializableAttrs):
     name: str = "Verizon"
     hni: int = 311390
 
+    @property
+    def mcc(self) -> str:
+        return str(self.hni)[:3]
+
+    @property
+    def mnc(self) -> str:
+        return str(self.hni)[3:]
+
 
 @dataclass
 class AndroidSession(SerializableAttrs):

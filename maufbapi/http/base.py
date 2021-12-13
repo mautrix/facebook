@@ -222,10 +222,13 @@ class BaseAndroidAPI:
                            f"into {len(resp._body)} bytes of (hopefully) JSON")
             setattr(resp, "_zstd_decompressed", True)
 
-    async def _handle_response(self, resp: ClientResponse) -> JSON:
+    async def _handle_response(self, resp: ClientResponse, batch_index: Optional[int] = None
+                               ) -> JSON:
         await self._decompress_zstd(resp)
         self._handle_response_headers(resp)
         body = await resp.json()
+        if isinstance(body, list) and batch_index is not None:
+            body = body[batch_index][1]
         error = body.get("error", None)
         if not error:
             return body

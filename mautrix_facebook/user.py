@@ -107,6 +107,8 @@ class User(DBUser, BaseUser):
     _db_instance: Optional[DBUser]
     _sync_lock: SimpleLock
     _is_refreshing: bool
+    _logged_in_info: Optional[graphql.LoggedInUser]
+    _logged_in_info_time: float
 
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
@@ -131,6 +133,8 @@ class User(DBUser, BaseUser):
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log)
         self._is_refreshing = False
+        self._logged_in_info = None
+        self._logged_in_info_time = 0
 
         self.log = self.log.getChild(self.mxid)
 
@@ -222,6 +226,12 @@ class User(DBUser, BaseUser):
 
     # endregion
 
+    async def get_own_info(self) -> graphql.LoggedInUser:
+        if not self._logged_in_info or self._logged_in_info_time + 60 * 60 < time.monotonic():
+            self._logged_in_info = await self.client.fetch_logged_in_user()
+            self._logged_in_info_time = time.monotonic()
+        return self._logged_in_info
+
     async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
@@ -231,7 +241,7 @@ class User(DBUser, BaseUser):
         client = AndroidAPI(self.state, log=self.log.getChild("api"))
         while True:
             try:
-                user_info = await client.get_self()
+                user_info = await client.fetch_logged_in_user()
                 break
             except (ProxyError, ProxyTimeoutError, ProxyConnectionError,
                     ClientConnectionError, ConnectionError) as e:
@@ -248,6 +258,8 @@ class User(DBUser, BaseUser):
         if user_info:
             self.log.info("Loaded session successfully")
             self.client = client
+            self._logged_in_info = user_info
+            self._logged_in_info_time = time.monotonic()
             self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
@@ -261,7 +273,7 @@ class User(DBUser, BaseUser):
             return False
         if self._is_logged_in is None or _override:
             try:
-                self._is_logged_in = bool(await self.client.get_self())
+                self._is_logged_in = bool(await self.get_own_info())
             except Exception:
                 self.log.exception("Exception checking login status")
                 self._is_logged_in = False
@@ -706,6 +718,11 @@ class User(DBUser, BaseUser):
         self.state = state
         self.client = AndroidAPI(state, log=self.log.getChild("api"))
         await self.save()
+        try:
+            self._logged_in_info = await self.client.fetch_logged_in_user(post_login=True)
+            self._logged_in_info_time = time.monotonic()
+        except Exception:
+            self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
         asyncio.create_task(self.post_login())
 

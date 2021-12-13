@@ -31,10 +31,11 @@ from ..types import (ThreadListResponse, ThreadListQuery, MessageList, MoreMessa
 from ..types.graphql import PageInfo, ThreadMessageID, OwnInfo, Thread
 from .base import BaseAndroidAPI
 from .login import LoginAPI
+from .post_login import PostLoginAPI
 from .upload import UploadAPI
 
 
-class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
+class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
     _file_url_cache: Dict[ThreadMessageID, FileAttachmentURLResponse]
 
     async def fetch_thread_list(self, **kwargs) -> ThreadListResponse:

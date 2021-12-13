@@ -129,7 +129,7 @@ class PublicBridgeWebsite:
         }
         if user.client:
             try:
-                info = await user.client.get_self()
+                info = await user.get_own_info()
             except Exception:
                 # TODO do something?
                 self.log.warning("Exception while getting self from status endpoint",

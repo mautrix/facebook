@@ -13,4 +13,4 @@ from .responses import (ParticipantID, ReadReceipt, ReadReceiptList, Picture, St
                         ExtensibleAttachment, StoryAttachment, SubsequentMediaNode, Coordinates,
                         SubsequentMediaResponse, FileAttachmentURLResponse, FileAttachmentWithURL,
                         StoryTarget, OwnInfo, SearchEntitiesResponse, SearchResults, SearchResult,
-                        ThreadQueryResponse)
+                        ThreadQueryResponse, LoggedInUser)
