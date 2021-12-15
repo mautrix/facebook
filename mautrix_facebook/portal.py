@@ -31,7 +31,7 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            AudioInfo, Format, RelationType, TextMessageEventContent,
                            MediaMessageEventContent, Membership, EncryptedFile, VideoInfo,
                            MemberStateEventContent, UserID)
-from mautrix.appservice import IntentAPI
+from mautrix.appservice import IntentAPI, DOUBLE_PUPPET_SOURCE_KEY
 from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
@@ -312,7 +312,7 @@ class Portal(DBPortal, BasePortal):
         content = MemberStateEventContent(membership=Membership.JOIN,
                                           avatar_url=puppet.photo_mxc,
                                           displayname=name or puppet.name)
-        content[self.bridge.real_user_content_key] = True
+        content[DOUBLE_PUPPET_SOURCE_KEY] = self.bridge.name
         current_state = await intent.state_store.get_member(self.mxid, intent.mxid)
         if not current_state or current_state.displayname != content.displayname:
             self.log.debug("Syncing %s's per-room nick %s to the room",
