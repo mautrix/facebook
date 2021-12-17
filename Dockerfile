@@ -21,8 +21,10 @@ RUN apk add --no-cache \
       py3-aiohttp-socks \
       py3-pysocks \
       # Other dependencies
+      ffmpeg \
       ca-certificates \
       su-exec \
+      netcat-openbsd \
       bash \
       curl \
       jq \
