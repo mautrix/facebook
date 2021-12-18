@@ -398,8 +398,8 @@ class User(DBUser, BaseUser):
             self.log.exception("Failed to automatically enable custom puppet")
 
         await self._create_community()
-        await self.sync_threads()
-        self.start_listen()
+        if await self.sync_threads():
+            self.start_listen()
 
     async def _create_community(self) -> None:
         template = self.config["bridge.community_template"]
@@ -450,15 +450,30 @@ class User(DBUser, BaseUser):
         }
 
     @async_time(METRIC_SYNC_THREADS)
-    async def sync_threads(self) -> None:
-        if self._prev_thread_sync + 10 > time.monotonic() and self.mqtt.seq_id is not None:
+    async def sync_threads(self) -> bool:
+        if (
+            self._prev_thread_sync + 10 > time.monotonic()
+            and self.mqtt and self.mqtt.seq_id is not None
+        ):
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
-            return
+            return True
         self._prev_thread_sync = time.monotonic()
         try:
             await self._sync_threads()
-        except Exception:
+            return True
+        except InvalidAccessToken as e:
+            await self.send_bridge_notice(
+                f"Got authentication error from Messenger:\n\n> {e!s}\n\n",
+                important=True,
+                state_event=BridgeStateEvent.BAD_CREDENTIALS,
+                error_code="fb-auth-error",
+                error_message=str(e)
+            )
+            await self.logout(remove_fbid=False)
+        except Exception as e:
             self.log.exception("Failed to sync threads")
+            await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
+        return False
 
     async def _sync_threads(self) -> None:
         sync_count = self.config["bridge.initial_chat_sync"]
