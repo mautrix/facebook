@@ -597,6 +597,8 @@ class Portal(DBPortal, BasePortal):
 
     async def _handle_matrix_message(self, orig_sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
+        if message.get_edit():
+            raise NotImplementedError("Edits are not supported by the Facebook bridge.")
         sender, is_relay = await self.get_relay_sender(orig_sender, f"message {event_id}")
         if not sender:
             raise Exception("not logged in")
