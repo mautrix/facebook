@@ -572,13 +572,19 @@ class Portal(DBPortal, BasePortal):
             msgtype=MessageType.NOTICE,
             body=f"\u26a0 Your message may not have been bridged: {msg}"))
 
+    def _status_from_exception(self, e: Exception) -> MessageSendCheckpointStatus:
+        if isinstance(e, NotImplementedError):
+            return MessageSendCheckpointStatus.UNSUPPORTED
+        return MessageSendCheckpointStatus.PERM_FAILURE
+
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
         try:
             await self._handle_matrix_message(sender, message, event_id)
         except Exception as e:
+            self.log.exception(f"Failed to handle Matrix event {event_id}: {e}")
             sender.send_remote_checkpoint(
-                MessageSendCheckpointStatus.PERM_FAILURE,
+                self._status_from_exception(e),
                 event_id,
                 self.mxid,
                 EventType.ROOM_MESSAGE,
@@ -586,7 +592,6 @@ class Portal(DBPortal, BasePortal):
                 error=e,
             )
             await self._send_bridge_error(str(e))
-            self.log.exception("Failed to handle Matrix message")
         else:
             await self._send_delivery_receipt(event_id)
 
@@ -606,7 +611,7 @@ class Portal(DBPortal, BasePortal):
         # elif message.msgtype == MessageType.LOCATION:
         #     await self._handle_matrix_location(sender, message)
         else:
-            raise ValueError(f"unsupported msgtype {message.msgtype}")
+            raise NotImplementedError(f"Unsupported message type {message.msgtype}")
 
     async def _make_dbm(self, sender: 'u.User', event_id: EventID) -> DBMessage:
         oti = sender.mqtt.generate_offline_threading_id()
@@ -647,7 +652,7 @@ class Portal(DBPortal, BasePortal):
         elif message.url:
             data = await self.main_intent.download_media(message.url)
         else:
-            return None
+            raise NotImplementedError("No file or URL specified")
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
         dbm = await self._make_dbm(sender, event_id)
         reply_to = None
@@ -712,6 +717,24 @@ class Portal(DBPortal, BasePortal):
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
                                       redaction_event_id: EventID) -> None:
+        try:
+            await self._handle_matrix_redaction(sender, event_id, redaction_event_id)
+        except Exception as e:
+            self.log.exception(f"Failed to handle Matrix event {event_id}: {e}")
+            sender.send_remote_checkpoint(
+                self._status_from_exception(e),
+                event_id,
+                self.mxid,
+                EventType.ROOM_REDACTION,
+                message.msgtype,
+                error=e,
+            )
+            await self._send_bridge_error(str(e))
+        else:
+            await self._send_delivery_receipt(event_id)
+
+    async def _handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
+                                       redaction_event_id: EventID) -> None:
         sender, _ = await self.get_relay_sender(sender, f"redaction {event_id}")
         if not sender:
             raise Exception("not logged in")
@@ -721,14 +744,8 @@ class Portal(DBPortal, BasePortal):
                 await message.delete()
                 await sender.client.unsend(message.fbid)
             except Exception as e:
-                self.log.exception("Unsend failed")
-                sender.send_remote_checkpoint(
-                    MessageSendCheckpointStatus.PERM_FAILURE,
-                    redaction_event_id,
-                    self.mxid,
-                    EventType.ROOM_REDACTION,
-                    error=e,
-                )
+                self.log.exception(f"Unsend failed: {e}")
+                raise
             else:
                 sender.send_remote_checkpoint(
                     MessageSendCheckpointStatus.SUCCESS,
@@ -745,14 +762,8 @@ class Portal(DBPortal, BasePortal):
                 await reaction.delete()
                 await sender.client.react(reaction.fb_msgid, None)
             except Exception as e:
-                self.log.exception("Removing reaction failed")
-                sender.send_remote_checkpoint(
-                    MessageSendCheckpointStatus.PERM_FAILURE,
-                    redaction_event_id,
-                    self.mxid,
-                    EventType.ROOM_REDACTION,
-                    error=e,
-                )
+                self.log.exception(f"Removing reaction failed: {e}")
+                raise
             else:
                 sender.send_remote_checkpoint(
                     MessageSendCheckpointStatus.SUCCESS,
@@ -763,13 +774,7 @@ class Portal(DBPortal, BasePortal):
                 await self._send_delivery_receipt(redaction_event_id)
             return
 
-        sender.send_remote_checkpoint(
-            MessageSendCheckpointStatus.PERM_FAILURE,
-            redaction_event_id,
-            self.mxid,
-            EventType.ROOM_REDACTION,
-            error=f"No message or reaction found for redaction",
-        )
+        raise NotImplementedError("Only message and reaction redactions are supported")
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
                                      reacting_to: EventID, reaction: str) -> None:
@@ -787,6 +792,12 @@ class Portal(DBPortal, BasePortal):
 
             existing = await DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.fbid)
             if existing and existing.reaction == reaction:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    event_id,
+                    self.mxid,
+                    EventType.REACTION,
+                )
                 return
 
             try:
