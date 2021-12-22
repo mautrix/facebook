@@ -69,9 +69,8 @@ class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownStrin
 class MatrixParser(BaseMatrixParser[FacebookFormatString]):
     fs = FacebookFormatString
 
-    @classmethod
-    def parse(cls, data: str) -> FacebookFormatString:
-        return cast(FacebookFormatString, super().parse(data))
+    async def parse(self, data: str) -> FacebookFormatString:
+        return cast(FacebookFormatString, await super().parse(data))
 
 
 async def matrix_to_facebook(content: MessageEventContent, room_id: RoomID, log: TraceLogger
@@ -87,7 +86,7 @@ async def matrix_to_facebook(content: MessageEventContent, room_id: RoomID, log:
             log.warning(f"Couldn't find reply target {content.relates_to.event_id}"
                         " to bridge text message reply metadata to Facebook")
     if content.get("format", None) == Format.HTML and content["formatted_body"]:
-        parsed = MatrixParser.parse(content["formatted_body"])
+        parsed = await MatrixParser().parse(content["formatted_body"])
         text = parsed.text
         mentions = []
         for mention in parsed.entities:
