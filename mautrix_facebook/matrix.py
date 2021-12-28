@@ -151,7 +151,7 @@ class MatrixHandler(BaseMatrixHandler):
         if not portal:
             return
 
-        if not user.is_whitelisted:
+        if not user.relay_whitelisted and not user.is_whitelisted:
             await portal.main_intent.kick_user(
                 room_id, user.mxid, "You are not whitelisted on this Facebook Messenger bridge."
             )
