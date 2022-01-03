@@ -1330,6 +1330,7 @@ class Portal(DBPortal, BasePortal):
             event_id = await sender.intent.set_room_avatar(self.mxid, self.avatar_url)
         except IntentError:
             event_id = await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
+        await self.save()
         await DBMessage(mxid=event_id, mx_room=self.mxid, index=0, timestamp=timestamp,
                         fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
                         fb_sender=sender.fbid, fb_txn_id=None).insert()
@@ -1347,6 +1348,7 @@ class Portal(DBPortal, BasePortal):
             event_id = await sender.intent.set_room_name(self.mxid, self.name)
         except IntentError:
             event_id = await self.main_intent.set_room_name(self.mxid, self.name)
+        await self.save()
         await DBMessage(mxid=event_id, mx_room=self.mxid, index=0, timestamp=timestamp,
                         fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
                         fb_sender=sender.fbid, fb_txn_id=None).insert()
