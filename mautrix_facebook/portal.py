@@ -217,6 +217,7 @@ class Portal(DBPortal, BasePortal):
     async def _reupload_fb_file(cls, url: str, source: 'u.User', intent: IntentAPI, *,
                                 filename: Optional[str] = None, encrypt: bool = False,
                                 referer: str = "messenger_thread_photo", find_size: bool = False,
+                                convert_audio: bool = False
                                 ) -> Tuple[ContentURI, MediaInfo, Optional[EncryptedFile]]:
         if not url:
             raise ValueError("URL not provided")
@@ -228,6 +229,10 @@ class Portal(DBPortal, BasePortal):
                 raise ValueError("File not available: too large")
             data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
+        if convert_audio and mime != "audio/ogg":
+            data = await ffmpeg.convert_bytes(data, ".ogg", output_args=("-c:a", "libvorbis"),
+                                              input_mime=mime)
+            mime = "audio/ogg"
         info = FileInfo(mimetype=mime, size=len(data))
         if Image and mime.startswith("image/") and find_size:
             with Image.open(BytesIO(data)) as img:
@@ -1078,6 +1083,7 @@ class Portal(DBPortal, BasePortal):
         if attachment.mime_type and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
+        voice_message = False
         if attachment.extensible_media:
             sa = attachment.parse_extensible().story_attachment
             self.log.trace("Story attachment %s content: %s", attachment.media_id_str, sa)
@@ -1093,6 +1099,7 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.AUDIO
             url = attachment.audio_info.url
             info = AudioInfo(duration=attachment.audio_info.duration_ms)
+            voice_message = True
         elif attachment.image_info:
             referer = "messenger_thread_photo"
             msgtype = MessageType.IMAGE
@@ -1121,11 +1128,15 @@ class Portal(DBPortal, BasePortal):
             return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
             url, source, intent, filename=filename, encrypt=self.encrypted,
-            find_size=False, referer=referer)
+            find_size=False, referer=referer, convert_audio=voice_message)
         info.size = additional_info.size
         info.mimetype = attachment.mime_type or additional_info.mimetype
-        return MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
-                                        body=filename, info=info)
+        content = MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
+                                           body=filename, info=info)
+        if voice_message:
+            content["org.matrix.msc1767.audio"] = {"duration": info.duration}
+            content["org.matrix.msc3245.voice"] = {}
+        return content
 
     async def _handle_graphql_message(self, source: 'u.User', intent: IntentAPI,
                                       message: graphql.Message) -> List[EventID]:
