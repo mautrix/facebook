@@ -2,7 +2,7 @@
 # Uncommented lines after the group definition insert things into that group.
 
 #/animated_stickers
-pillow>=4,<9
+pillow>=4,<10
 
 #/e2be
 python-olm>=3,<4

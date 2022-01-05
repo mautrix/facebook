@@ -36,12 +36,12 @@ from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, Sess
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
+from mautrix.util import ffmpeg
 
 from maufbapi.types import mqtt, graphql
 
 from .formatter import facebook_to_matrix, matrix_to_facebook
 from .config import Config
-from .util import convert_audio
 from .db import (Portal as DBPortal, Message as DBMessage, Reaction as DBReaction,
                  UserPortal as UserPortal, ThreadType)
 from . import puppet as p, user as u
@@ -672,9 +672,9 @@ class Portal(DBPortal, BasePortal):
             caption = None
         if message.msgtype == MessageType.AUDIO:
             if not mime.startswith("audio/mp"):
-                data = await convert_audio(data, mime)
-                if not data:
-                    raise Exception("Failed to convert audio file to mpeg")
+                data = await ffmpeg.convert_bytes(
+                    data, output_extension=".m4a", output_args=("-c:a", "aac"), input_mime=mime
+                )
                 mime = "audio/mpeg"
                 filename = "audio.m4a"
             duration = message.info.duration
@@ -728,7 +728,6 @@ class Portal(DBPortal, BasePortal):
                 event_id,
                 self.mxid,
                 EventType.ROOM_REDACTION,
-                message.msgtype,
                 error=e,
             )
             await self._send_bridge_error(str(e))
