@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -125,10 +125,10 @@ class ThriftReader(io.BytesIO):
         elif type == TType.DOUBLE:
             # Doubles are encoded as little endian
             # https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#double-encoding
-            return struct.unpack("<d", self.read(8))
+            return struct.unpack("<d", self.read(8))[0]
         elif type == TType.FLOAT:
             # This seems to be a facebook-specific 32-bit float
-            return struct.unpack("<d", self.read(4))
+            return struct.unpack("<f", self.read(4))[0]
         else:
             raise ValueError(f"{type.name} is not a primitive type")
 

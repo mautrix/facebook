@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -101,6 +101,8 @@ class AudioInfo(ThriftObject):
     # index 2: mysterious binary (empty)
     url: str = field(index=3)
     duration_ms: int = field(TType.I32)
+    # index 5: mysterious int32 (2)
+    waveform: List[float] = field(TType.LIST, item_type=TType.FLOAT, index=6)
 
 
 @autospec
