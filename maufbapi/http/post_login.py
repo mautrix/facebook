@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,32 +13,39 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional
+from __future__ import annotations
+
 from urllib.parse import urlencode
 import json
 
-from .base import BaseAndroidAPI
 from ..types.graphql import LoggedInUser
 from ..types.graphql.queries import NTContext
+from .base import BaseAndroidAPI
 
 
 class PostLoginAPI(BaseAndroidAPI):
-    async def fetch_logged_in_user(self, post_login: bool = False) -> Optional[LoggedInUser]:
-        url = self.b_graph_url.with_query({
-            "include_headers": "false",
-            "decode_body_json": "false",
-            "streamable_json_response": "true",
-            **self._params,
-        })
-        req_data = {
-            "fb_api_caller_class": "LoginOperations",
-            "fb_api_req_friendly_name": "handleLogin",
-            "batch": json.dumps(self._post_login_params, separators=(",", ":")),
-        } if post_login else {
-            "fb_api_caller_class": "MessagesSyncLoggedInUserFetcher",
-            "fb_api_req_friendly_name": "syncRefetchLoggedInUser",
-            "batch": json.dumps(self._resync_params, separators=(",", ":")),
-        }
+    async def fetch_logged_in_user(self, post_login: bool = False) -> LoggedInUser | None:
+        url = self.b_graph_url.with_query(
+            {
+                "include_headers": "false",
+                "decode_body_json": "false",
+                "streamable_json_response": "true",
+                **self._params,
+            }
+        )
+        req_data = (
+            {
+                "fb_api_caller_class": "LoginOperations",
+                "fb_api_req_friendly_name": "handleLogin",
+                "batch": json.dumps(self._post_login_params, separators=(",", ":")),
+            }
+            if post_login
+            else {
+                "fb_api_caller_class": "MessagesSyncLoggedInUserFetcher",
+                "fb_api_req_friendly_name": "syncRefetchLoggedInUser",
+                "batch": json.dumps(self._resync_params, separators=(",", ":")),
+            }
+        )
         headers = {
             "x-zero-state": "unknown",
             "x-fb-request-analytics-tags": "unknown",
@@ -54,12 +61,15 @@ class PostLoginAPI(BaseAndroidAPI):
         try:
             actual_data = resp_data["body"]["data"]["viewer"]["actor"]
         except (IndexError, KeyError):
-            self.log.warning("Didn't get expected data in fetch logged in user response: %s",
-                             resp_data)
+            self.log.warning(
+                "Didn't get expected data in fetch logged in user response: %s", resp_data
+            )
             return None
         info = LoggedInUser.deserialize(actual_data)
         info.unrecognized_ = {}
         return info
+
+    # fmt: off
 
     @property
     def _resync_params(self):

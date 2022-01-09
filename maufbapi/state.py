@@ -13,13 +13,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict
+from typing import Dict, Optional
 from uuid import UUID
 import random
 import string
 
-import attr
 from attr import dataclass
+import attr
+
 from mautrix.types import SerializableAttrs
 
 
@@ -36,7 +37,7 @@ class AndroidApplication(SerializableAttrs):
     client_secret = "374e60f8b9bb6b8cbb30f78030438895"
 
     @classmethod
-    def deserialize(cls, data) -> 'AndroidApplication':
+    def deserialize(cls, data) -> "AndroidApplication":
         data.pop("build")
         data.pop("version_id")
         data.pop("version")
@@ -68,7 +69,7 @@ class AndroidDevice(SerializableAttrs):
     device_group: Optional[str] = None  # 7761
 
     @classmethod
-    def deserialize(cls, data) -> 'AndroidDevice':
+    def deserialize(cls, data) -> "AndroidDevice":
         data.pop("software")
         data.pop("user_agent")
         return super().deserialize(data)

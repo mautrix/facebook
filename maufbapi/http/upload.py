@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,22 +13,31 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional
-import hashlib
-import base64
-import time
-import json
+from __future__ import annotations
 
-from .base import BaseAndroidAPI
+import base64
+import hashlib
+import json
+import time
+
 from ..types import UploadResponse
+from .base import BaseAndroidAPI
 
 
 class UploadAPI(BaseAndroidAPI):
-    async def send_media(self, data: bytes, file_name: str, mimetype: str,
-                         offline_threading_id: int, chat_id: Optional[int] = None,
-                         is_group: Optional[bool] = None, timestamp: Optional[int] = None,
-                         reply_to: Optional[str] = None, caption: Optional[str] = None,
-                         duration: Optional[int] = None) -> UploadResponse:
+    async def send_media(
+        self,
+        data: bytes,
+        file_name: str,
+        mimetype: str,
+        offline_threading_id: int,
+        chat_id: int | None = None,
+        is_group: bool | None = None,
+        timestamp: int | None = None,
+        reply_to: str | None = None,
+        caption: str | None = None,
+        duration: int | None = None,
+    ) -> UploadResponse:
         headers = {
             **self._headers,
             "accept-encoding": "x-fb-dz;d=1, gzip, deflate",
@@ -40,9 +49,13 @@ class UploadAPI(BaseAndroidAPI):
             "x-entity-name": file_name,
             "x-entity-type": mimetype,
             "content-type": "application/octet-stream",
-            "client_tags": json.dumps({"trigger": "2:thread_list:thread",
-                                       "is_in_chatheads": "false",
-                                       "is_in_bubbles": "false"}),
+            "client_tags": json.dumps(
+                {
+                    "trigger": "2:thread_list:thread",
+                    "is_in_chatheads": "false",
+                    "is_in_bubbles": "false",
+                }
+            ),
             "original_timestamp": str(timestamp or int(time.time() * 1000)),
             "x-msgr-region": self.state.session.region_hint,
             "x-fb-friendly-name": "post_resumable_upload_session",
@@ -78,8 +91,9 @@ class UploadAPI(BaseAndroidAPI):
 
         self.log.trace("Sending upload with headers: %s", headers)
         file_id = hashlib.md5(data).hexdigest() + str(offline_threading_id)
-        resp = await self.http.post(self.rupload_url / path_type / file_id,
-                                    headers=headers, data=data)
+        resp = await self.http.post(
+            self.rupload_url / path_type / file_id, headers=headers, data=data
+        )
         json_data = await self._handle_response(resp)
         self.log.trace("Upload response: %s %s", resp.status, json_data)
         return UploadResponse.deserialize(json_data)

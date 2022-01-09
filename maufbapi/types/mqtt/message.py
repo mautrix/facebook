@@ -13,15 +13,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 import base64
 import json
 
 from attr import dataclass
 import attr
 
-from mautrix.types import SerializableAttrs, SerializableEnum, ExtensibleEnum
-from maufbapi.thrift import TType, RecursiveType, ThriftObject, field, autospec
+from maufbapi.thrift import RecursiveType, ThriftObject, TType, autospec, field
+from mautrix.types import ExtensibleEnum, SerializableAttrs, SerializableEnum
+
 from ..common import MessageUnsendability as Unsendability
 from ..graphql import ExtensibleAttachment
 
@@ -56,8 +57,9 @@ class MessageMetadata(ThriftObject):
     # index 9: unknown int32 (ex: 3)
     # index 10: unknown bool (ex: false)
     # index 11: ???
-    message_unsendability: Unsendability = field(TType.BINARY, index=12,
-                                                 default=Unsendability.DENY_FOR_NON_SENDER)
+    message_unsendability: Unsendability = field(
+        TType.BINARY, index=12, default=Unsendability.DENY_FOR_NON_SENDER
+    )
     # indices 13-16: ???
     # index 17: struct (or maybe union?)
     #   index 1: int64 group id
@@ -69,12 +71,21 @@ class MessageMetadata(ThriftObject):
 class ImageInfo(ThriftObject):
     original_width: int = field(TType.I32)
     original_height: int = field(TType.I32)
-    previews: Dict[int, str] = field(TType.MAP, key_type=TType.I32, default=None,
-                                     value_type=RecursiveType(TType.BINARY, python_type=str))
+    previews: Dict[int, str] = field(
+        TType.MAP,
+        key_type=TType.I32,
+        default=None,
+        value_type=RecursiveType(TType.BINARY, python_type=str),
+    )
     # index 4: unknown int32
     # indices 5 and 6: ???
-    alt_previews: Dict[int, str] = field(TType.MAP, key_type=TType.I32, default=None, index=7,
-                                         value_type=RecursiveType(TType.BINARY, python_type=str))
+    alt_previews: Dict[int, str] = field(
+        TType.MAP,
+        key_type=TType.I32,
+        default=None,
+        index=7,
+        value_type=RecursiveType(TType.BINARY, python_type=str),
+    )
     image_type: str = field(default=None)
     alt_preview_type: str = field(default=None)
     # index 9: ???
@@ -198,8 +209,9 @@ class Message(ThriftObject):
 
     @property
     def mentions(self) -> List[Mention]:
-        return [Mention.deserialize(item) for item
-                in json.loads(self.extra_metadata.get("prng", "[]"))]
+        return [
+            Mention.deserialize(item) for item in json.loads(self.extra_metadata.get("prng", "[]"))
+        ]
 
 
 @autospec
@@ -326,9 +338,11 @@ class ThreadChangeAction(ExtensibleEnum):
 class ThreadChange(ThriftObject):
     metadata: MessageMetadata
     action: ThreadChangeAction = field(TType.BINARY)
-    action_data: Dict[str, str] = field(TType.MAP,
-                                        key_type=RecursiveType(TType.BINARY, python_type=str),
-                                        value_type=RecursiveType(TType.BINARY, python_type=str))
+    action_data: Dict[str, str] = field(
+        TType.MAP,
+        key_type=RecursiveType(TType.BINARY, python_type=str),
+        value_type=RecursiveType(TType.BINARY, python_type=str),
+    )
 
 
 @autospec
@@ -380,13 +394,25 @@ class MessageSyncEvent(ThriftObject):
     binary: BinaryData = field(index=42, default=None)
 
     def get_parts(self) -> List[Any]:
-        parts = [self.message, self.own_read_receipt, self.add_member, self.remove_member,
-                 self.name_change, self.avatar_change, self.thread_change, self.read_receipt,
-                 self.unknown_receipt_1]
+        parts = [
+            self.message,
+            self.own_read_receipt,
+            self.add_member,
+            self.remove_member,
+            self.name_change,
+            self.avatar_change,
+            self.thread_change,
+            self.read_receipt,
+            self.unknown_receipt_1,
+        ]
         if self.binary:
             for inner_item in self.binary.parse().items:
-                parts += [inner_item.reaction, inner_item.extended_message,
-                          inner_item.unsend_message, inner_item.extended_add_member]
+                parts += [
+                    inner_item.reaction,
+                    inner_item.extended_message,
+                    inner_item.unsend_message,
+                    inner_item.extended_add_member,
+                ]
         return [part for part in parts if part is not None]
 
 

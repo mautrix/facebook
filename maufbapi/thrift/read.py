@@ -13,18 +13,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List, Any, TypeVar, Type, Tuple, TYPE_CHECKING
-import struct
+from __future__ import annotations
+
+from typing import Any, Type, TypeVar
 import io
+import struct
 
-from .type import TType, RecursiveType
+from .type import RecursiveType, ThriftObject, TType
 
-if TYPE_CHECKING:
-    from .autospec import ThriftObject
-
-    T = TypeVar('T', bound=ThriftObject)
-else:
-    T = TypeVar('T', bound='ThriftObject')
+T = TypeVar("T", bound=ThriftObject)
 
 _alpha_start = ord("a")
 _alpha_length = ord("z") - ord("a") + 1
@@ -38,7 +35,7 @@ class ThriftReader(io.BytesIO):
     """
 
     _prev_field_id: int
-    _stack: List[int]
+    _stack: list[int]
 
     _prev_struct_id: int
 
@@ -46,8 +43,9 @@ class ThriftReader(io.BytesIO):
     def _struct_id(self) -> str:
         """An incrementing alphabetical identifier used for pretty-printing structs."""
         self._prev_struct_id += 1
-        return (chr(_alpha_start + (self._prev_struct_id // _alpha_length))
-                + chr(_alpha_start + self._prev_struct_id % _alpha_length))
+        return chr(_alpha_start + (self._prev_struct_id // _alpha_length)) + chr(
+            _alpha_start + self._prev_struct_id % _alpha_length
+        )
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -85,20 +83,21 @@ class ThriftReader(io.BytesIO):
         result = 0
         while True:
             byte = self._read_byte()
-            result |= (byte & 0x7f) << shift
+            result |= (byte & 0x7F) << shift
             if (byte & 0x80) == 0:
                 break
             shift += 7
         return result
 
-    def read_field(self) -> Tuple[TType, int]:
+    def read_field(self) -> tuple[TType, int]:
         byte = self._read_byte()
-        type = TType(byte & 0x0f)
+        type = TType(byte & 0x0F)
         if type == TType.STOP:
             return type, -1
         field_id_delta = byte >> 4
-        self._prev_field_id = (self.read_int() if field_id_delta == 0
-                               else self._prev_field_id + field_id_delta)
+        self._prev_field_id = (
+            self.read_int() if field_id_delta == 0 else self._prev_field_id + field_id_delta
+        )
         return type, self._prev_field_id
 
     def read_val(self, type: TType) -> Any:
@@ -132,7 +131,7 @@ class ThriftReader(io.BytesIO):
         else:
             raise ValueError(f"{type.name} is not a primitive type")
 
-    def read_list_header(self) -> Tuple[TType, int]:
+    def read_list_header(self) -> tuple[TType, int]:
         """
         Read the type and length metadata of a list or set.
 
@@ -145,15 +144,15 @@ class ThriftReader(io.BytesIO):
 
         # The upstream Thrift spec uses different element type identifiers for list and map types,
         # but Facebook just uses the same types as structs.
-        item_type = TType(header_byte & 0x0f)
+        item_type = TType(header_byte & 0x0F)
 
         length = header_byte >> 4
-        if length == 0x0f:
+        if length == 0x0F:
             length = self.read_varint()
 
         return item_type, length
 
-    def read_map_header(self) -> Tuple[TType, TType, int]:
+    def read_map_header(self) -> tuple[TType, TType, int]:
         """
         Read the type and length metadata of a map.
 
@@ -172,7 +171,7 @@ class ThriftReader(io.BytesIO):
 
         types = self._read_byte()
         key_type = TType(types >> 4)
-        value_type = TType(types & 0x0f)
+        value_type = TType(types & 0x0F)
 
         return key_type, value_type, length
 
@@ -204,8 +203,9 @@ class ThriftReader(io.BytesIO):
         else:
             self.read_val(type)
 
-    def _read_kv(self, key_type: RecursiveType, value_type: RecursiveType, field_path: str,
-                 index: int) -> Tuple[Any, Any]:
+    def _read_kv(
+        self, key_type: RecursiveType, value_type: RecursiveType, field_path: str, index: int
+    ) -> tuple[Any, Any]:
         key = self.read_val_recursive(key_type, field_path=f"{field_path}[{index}::key]")
         value_path = repr(key) if isinstance(key, (str, bytes, int)) else f"{index}::value"
         value = self.read_val_recursive(value_type, field_path=f"{field_path}[{value_path}]")
@@ -232,20 +232,30 @@ class ThriftReader(io.BytesIO):
             if length == 0:
                 return {}
             elif key_type != rtype.key_type.type:
-                raise ValueError(f"Unexpected key type at {field_path}: "
-                                 f"expected {rtype.key_type.type.name}, got {key_type.name}")
+                raise ValueError(
+                    f"Unexpected key type at {field_path}: "
+                    f"expected {rtype.key_type.type.name}, got {key_type.name}"
+                )
             elif value_type != rtype.value_type.type:
-                raise ValueError(f"Unexpected value type at {field_path}: "
-                                 f"expected {rtype.value_type.type.name}, got {value_type.name}")
-            return dict(self._read_kv(rtype.key_type, rtype.value_type, field_path, index)
-                        for index in range(length))
+                raise ValueError(
+                    f"Unexpected value type at {field_path}: "
+                    f"expected {rtype.value_type.type.name}, got {value_type.name}"
+                )
+            return dict(
+                self._read_kv(rtype.key_type, rtype.value_type, field_path, index)
+                for index in range(length)
+            )
         elif rtype.type in (TType.LIST, TType.SET):
             item_type, length = self.read_list_header()
             if item_type != rtype.item_type.type:
-                raise ValueError(f"Unexpected item type at {field_path}: "
-                                 f"expected {rtype.item_type.type.name}, got {item_type.name}")
-            data = (self.read_val_recursive(rtype.item_type, field_path=f"{field_path}[{i}]")
-                    for i in range(length))
+                raise ValueError(
+                    f"Unexpected item type at {field_path}: "
+                    f"expected {rtype.item_type.type.name}, got {item_type.name}"
+                )
+            data = (
+                self.read_val_recursive(rtype.item_type, field_path=f"{field_path}[{i}]")
+                for i in range(length)
+            )
             return set(data) if rtype.type == TType.SET else list(data)
         else:
             if rtype.type == TType.BINARY and rtype.python_type != bytes:
@@ -281,8 +291,10 @@ class ThriftReader(io.BytesIO):
                 continue
             expected_type = TType.BOOL if field_type in (TType.TRUE, TType.FALSE) else field_type
             if field_meta.rtype.type != expected_type:
-                raise ValueError(f"Mismatching type for for field {field_meta.name}/#{field_index}"
-                                 f": expected {field_meta.rtype.type.name}, got {field_type.name}")
+                raise ValueError(
+                    f"Mismatching type for for field {field_meta.name}/#{field_index}"
+                    f": expected {field_meta.rtype.type.name}, got {field_type.name}"
+                )
             if expected_type == TType.BOOL:
                 args[field_meta.name] = True if field_type == TType.TRUE else False
             else:
@@ -293,8 +305,9 @@ class ThriftReader(io.BytesIO):
         except TypeError as e:
             raise ValueError(f"Failed to create {type.__name__} at {field_path}") from e
 
-    def pretty_print(self, field_type: TType = TType.STRUCT, _indent: str = "", _prefix: str = ""
-                     ) -> None:
+    def pretty_print(
+        self, field_type: TType = TType.STRUCT, _indent: str = "", _prefix: str = ""
+    ) -> None:
         """
         Pretty-print the value in the reader.
         Useful for debugging and reverse-engineering schemas.
@@ -320,8 +333,9 @@ class ThriftReader(io.BytesIO):
                 subfield_type, subfield_index = self.read_field()
                 if subfield_type == TType.STOP:
                     break
-                self.pretty_print(subfield_type, _indent + "  ",
-                                  f"{subfield_index} ({subfield_type.name}):")
+                self.pretty_print(
+                    subfield_type, _indent + "  ", f"{subfield_index} ({subfield_type.name}):"
+                )
             print(f"{_indent}end-{struct_id}")
             self._pop_stack()
         else:

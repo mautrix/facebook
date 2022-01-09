@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,73 +13,83 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import (Dict, List, Optional, AsyncIterable, Awaitable, Union, TypeVar, AsyncGenerator,
-                    TYPE_CHECKING, cast)
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, TypeVar, cast
 import asyncio
 import time
 
 from aiohttp import ClientConnectionError
 
-from mautrix.errors import MNotFound
-from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
-                           TextMessageEventContent, MessageType)
-from mautrix.client import Client as MxClient
+from maufbapi import AndroidAPI, AndroidMQTT, AndroidState
+from maufbapi.http import InvalidAccessToken, ResponseError
+from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn
+from maufbapi.types import graphql, mqtt as mqtt_t
 from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
+from mautrix.client import Client as MxClient
+from mautrix.errors import MNotFound
+from mautrix.types import (
+    EventID,
+    MessageType,
+    PushActionType,
+    PushRuleKind,
+    PushRuleScope,
+    RoomID,
+    TextMessageEventContent,
+    UserID,
+)
 from mautrix.util.bridge_state import BridgeState, BridgeStateEvent
+from mautrix.util.opt_prometheus import Gauge, Summary, async_time
 from mautrix.util.simple_lock import SimpleLock
-from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 
-from maufbapi import AndroidState, AndroidMQTT, AndroidAPI
-from maufbapi.mqtt import Disconnect, Connect, MQTTNotLoggedIn, MQTTNotConnected
-from maufbapi.http import InvalidAccessToken, ResponseError
-from maufbapi.types import graphql, mqtt as mqtt_t
-
-from .config import Config
-from .commands import enter_2fa_code
-from .db import User as DBUser, UserPortal, UserContact
 from . import portal as po, puppet as pu
+from .commands import enter_2fa_code
+from .config import Config
+from .db import User as DBUser, UserContact, UserPortal
 from .util.interval import get_interval
 
-METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
-METRIC_RESYNC = Summary('bridge_on_resync', 'calls to on_resync')
-METRIC_UNKNOWN_EVENT = Summary('bridge_on_unknown_event', 'calls to on_unknown_event')
-METRIC_MEMBERS_ADDED = Summary('bridge_on_members_added', 'calls to on_members_added')
-METRIC_MEMBER_REMOVED = Summary('bridge_on_member_removed', 'calls to on_member_removed')
-METRIC_TYPING = Summary('bridge_on_typing', 'calls to on_typing')
-METRIC_PRESENCE = Summary('bridge_on_presence', 'calls to on_presence')
-METRIC_REACTION = Summary('bridge_on_reaction', 'calls to on_reaction')
-METRIC_MESSAGE_UNSENT = Summary('bridge_on_unsent', 'calls to on_unsent')
-METRIC_MESSAGE_SEEN = Summary('bridge_on_message_seen', 'calls to on_message_seen')
-METRIC_TITLE_CHANGE = Summary('bridge_on_title_change', 'calls to on_title_change')
-METRIC_AVATAR_CHANGE = Summary('bridge_on_avatar_change', 'calls to on_avatar_change')
-METRIC_THREAD_CHANGE = Summary('bridge_on_thread_change', 'calls to on_thread_change')
-METRIC_MESSAGE = Summary('bridge_on_message', 'calls to on_message')
-METRIC_LOGGED_IN = Gauge('bridge_logged_in', 'Users logged into the bridge')
-METRIC_CONNECTED = Gauge('bridge_connected', 'Bridge users connected to Facebook')
+METRIC_SYNC_THREADS = Summary("bridge_sync_threads", "calls to sync_threads")
+METRIC_RESYNC = Summary("bridge_on_resync", "calls to on_resync")
+METRIC_UNKNOWN_EVENT = Summary("bridge_on_unknown_event", "calls to on_unknown_event")
+METRIC_MEMBERS_ADDED = Summary("bridge_on_members_added", "calls to on_members_added")
+METRIC_MEMBER_REMOVED = Summary("bridge_on_member_removed", "calls to on_member_removed")
+METRIC_TYPING = Summary("bridge_on_typing", "calls to on_typing")
+METRIC_PRESENCE = Summary("bridge_on_presence", "calls to on_presence")
+METRIC_REACTION = Summary("bridge_on_reaction", "calls to on_reaction")
+METRIC_MESSAGE_UNSENT = Summary("bridge_on_unsent", "calls to on_unsent")
+METRIC_MESSAGE_SEEN = Summary("bridge_on_message_seen", "calls to on_message_seen")
+METRIC_TITLE_CHANGE = Summary("bridge_on_title_change", "calls to on_title_change")
+METRIC_AVATAR_CHANGE = Summary("bridge_on_avatar_change", "calls to on_avatar_change")
+METRIC_THREAD_CHANGE = Summary("bridge_on_thread_change", "calls to on_thread_change")
+METRIC_MESSAGE = Summary("bridge_on_message", "calls to on_message")
+METRIC_LOGGED_IN = Gauge("bridge_logged_in", "Users logged into the bridge")
+METRIC_CONNECTED = Gauge("bridge_connected", "Bridge users connected to Facebook")
 
 if TYPE_CHECKING:
     from .__main__ import MessengerBridge
 
 try:
-    from aiohttp_socks import ProxyError, ProxyConnectionError, ProxyTimeoutError
+    from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
 except ImportError:
+
     class ProxyError(Exception):
         pass
 
-
     ProxyConnectionError = ProxyTimeoutError = ProxyError
 
-T = TypeVar('T')
+T = TypeVar("T")
 
-BridgeState.human_readable_errors.update({
-    "fb-reconnection-error": "Failed to reconnect to Messenger",
-    "fb-connection-error": "Messenger disconnected unexpectedly",
-    "fb-auth-error": "Authentication error from Messenger: {message}",
-    "fb-disconnected": None,
-    "fb-no-mqtt": "You're not connected to Messenger",
-    "logged-out": "You're not logged into Messenger",
-})
+BridgeState.human_readable_errors.update(
+    {
+        "fb-reconnection-error": "Failed to reconnect to Messenger",
+        "fb-connection-error": "Messenger disconnected unexpectedly",
+        "fb-auth-error": "Authentication error from Messenger: {message}",
+        "fb-disconnected": None,
+        "fb-no-mqtt": "You're not connected to Messenger",
+        "logged-out": "You're not logged into Messenger",
+    }
+)
 
 
 class User(DBUser, BaseUser):
@@ -87,51 +97,60 @@ class User(DBUser, BaseUser):
     shutdown: bool = False
     config: Config
 
-    by_mxid: Dict[UserID, 'User'] = {}
-    by_fbid: Dict[int, 'User'] = {}
+    by_mxid: dict[UserID, User] = {}
+    by_fbid: dict[int, User] = {}
 
-    client: Optional[AndroidAPI]
-    mqtt: Optional[AndroidMQTT]
-    listen_task: Optional[asyncio.Task]
-    seq_id: Optional[int]
+    client: AndroidAPI | None
+    mqtt: AndroidMQTT | None
+    listen_task: asyncio.Task | None
+    seq_id: int | None
 
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
     is_admin: bool
     permission_level: str
-    _is_logged_in: Optional[bool]
-    _is_connected: Optional[bool]
+    _is_logged_in: bool | None
+    _is_connected: bool | None
     _connection_time: float
     _prev_thread_sync: float
     _prev_reconnect_fail_refresh: float
-    _db_instance: Optional[DBUser]
+    _db_instance: DBUser | None
     _sync_lock: SimpleLock
     _is_refreshing: bool
-    _logged_in_info: Optional[graphql.LoggedInUser]
+    _logged_in_info: graphql.LoggedInUser | None
     _logged_in_info_time: float
 
     _community_helper: CommunityHelper
-    _community_id: Optional[CommunityID]
+    _community_id: CommunityID | None
 
-    def __init__(self, mxid: UserID, fbid: Optional[int] = None,
-                 state: Optional[AndroidState] = None,
-                 notice_room: Optional[RoomID] = None) -> None:
+    def __init__(
+        self,
+        mxid: UserID,
+        fbid: int | None = None,
+        state: AndroidState | None = None,
+        notice_room: RoomID | None = None,
+    ) -> None:
         super().__init__(mxid=mxid, fbid=fbid, state=state, notice_room=notice_room)
         BaseUser.__init__(self)
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
         self.command_status = None
-        (self.relay_whitelisted, self.is_whitelisted, self.is_admin,
-         self.permission_level) = self.config.get_permissions(mxid)
+        (
+            self.relay_whitelisted,
+            self.is_whitelisted,
+            self.is_admin,
+            self.permission_level,
+        ) = self.config.get_permissions(mxid)
         self._is_logged_in = None
         self._is_connected = None
         self._connection_time = time.monotonic()
         self._prev_thread_sync = -10
         self._prev_reconnect_fail_refresh = time.monotonic()
         self._community_id = None
-        self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
-                                     log=self.log)
+        self._sync_lock = SimpleLock(
+            "Waiting for thread sync to finish before handling %s", log=self.log
+        )
         self._is_refreshing = False
         self._logged_in_info = None
         self._logged_in_info_time = 0
@@ -144,7 +163,7 @@ class User(DBUser, BaseUser):
         self.seq_id = None
 
     @classmethod
-    def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[bool]]:
+    def init_cls(cls, bridge: "MessengerBridge") -> AsyncIterable[Awaitable[bool]]:
         cls.bridge = bridge
         cls.config = bridge.config
         cls.az = bridge.az
@@ -154,11 +173,11 @@ class User(DBUser, BaseUser):
         return (user.load_session() async for user in cls.all_logged_in())
 
     @property
-    def is_connected(self) -> Optional[bool]:
+    def is_connected(self) -> bool | None:
         return self._is_connected
 
     @is_connected.setter
-    def is_connected(self, val: Optional[bool]) -> None:
+    def is_connected(self, val: bool | None) -> None:
         if self._is_connected != val:
             self._is_connected = val
             self._connection_time = time.monotonic()
@@ -175,7 +194,7 @@ class User(DBUser, BaseUser):
             self.by_fbid[self.fbid] = self
 
     @classmethod
-    async def all_logged_in(cls) -> AsyncGenerator['User', None]:
+    async def all_logged_in(cls) -> AsyncGenerator["User", None]:
         users = await super().all_logged_in()
         user: cls
         for user in users:
@@ -187,7 +206,7 @@ class User(DBUser, BaseUser):
 
     @classmethod
     @async_getter_lock
-    async def get_by_mxid(cls, mxid: UserID, *, create: bool = True) -> Optional['User']:
+    async def get_by_mxid(cls, mxid: UserID, *, create: bool = True) -> User | None:
         if pu.Puppet.get_id_from_mxid(mxid) or mxid == cls.az.bot_mxid:
             return None
         try:
@@ -211,7 +230,7 @@ class User(DBUser, BaseUser):
 
     @classmethod
     @async_getter_lock
-    async def get_by_fbid(cls, fbid: int) -> Optional['User']:
+    async def get_by_fbid(cls, fbid: int) -> User | None:
         try:
             return cls.by_fbid[fbid]
         except KeyError:
@@ -243,12 +262,19 @@ class User(DBUser, BaseUser):
             try:
                 user_info = await client.fetch_logged_in_user()
                 break
-            except (ProxyError, ProxyTimeoutError, ProxyConnectionError,
-                    ClientConnectionError, ConnectionError) as e:
+            except (
+                ProxyError,
+                ProxyTimeoutError,
+                ProxyConnectionError,
+                ClientConnectionError,
+                ConnectionError,
+            ) as e:
                 attempt += 1
                 wait = min(attempt * 10, 60)
-                self.log.warning(f"{e.__class__.__name__} while trying to restore session, "
-                                 f"retrying in {wait} seconds: {e}")
+                self.log.warning(
+                    f"{e.__class__.__name__} while trying to restore session, "
+                    f"retrying in {wait} seconds: {e}"
+                )
                 await asyncio.sleep(wait)
             except Exception:
                 self.log.exception("Failed to restore session")
@@ -321,7 +347,7 @@ class User(DBUser, BaseUser):
                 important=True,
                 state_event=BridgeStateEvent.BAD_CREDENTIALS,
                 error_code="fb-auth-error",
-                error_message=str(e)
+                error_message=str(e),
             )
             await self.logout(remove_fbid=False)
         except ResponseError as e:
@@ -329,19 +355,29 @@ class User(DBUser, BaseUser):
             retry = "Retrying in 1 minute" if will_retry else "Not retrying"
             notice = f"Failed to refresh Messenger session: unknown response error {e}. {retry}"
             if will_retry:
-                await self.send_bridge_notice(notice, edit=event_id,
-                                              state_event=BridgeStateEvent.TRANSIENT_DISCONNECT)
+                await self.send_bridge_notice(
+                    notice,
+                    edit=event_id,
+                    state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
+                )
                 await asyncio.sleep(60)
                 await self._reload_session(event_id, retries - 1)
             else:
-                await self.send_bridge_notice(notice, edit=event_id, important=True,
-                                              state_event=BridgeStateEvent.UNKNOWN_ERROR,
-                                              error_code="fb-reconnection-error")
+                await self.send_bridge_notice(
+                    notice,
+                    edit=event_id,
+                    important=True,
+                    state_event=BridgeStateEvent.UNKNOWN_ERROR,
+                    error_code="fb-reconnection-error",
+                )
         except Exception:
-            await self.send_bridge_notice("Failed to refresh Messenger session: unknown error "
-                                          "(see logs for more details)", edit=event_id,
-                                          state_event=BridgeStateEvent.UNKNOWN_ERROR,
-                                          error_code="fb-reconnection-error")
+            await self.send_bridge_notice(
+                "Failed to refresh Messenger session: unknown error "
+                "(see logs for more details)",
+                edit=event_id,
+                state_event=BridgeStateEvent.UNKNOWN_ERROR,
+                error_code="fb-reconnection-error",
+            )
         finally:
             self._is_refreshing = False
 
@@ -410,13 +446,21 @@ class User(DBUser, BaseUser):
         self.log.debug(f"Creating personal filtering community {community_localpart}...")
         self._community_id, created = await self._community_helper.create(community_localpart)
         if created:
-            await self._community_helper.update(self._community_id, name="Facebook Messenger",
-                                                avatar_url=self.config["appservice.bot_avatar"],
-                                                short_desc="Your Facebook bridged chats")
+            await self._community_helper.update(
+                self._community_id,
+                name="Facebook Messenger",
+                avatar_url=self.config["appservice.bot_avatar"],
+                short_desc="Your Facebook bridged chats",
+            )
             await self._community_helper.invite(self._community_id, self.mxid)
 
-    async def _add_community(self, up: Optional[UserPortal], contact: Optional[UserContact],
-                             portal: 'po.Portal', puppet: Optional['pu.Puppet']) -> None:
+    async def _add_community(
+        self,
+        up: UserPortal | None,
+        contact: UserContact | None,
+        portal: po.Portal,
+        puppet: pu.Puppet | None,
+    ) -> None:
         if portal.mxid:
             if not up or not up.in_community:
                 ic = await self._community_helper.add_room(self._community_id, portal.mxid)
@@ -424,17 +468,21 @@ class User(DBUser, BaseUser):
                     up.in_community = True
                     await up.save()
                 elif not up:
-                    await UserPortal(user=self.fbid, in_community=ic, portal=portal.fbid,
-                                     portal_receiver=portal.fb_receiver).insert()
+                    await UserPortal(
+                        user=self.fbid,
+                        in_community=ic,
+                        portal=portal.fbid,
+                        portal_receiver=portal.fb_receiver,
+                    ).insert()
         if puppet:
             await self._add_community_puppet(contact, puppet)
 
-    async def _add_community_puppet(self, contact: Optional[UserContact],
-                                    puppet: 'pu.Puppet') -> None:
+    async def _add_community_puppet(
+        self, contact: UserContact | None, puppet: "pu.Puppet"
+    ) -> None:
         if not contact or not contact.in_community:
             await puppet.default_mxid_intent.ensure_registered()
-            ic = await self._community_helper.join(self._community_id,
-                                                   puppet.default_mxid_intent)
+            ic = await self._community_helper.join(self._community_id, puppet.default_mxid_intent)
             if contact and ic:
                 contact.in_community = True
                 await contact.save()
@@ -442,7 +490,7 @@ class User(DBUser, BaseUser):
                 # This uses upsert instead of insert as a hacky fix for potential conflicts
                 await UserContact(user=self.fbid, contact=puppet.fbid, in_community=ic).upsert()
 
-    async def get_direct_chats(self) -> Dict[UserID, List[RoomID]]:
+    async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
             pu.Puppet.get_mxid_from_id(portal.fbid): [portal.mxid]
             async for portal in po.Portal.get_all_by_receiver(self.fbid)
@@ -453,7 +501,8 @@ class User(DBUser, BaseUser):
     async def sync_threads(self) -> bool:
         if (
             self._prev_thread_sync + 10 > time.monotonic()
-            and self.mqtt and self.mqtt.seq_id is not None
+            and self.mqtt
+            and self.mqtt.seq_id is not None
         ):
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
             return True
@@ -467,7 +516,7 @@ class User(DBUser, BaseUser):
                 important=True,
                 state_event=BridgeStateEvent.BAD_CREDENTIALS,
                 error_code="fb-auth-error",
-                error_message=str(e)
+                error_message=str(e),
             )
             await self.logout(remove_fbid=False)
         except Exception as e:
@@ -496,17 +545,25 @@ class User(DBUser, BaseUser):
 
         await self.update_direct_chats()
 
-    async def _sync_thread(self, thread: graphql.Thread, ups: Dict[int, UserPortal],
-                           contacts: Dict[int, UserContact]) -> None:
+    async def _sync_thread(
+        self,
+        thread: graphql.Thread,
+        ups: dict[int, UserPortal],
+        contacts: dict[int, UserContact],
+    ) -> None:
         self.log.debug(f"Syncing thread {thread.thread_key.id}")
         is_direct = bool(thread.thread_key.other_user_id)
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
-        puppet = (await pu.Puppet.get_by_fbid(thread.thread_key.other_user_id)
-                  if is_direct else None)
+        puppet = (
+            await pu.Puppet.get_by_fbid(thread.thread_key.other_user_id) if is_direct else None
+        )
 
-        await self._add_community(ups.get(portal.fbid, None),
-                                  contacts.get(puppet.fbid, None) if puppet else None,
-                                  portal, puppet)
+        await self._add_community(
+            ups.get(portal.fbid, None),
+            contacts.get(puppet.fbid, None) if puppet else None,
+            portal,
+            puppet,
+        )
 
         was_created = False
         if not portal.mxid:
@@ -525,16 +582,21 @@ class User(DBUser, BaseUser):
         if not puppet or not puppet.is_real_user:
             return
         if mute_until is not None and (mute_until < 0 or mute_until > int(time.time())):
-            await puppet.intent.set_push_rule(PushRuleScope.GLOBAL, PushRuleKind.ROOM, portal.mxid,
-                                              actions=[PushActionType.DONT_NOTIFY])
+            await puppet.intent.set_push_rule(
+                PushRuleScope.GLOBAL,
+                PushRuleKind.ROOM,
+                portal.mxid,
+                actions=[PushActionType.DONT_NOTIFY],
+            )
         else:
             try:
-                await puppet.intent.remove_push_rule(PushRuleScope.GLOBAL, PushRuleKind.ROOM,
-                                                     portal.mxid)
+                await puppet.intent.remove_push_rule(
+                    PushRuleScope.GLOBAL, PushRuleKind.ROOM, portal.mxid
+                )
             except MNotFound:
                 pass
 
-    async def is_in_portal(self, portal: 'po.Portal') -> bool:
+    async def is_in_portal(self, portal: po.Portal) -> bool:
         return await UserPortal.get(self.fbid, portal.fbid, portal.fb_receiver) is not None
 
     async def on_2fa_callback(self) -> str:
@@ -542,9 +604,10 @@ class User(DBUser, BaseUser):
             future = self.loop.create_future()
             self.command_status["future"] = future
             self.command_status["next"] = enter_2fa_code
-            await self.az.intent.send_notice(self.command_status["room_id"],
-                                             "You have two-factor authentication enabled. "
-                                             "Please send the code here.")
+            await self.az.intent.send_notice(
+                self.command_status["room_id"],
+                "You have two-factor authentication enabled. Please send the code here.",
+            )
             return await future
         raise RuntimeError("No ongoing login command")
 
@@ -567,20 +630,30 @@ class User(DBUser, BaseUser):
                 await self.save()
         return self.notice_room
 
-    async def send_bridge_notice(self, text: str, edit: Optional[EventID] = None,
-                                 state_event: Optional[BridgeStateEvent] = None,
-                                 important: bool = False, error_code: Optional[str] = None,
-                                 error_message: Optional[str] = None) -> Optional[EventID]:
+    async def send_bridge_notice(
+        self,
+        text: str,
+        edit: EventID | None = None,
+        state_event: BridgeStateEvent | None = None,
+        important: bool = False,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> EventID | None:
         if state_event:
-            await self.push_bridge_state(state_event, error=error_code,
-                                         message=error_message if error_code else text)
+            await self.push_bridge_state(
+                state_event,
+                error=error_code,
+                message=error_message if error_code else text,
+            )
         if self.config["bridge.disable_bridge_notices"]:
             return None
         event_id = None
         try:
             self.log.debug("Sending bridge notice: %s", text)
-            content = TextMessageEventContent(body=text, msgtype=(MessageType.TEXT if important
-                                                                  else MessageType.NOTICE))
+            content = TextMessageEventContent(
+                body=text,
+                msgtype=(MessageType.TEXT if important else MessageType.NOTICE),
+            )
             if edit:
                 content.set_edit(edit)
             # This is locked to prevent notices going out in the wrong order
@@ -597,7 +670,7 @@ class User(DBUser, BaseUser):
             puppet = await pu.Puppet.get_by_fbid(self.fbid)
             state.remote_name = puppet.name
 
-    async def get_bridge_states(self) -> List[BridgeState]:
+    async def get_bridge_states(self) -> list[BridgeState]:
         if not self.state:
             return []
         state = BridgeState(state_event=BridgeStateEvent.UNKNOWN_ERROR)
@@ -607,7 +680,7 @@ class User(DBUser, BaseUser):
             state.state_event = BridgeStateEvent.TRANSIENT_DISCONNECT
         return [state]
 
-    async def get_puppet(self) -> Optional['pu.Puppet']:
+    async def get_puppet(self) -> pu.Puppet | None:
         if not self.fbid:
             return None
         return await pu.Puppet.get_by_fbid(self.fbid)
@@ -654,21 +727,27 @@ class User(DBUser, BaseUser):
             await self.mqtt.listen(self.seq_id)
             self.is_connected = False
             if not self._is_refreshing and not self.shutdown:
-                await self.send_bridge_notice("Facebook Messenger connection closed without error",
-                                              state_event=BridgeStateEvent.UNKNOWN_ERROR,
-                                              error_code="fb-disconnected")
+                await self.send_bridge_notice(
+                    "Facebook Messenger connection closed without error",
+                    state_event=BridgeStateEvent.UNKNOWN_ERROR,
+                    error_code="fb-disconnected",
+                )
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
             refresh = self.config["bridge.on_reconnection_fail.refresh"]
-            next_action = ("Refreshing session..." if refresh else "Not retrying!")
-            event = ("Disconnected from" if isinstance(e, MQTTNotLoggedIn)
-                     else "Failed to connect to")
+            next_action = "Refreshing session..." if refresh else "Not retrying!"
+            event = (
+                "Disconnected from" if isinstance(e, MQTTNotLoggedIn) else "Failed to connect to"
+            )
             message = f"{event} Facebook Messenger: {e}. {next_action}"
             self.log.warning(message)
             if not refresh:
-                await self.send_bridge_notice(message, important=True,
-                                              state_event=BridgeStateEvent.UNKNOWN_ERROR,
-                                              error_code="fb-connection-error")
+                await self.send_bridge_notice(
+                    message,
+                    important=True,
+                    state_event=BridgeStateEvent.UNKNOWN_ERROR,
+                    error_code="fb-connection-error",
+                )
             elif self.temp_disconnect_notices:
                 await self.send_bridge_notice(message)
             if refresh:
@@ -684,9 +763,12 @@ class User(DBUser, BaseUser):
         except Exception:
             self.is_connected = False
             self.log.exception("Fatal error in listener")
-            await self.send_bridge_notice("Fatal error in listener (see logs for more info)",
-                                          state_event=BridgeStateEvent.UNKNOWN_ERROR,
-                                          important=True, error_code="fb-connection-error")
+            await self.send_bridge_notice(
+                "Fatal error in listener (see logs for more info)",
+                state_event=BridgeStateEvent.UNKNOWN_ERROR,
+                important=True,
+                error_code="fb-connection-error",
+            )
             self._disconnect_listener_after_error()
 
     # @async_time(METRIC_UNKNOWN_EVENT)
@@ -742,7 +824,7 @@ class User(DBUser, BaseUser):
         asyncio.create_task(self.post_login())
 
     @async_time(METRIC_MESSAGE)
-    async def on_message(self, evt: Union[mqtt_t.Message, mqtt_t.ExtendedMessage]) -> None:
+    async def on_message(self, evt: mqtt_t.Message | mqtt_t.ExtendedMessage) -> None:
         if isinstance(evt, mqtt_t.ExtendedMessage):
             reply_to = evt.reply_to_message
             evt = evt.message
@@ -760,16 +842,18 @@ class User(DBUser, BaseUser):
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
         await portal.backfill_lock.wait("title change")
-        await portal.handle_facebook_name(self, sender, evt.new_name, evt.metadata.id,
-                                          evt.metadata.timestamp)
+        await portal.handle_facebook_name(
+            self, sender, evt.new_name, evt.metadata.id, evt.metadata.timestamp
+        )
 
     @async_time(METRIC_AVATAR_CHANGE)
     async def on_avatar_change(self, evt: mqtt_t.AvatarChange) -> None:
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
         await portal.backfill_lock.wait("avatar change")
-        await portal.handle_facebook_photo(self, sender, evt.new_avatar, evt.metadata.id,
-                                           evt.metadata.timestamp)
+        await portal.handle_facebook_photo(
+            self, sender, evt.new_avatar, evt.metadata.id, evt.metadata.timestamp
+        )
 
     @async_time(METRIC_MESSAGE_SEEN)
     async def on_message_seen(self, evt: mqtt_t.ReadReceipt) -> None:

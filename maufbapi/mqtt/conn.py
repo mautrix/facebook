@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,37 +13,48 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Union, Optional, Any, Dict, Awaitable, Type, List, TypeVar, Callable
-from collections import defaultdict
-from socket import socket, error as SocketError
-import urllib.request
-import logging
-import asyncio
-import random
-import zlib
-import time
-import json
+from __future__ import annotations
 
-import paho.mqtt.client
+from typing import Any, Awaitable, Callable, Type, TypeVar
+from collections import defaultdict
+from socket import error as SocketError, socket
+import asyncio
+import json
+import logging
+import random
+import time
+import urllib.request
+import zlib
+
 from paho.mqtt.client import MQTTMessage, WebsocketConnectionError
 from yarl import URL
+import paho.mqtt.client
+
 from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
-from ..types import (MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest,
-                     MarkReadRequest, OpenedThreadRequest, SendMessageResponse, RegionHintPayload)
+from ..thrift import ThriftObject
+from ..types import (
+    MarkReadRequest,
+    MessageSyncPayload,
+    OpenedThreadRequest,
+    RealtimeClientInfo,
+    RealtimeConfig,
+    RegionHintPayload,
+    SendMessageRequest,
+    SendMessageResponse,
+)
 from ..types.mqtt import Mention
-from ..thrift import ThriftReader, ThriftObject
+from .events import Connect, Disconnect
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
-from .events import Connect, Disconnect
 
 try:
     import socks
 except ImportError:
     socks = None
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 # TODO add some custom stuff in these?
@@ -60,20 +71,24 @@ class AndroidMQTT:
     _client: MQTToTClient
     log: TraceLogger
     state: AndroidState
-    seq_id: Optional[int]
-    seq_id_update_callback: Optional[Callable[[int], None]]
-    region_hint_callback: Optional[Callable[[str], None]]
-    _opened_thread: Optional[int]
-    _publish_waiters: Dict[int, asyncio.Future]
-    _response_waiters: Dict[RealtimeTopic, asyncio.Future]
-    _response_waiter_locks: Dict[RealtimeTopic, asyncio.Lock]
-    _disconnect_error: Optional[Exception]
-    _event_handlers: Dict[Type[T], List[Callable[[T], Awaitable[None]]]]
+    seq_id: int | None
+    seq_id_update_callback: Callable[[int], None] | None
+    region_hint_callback: Callable[[str], None] | None
+    _opened_thread: int | None
+    _publish_waiters: dict[int, asyncio.Future]
+    _response_waiters: dict[RealtimeTopic, asyncio.Future]
+    _response_waiter_locks: dict[RealtimeTopic, asyncio.Lock]
+    _disconnect_error: Exception | None
+    _event_handlers: dict[Type[T], list[Callable[[T], Awaitable[None]]]]
 
     # region Initialization
 
-    def __init__(self, state: AndroidState, loop: Optional[asyncio.AbstractEventLoop] = None,
-                 log: Optional[TraceLogger] = None) -> None:
+    def __init__(
+        self,
+        state: AndroidState,
+        loop: asyncio.AbstractEventLoop | None = None,
+        log: TraceLogger | None = None,
+    ) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
         self.region_hint_callback = None
@@ -108,9 +123,13 @@ class AndroidMQTT:
                     "socks5": socks.SOCKS5,
                     "socks4": socks.SOCKS4,
                 }[proxy_url.scheme]
-                self._client.proxy_set(proxy_type=proxy_type, proxy_addr=proxy_url.host,
-                                       proxy_port=proxy_url.port, proxy_username=proxy_url.user,
-                                       proxy_password=proxy_url.password)
+                self._client.proxy_set(
+                    proxy_type=proxy_type,
+                    proxy_addr=proxy_url.host,
+                    proxy_port=proxy_url.port,
+                    proxy_username=proxy_url.user,
+                    proxy_password=proxy_url.password,
+                )
         self._client.enable_logger()
         self._client.tls_set()
         # mqtt.max_inflight_messages_set(20)  # The rest will get queued
@@ -133,11 +152,16 @@ class AndroidMQTT:
         #  '/webrtc', '/quick_promotion_refresh', '/t_omnistore_sync_low_pri', '/get_media_resp',
         #  '/t_dr_response', '/t_omnistore_sync', '/t_push', '/ixt_trigger', '/rs_resp',
         #  '/t_region_hint', '/t_trace', '/t_tn', '/sr_res', '/t_sp', '/ls_resp', '/t_rtc_multi']
-        subscribe_topics = [RealtimeTopic.MESSAGE_SYNC, RealtimeTopic.REGION_HINT,
-                            RealtimeTopic.SEND_MESSAGE_RESP,
-                            RealtimeTopic.MARK_THREAD_READ_RESPONSE]
-        topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
-                     for topic in subscribe_topics]
+        subscribe_topics = [
+            RealtimeTopic.MESSAGE_SYNC,
+            RealtimeTopic.REGION_HINT,
+            RealtimeTopic.SEND_MESSAGE_RESP,
+            RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+        ]
+        topic_ids = [
+            int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
+            for topic in subscribe_topics
+        ]
         cfg = RealtimeConfig(
             client_identifier=self.state.device.uuid[:20],
             client_info=RealtimeClientInfo(
@@ -152,7 +176,7 @@ class AndroidMQTT:
                 is_initially_foreground=True,
                 network_type=1,
                 network_subtype=0,
-                client_mqtt_session_id=int(time.time() * 1000) & 0xffffffff,
+                client_mqtt_session_id=int(time.time() * 1000) & 0xFFFFFFFF,
                 subscribe_topics=topic_ids,
                 client_type="",
                 app_id=int(self.state.application.client_id),
@@ -183,8 +207,9 @@ class AndroidMQTT:
     def _on_socket_unregister_write(self, client: MQTToTClient, _: Any, sock: socket) -> None:
         self._loop.remove_writer(sock)
 
-    def _on_connect_handler(self, client: MQTToTClient, _: Any, flags: Dict[str, Any], rc: int
-                            ) -> None:
+    def _on_connect_handler(
+        self, client: MQTToTClient, _: Any, flags: dict[str, Any], rc: int
+    ) -> None:
         if rc != 0:
             if rc == paho.mqtt.client.MQTT_ERR_INVAL:
                 self.log.error("MQTT connection error, regenerating client ID")
@@ -200,71 +225,69 @@ class AndroidMQTT:
         self._opened_thread = None
         self.log.debug("Re-creating sync queue after reconnect")
         await self._dispatch(Connect())
-        await self.publish("/ls_req", {
-            "label": "1",
-            "payload": json.dumps({
-                "app_state": 1,
-                "request_id": "android_request_id",
-            }),
-            "version": str(self.state.application.version_id),
-        })
-        await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, {
-            "initial_titan_sequence_id": self.seq_id,
-            "delta_batch_size": 125,
-            "device_params": {
-                "image_sizes": {
-                    "0": "4096x4096",
-                    "4": "358x358",
-                    "1": "750x750",
-                    "2": "481x481",
-                    "3": "358x358"
-                },
-                "animated_image_format": "WEBP,GIF",
-                "animated_image_sizes": {
-                    "0": "4096x4096",
-                    "4": "358x358",
-                    "1": "750x750",
-                    "2": "481x481",
-                    "3": "358x358"
-                },
-                "thread_theme_background_sizes": {
-                    "0": "2048x2048"
-                },
-                "thread_theme_icon_sizes": {
-                    "1": "138x138",
-                    "3": "66x66"
-                },
-                "thread_theme_reaction_sizes": {
-                    "1": "83x83",
-                    "3": "39x39"
-                }
-            },
-            "entity_fbid": self.state.session.uid,
-            "sync_api_version": 10,
-            "queue_params": {
-                "client_delta_sync_bitmask": "C9X+fGJvq9GABX+yzYA",
-                "graphql_query_hashes": {
-                    "xma_query_id": "4476811655735303"
-                },
-                "graphql_query_params": {
-                    "4476811655735303": {
-                        "xma_id": "<ID>",
-                        "small_preview_width": 716,
-                        "small_preview_height": 358,
-                        "large_preview_width": 1500,
-                        "large_preview_height": 750,
-                        "full_screen_width": 4096,
-                        "full_screen_height": 4096,
-                        "blur": 0,
-                        "nt_context": {
-                            "styles_id": "989dd0cc9c9aacc459340a79141aca8c",
-                            "pixel_ratio": 3
-                        },
-                        "use_oss_id": True
+        await self.publish(
+            "/ls_req",
+            {
+                "label": "1",
+                "payload": json.dumps(
+                    {
+                        "app_state": 1,
+                        "request_id": "android_request_id",
                     }
-                }
-            }
-        })
+                ),
+                "version": str(self.state.application.version_id),
+            },
+        )
+        await self.publish(
+            RealtimeTopic.SYNC_CREATE_QUEUE,
+            {
+                "initial_titan_sequence_id": self.seq_id,
+                "delta_batch_size": 125,
+                "device_params": {
+                    "image_sizes": {
+                        "0": "4096x4096",
+                        "4": "358x358",
+                        "1": "750x750",
+                        "2": "481x481",
+                        "3": "358x358",
+                    },
+                    "animated_image_format": "WEBP,GIF",
+                    "animated_image_sizes": {
+                        "0": "4096x4096",
+                        "4": "358x358",
+                        "1": "750x750",
+                        "2": "481x481",
+                        "3": "358x358",
+                    },
+                    "thread_theme_background_sizes": {"0": "2048x2048"},
+                    "thread_theme_icon_sizes": {"1": "138x138", "3": "66x66"},
+                    "thread_theme_reaction_sizes": {"1": "83x83", "3": "39x39"},
+                },
+                "entity_fbid": self.state.session.uid,
+                "sync_api_version": 10,
+                "queue_params": {
+                    "client_delta_sync_bitmask": "C9X+fGJvq9GABX+yzYA",
+                    "graphql_query_hashes": {"xma_query_id": "4476811655735303"},
+                    "graphql_query_params": {
+                        "4476811655735303": {
+                            "xma_id": "<ID>",
+                            "small_preview_width": 716,
+                            "small_preview_height": 358,
+                            "large_preview_width": 1500,
+                            "large_preview_height": 750,
+                            "full_screen_width": 4096,
+                            "full_screen_height": 4096,
+                            "blur": 0,
+                            "nt_context": {
+                                "styles_id": "989dd0cc9c9aacc459340a79141aca8c",
+                                "pixel_ratio": 3,
+                            },
+                            "use_oss_id": True,
+                        }
+                    },
+                },
+            },
+        )
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
@@ -316,8 +339,7 @@ class AndroidMQTT:
                 try:
                     waiter = self._response_waiters.pop(topic)
                 except KeyError:
-                    self.log.debug("No handler for MQTT message in %s: %s",
-                                   topic, message.payload)
+                    self.log.debug("No handler for MQTT message in %s: %s", topic, message.payload)
                 else:
                     waiter.set_result(message)
         except Exception:
@@ -333,8 +355,9 @@ class AndroidMQTT:
         except (SocketError, OSError, WebsocketConnectionError) as e:
             raise MQTTNotLoggedIn("MQTT reconnection failed") from e
 
-    def add_event_handler(self, evt_type: Type[T], handler: Callable[[T], Awaitable[None]]
-                          ) -> None:
+    def add_event_handler(
+        self, evt_type: Type[T], handler: Callable[[T], Awaitable[None]]
+    ) -> None:
         self._event_handlers[evt_type].append(handler)
 
     async def _dispatch(self, evt: T) -> None:
@@ -384,8 +407,8 @@ class AndroidMQTT:
                     if connection_retries > retry_limit:
                         raise MQTTNotConnected(f"Connection failed {connection_retries} times")
                     sleep = connection_retries * 2
-                    await self._dispatch(Disconnect(reason="MQTT Error: no connection, retrying "
-                                                           f"in {connection_retries} seconds"))
+                    msg = f"MQTT Error: no connection, retrying in {connection_retries} seconds"
+                    await self._dispatch(Disconnect(reason=msg))
                     await asyncio.sleep(sleep)
                 else:
                     err = paho.mqtt.client.error_string(rc)
@@ -404,9 +427,12 @@ class AndroidMQTT:
 
     # region Basic outgoing MQTT
 
-    def publish(self, topic: Union[RealtimeTopic, str],
-                payload: Union[str, bytes, dict, ThriftObject],
-                prefix: bytes = b"") -> asyncio.Future:
+    def publish(
+        self,
+        topic: RealtimeTopic | str,
+        payload: str | bytes | dict | ThriftObject,
+        prefix: bytes = b"",
+    ) -> asyncio.Future:
         if isinstance(payload, dict):
             payload = json.dumps(payload)
         if isinstance(payload, str):
@@ -414,15 +440,20 @@ class AndroidMQTT:
         if isinstance(payload, ThriftObject):
             payload = payload.to_thrift()
         payload = zlib.compress(prefix + payload, level=9)
-        info = self._client.publish(topic.encoded if isinstance(topic, RealtimeTopic) else topic,
-                                    payload, qos=1)
+        info = self._client.publish(
+            topic.encoded if isinstance(topic, RealtimeTopic) else topic, payload, qos=1
+        )
         fut = asyncio.Future()
         self._publish_waiters[info.mid] = fut
         return fut
 
-    async def request(self, topic: RealtimeTopic, response: RealtimeTopic,
-                      payload: Union[str, bytes, dict, ThriftObject], prefix: bytes = b""
-                      ) -> MQTTMessage:
+    async def request(
+        self,
+        topic: RealtimeTopic,
+        response: RealtimeTopic,
+        payload: str | bytes | dict | ThriftObject,
+        prefix: bytes = b"",
+    ) -> MQTTMessage:
         async with self._response_waiter_locks[response]:
             fut = asyncio.Future()
             self._response_waiters[response] = fut
@@ -434,26 +465,42 @@ class AndroidMQTT:
         rand = format(int(random.random() * 4294967295), "022b")[-22:]
         return int(f"{int(time.time() * 1000):b}{rand}", 2)
 
-    async def send_message(self, target: int, is_group: bool, message: str = "",
-                           offline_threading_id: Optional[int] = None, media_ids: List[int] = None,
-                           mentions: Optional[List[Mention]] = None, reply_to: Optional[str] = None
-                           ) -> SendMessageResponse:
+    async def send_message(
+        self,
+        target: int,
+        is_group: bool,
+        message: str = "",
+        offline_threading_id: int | None = None,
+        media_ids: list[int] = None,
+        mentions: list[Mention] | None = None,
+        reply_to: str | None = None,
+    ) -> SendMessageResponse:
         if not offline_threading_id:
             offline_threading_id = self.generate_offline_threading_id()
-        req = SendMessageRequest(chat_id=f"tfbid_{target}" if is_group else str(target),
-                                 message=message, offline_threading_id=offline_threading_id,
-                                 sender_id=self.state.session.uid, reply_to=reply_to,
-                                 media_ids=[str(i) for i in media_ids] if media_ids else None,
-                                 flags={"is_in_chatheads": "false",
-                                        "trigger": "2:thread_list:thread"},
-                                 tid2=self.generate_offline_threading_id())
+        req = SendMessageRequest(
+            chat_id=f"tfbid_{target}" if is_group else str(target),
+            message=message,
+            offline_threading_id=offline_threading_id,
+            sender_id=self.state.session.uid,
+            reply_to=reply_to,
+            media_ids=[str(i) for i in media_ids] if media_ids else None,
+            flags={"is_in_chatheads": "false", "trigger": "2:thread_list:thread"},
+            tid2=self.generate_offline_threading_id(),
+        )
         if mentions:
-            req.extra_metadata = {"prng": json.dumps([mention.serialize() for mention in mentions],
-                                                     separators=(',', ':'))}
+            req.extra_metadata = {
+                "prng": json.dumps(
+                    [mention.serialize() for mention in mentions], separators=(",", ":")
+                )
+            }
         await self.opened_thread(target)
         self.log.trace("Send message request: %s", req)
-        resp = await self.request(RealtimeTopic.SEND_MESSAGE, RealtimeTopic.SEND_MESSAGE_RESP, req,
-                                  prefix=b"\x18\x00\x00")
+        resp = await self.request(
+            RealtimeTopic.SEND_MESSAGE,
+            RealtimeTopic.SEND_MESSAGE_RESP,
+            req,
+            prefix=b"\x18\x00\x00",
+        )
         self.log.trace("Send message response: %s", repr(resp.payload))
         return SendMessageResponse.from_thrift(resp.payload)
 
@@ -466,8 +513,9 @@ class AndroidMQTT:
         # self.log.trace("Opened thread request: %s", req)
         # await self.publish(RealtimeTopic.OPENED_THREAD, req)
 
-    async def mark_read(self, target: int, is_group: bool, read_to: int,
-                        offline_threading_id: Optional[int] = None) -> None:
+    async def mark_read(
+        self, target: int, is_group: bool, read_to: int, offline_threading_id: int | None = None
+    ) -> None:
         if not offline_threading_id:
             offline_threading_id = self.generate_offline_threading_id()
         req = MarkReadRequest(read_to=read_to, offline_threading_id=offline_threading_id)
@@ -477,9 +525,12 @@ class AndroidMQTT:
             req.user_id = target
         await self.opened_thread(target)
         self.log.trace("Mark read request: %s", req)
-        resp = await self.request(RealtimeTopic.MARK_THREAD_READ,
-                                  RealtimeTopic.MARK_THREAD_READ_RESPONSE,
-                                  req, prefix=b"\x00")
+        resp = await self.request(
+            RealtimeTopic.MARK_THREAD_READ,
+            RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+            req,
+            prefix=b"\x00",
+        )
         self.log.trace("Mark read response: %s", repr(resp.payload))
 
     # endregion

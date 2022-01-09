@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from asyncpg import Connection
+
 from . import upgrade_table
 
 
@@ -21,22 +22,24 @@ from . import upgrade_table
 async def upgrade_v2(conn: Connection) -> None:
     await conn.execute("ALTER TABLE message RENAME TO message_v1")
     await conn.execute("DELETE FROM message_v1 WHERE fb_chat IS NULL")
-    await conn.execute("""CREATE TABLE message (
-        mxid        TEXT NOT NULL,
-        mx_room     TEXT NOT NULL,
-        fbid        TEXT,
-        fb_txn_id   BIGINT,
-        "index"     SMALLINT NOT NULL,
-        fb_chat     BIGINT NOT NULL,
-        fb_receiver BIGINT NOT NULL,
-        fb_sender   BIGINT NOT NULL,
-        timestamp   BIGINT NOT NULL,
-        FOREIGN KEY (fb_chat, fb_receiver) REFERENCES portal(fbid, fb_receiver)
-            ON UPDATE CASCADE ON DELETE CASCADE,
-        UNIQUE (mxid, mx_room),
-        UNIQUE (fbid, fb_receiver, "index"),
-        UNIQUE (fb_txn_id, fb_sender, fb_receiver, "index")
-    )""")
+    await conn.execute(
+        """CREATE TABLE message (
+            mxid        TEXT NOT NULL,
+            mx_room     TEXT NOT NULL,
+            fbid        TEXT,
+            fb_txn_id   BIGINT,
+            "index"     SMALLINT NOT NULL,
+            fb_chat     BIGINT NOT NULL,
+            fb_receiver BIGINT NOT NULL,
+            fb_sender   BIGINT NOT NULL,
+            timestamp   BIGINT NOT NULL,
+            FOREIGN KEY (fb_chat, fb_receiver) REFERENCES portal(fbid, fb_receiver)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            UNIQUE (mxid, mx_room),
+            UNIQUE (fbid, fb_receiver, "index"),
+            UNIQUE (fb_txn_id, fb_sender, fb_receiver, "index")
+        )"""
+    )
     await conn.execute(
         'INSERT INTO message (mxid, mx_room, fbid, "index", fb_chat, fb_receiver, fb_sender, '
         "                     timestamp) "

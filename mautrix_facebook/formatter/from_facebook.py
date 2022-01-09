@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,12 +13,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, List, Optional, Match, Union
+from __future__ import annotations
+
+from typing import Match
 from html import escape
 import re
 
-from mautrix.types import TextMessageEventContent, Format, MessageType
 from maufbapi.types import graphql, mqtt
+from mautrix.types import Format, MessageType, TextMessageEventContent
 
 from .. import puppet as pu, user as u
 
@@ -29,15 +31,10 @@ COMMON_REGEX = re.compile(rf"({_START})([_~*])({_TEXT_NO_SURROUNDING_SPACE})\2({
 INLINE_CODE_REGEX = re.compile(rf"({_START})(`)(.+?)`({_END})")
 MENTION_REGEX = re.compile(r"@([0-9]{1,15})\u2063(.+?)\u2063")
 
-tags = {
-    "_": "em",
-    "*": "strong",
-    "~": "del",
-    "`": "code"
-}
+tags = {"_": "em", "*": "strong", "~": "del", "`": "code"}
 
 
-def _handle_match(html: str, match: Match, nested: bool) -> Tuple[str, int]:
+def _handle_match(html: str, match: Match, nested: bool) -> tuple[str, int]:
     start, end = match.start(), match.end()
     prefix, sigil, text, suffix = match.groups()
     if nested:
@@ -46,9 +43,7 @@ def _handle_match(html: str, match: Match, nested: bool) -> Tuple[str, int]:
     # We don't want to include the whitespace suffix length, as that could be used as the
     # whitespace prefix right after this formatting block.
     pos = start + len(prefix) + (2 * len(tag) + 5) + len(text)
-    html = (f"{html[:start]}{prefix}"
-            f"<{tag}>{text}</{tag}>"
-            f"{suffix}{html[end:]}")
+    html = f"{html[:start]}{prefix}<{tag}>{text}</{tag}>{suffix}{html[end:]}"
     return html, pos
 
 
@@ -69,14 +64,14 @@ def _convert_formatting(html: str) -> str:
     return html
 
 
-def _handle_blockquote(output: List[str], blockquote: bool, line: str) -> Tuple[bool, str]:
+def _handle_blockquote(output: list[str], blockquote: bool, line: str) -> tuple[bool, str]:
     if not blockquote and line.startswith("&gt; "):
-        line = line[len("&gt; "):]
+        line = line[len("&gt; ") :]
         output.append("<blockquote>")
         blockquote = True
     elif blockquote:
         if line.startswith("&gt;"):
-            line = line[len("&gt;"):]
+            line = line[len("&gt;") :]
             if line.startswith(" "):
                 line = line[1:]
         else:
@@ -85,22 +80,20 @@ def _handle_blockquote(output: List[str], blockquote: bool, line: str) -> Tuple[
     return blockquote, line
 
 
-OptStr = Optional[str]
-
-
-def _handle_codeblock_pre(output: List[str], codeblock: bool, line: str
-                          ) -> Tuple[bool, str, Tuple[OptStr, OptStr, OptStr]]:
+def _handle_codeblock_pre(
+    output: list[str], codeblock: bool, line: str
+) -> tuple[bool, str, tuple[str | None, str | None, str | None]]:
     cb = line.find("```")
     cb_lang = None
     cb_content = None
     post_cb_content = None
     if cb != -1:
         if not codeblock:
-            cb_lang = line[cb + 3:]
+            cb_lang = line[cb + 3 :]
             if "```" in cb_lang:
                 end = cb_lang.index("```")
                 cb_content = cb_lang[:end]
-                post_cb_content = cb_lang[end + 3:]
+                post_cb_content = cb_lang[end + 3 :]
                 cb_lang = ""
             else:
                 codeblock = True
@@ -108,24 +101,25 @@ def _handle_codeblock_pre(output: List[str], codeblock: bool, line: str
         else:
             output.append("</code></pre>")
             codeblock = False
-            line = line[cb + 3:]
+            line = line[cb + 3 :]
     return codeblock, line, (cb_lang, cb_content, post_cb_content)
 
 
-def _handle_codeblock_post(output: List[str], cb_lang: OptStr, cb_content: OptStr,
-                           post_cb_content: OptStr) -> None:
+def _handle_codeblock_post(
+    output: list[str], cb_lang: str | None, cb_content: str | None, post_cb_content: str | None
+) -> None:
     if cb_lang is not None:
         if cb_lang:
             output.append("<pre><code>")
         else:
-            output.append(f"<pre><code class=\"{cb_lang}\">")
+            output.append(f'<pre><code class="{cb_lang}">')
         if cb_content:
             output.append(cb_content)
             output.append("</code></pre>")
             output.append(_convert_formatting(post_cb_content))
 
 
-async def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> TextMessageEventContent:
+async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMessageEventContent:
     if isinstance(msg, mqtt.Message):
         text = msg.text
         mentions = msg.mentions
@@ -138,7 +132,7 @@ async def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> T
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
     mention_user_ids = []
     for m in reversed(mentions):
-        original = text[m.offset:m.offset + m.length]
+        original = text[m.offset : m.offset + m.length]
         if len(original) > 0 and original[0] == "@":
             original = original[1:]
         mention_user_ids.append(int(m.user_id))
@@ -172,7 +166,7 @@ async def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> T
         mxid = mention_user_map[int(match.group(1))]
         if not mxid:
             return match.group(2)
-        return f"<a href=\"https://matrix.to/#/{mxid}\">{match.group(2)}</a>"
+        return f'<a href="https://matrix.to/#/{mxid}">{match.group(2)}</a>'
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
     if html != escape(content.body).replace("\n", "<br/>"):

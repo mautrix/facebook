@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,23 +13,25 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, Any
+from __future__ import annotations
+
+from typing import Any
 import asyncio
 import logging
 import time
 
-from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
+from mautrix.types import RoomID, UserID
 
 from .config import Config
-from .db import upgrade_table, init as init_db
-from .user import User
+from .db import init as init_db, upgrade_table
+from .matrix import MatrixHandler
 from .portal import Portal
 from .puppet import Puppet
-from .matrix import MatrixHandler
-from .version import version, linkified_version
-from .web import PublicBridgeWebsite
+from .user import User
 from .util.interval import get_interval
+from .version import linkified_version, version
+from .web import PublicBridgeWebsite
 
 
 class MessengerBridge(Bridge):
@@ -46,7 +48,7 @@ class MessengerBridge(Bridge):
 
     config: Config
     matrix: MatrixHandler
-    public_website: Optional[PublicBridgeWebsite]
+    public_website: PublicBridgeWebsite | None
 
     periodic_reconnect_task: asyncio.Task
 
@@ -59,8 +61,9 @@ class MessengerBridge(Bridge):
         if self.config["appservice.public.enabled"]:
             secret = self.config["appservice.public.shared_secret"]
             self.public_website = PublicBridgeWebsite(loop=self.loop, shared_secret=secret)
-            self.az.app.add_subapp(self.config["appservice.public.prefix"],
-                                   self.public_website.app)
+            self.az.app.add_subapp(
+                self.config["appservice.public.prefix"], self.public_website.app
+            )
         else:
             self.public_website = None
 
@@ -162,7 +165,7 @@ class MessengerBridge(Bridge):
     async def count_logged_in_users(self) -> int:
         return len([user for user in User.by_fbid.values() if user.fbid])
 
-    async def manhole_global_namespace(self, user_id: UserID) -> Dict[str, Any]:
+    async def manhole_global_namespace(self, user_id: UserID) -> dict[str, Any]:
         return {
             **await super().manhole_global_namespace(user_id),
             "User": User,

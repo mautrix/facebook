@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,16 +13,17 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Union
-from enum import Enum
-import pkgutil
-import json
+from __future__ import annotations
 
-_raw_topic_map: Dict[str, int] = json.loads(pkgutil.get_data("maufbapi.mqtt", "topics.json"))
+from enum import Enum
+import json
+import pkgutil
+
+_raw_topic_map: dict[str, int] = json.loads(pkgutil.get_data("maufbapi.mqtt", "topics.json"))
 # Mapping from name to numeric ID
-topic_map: Dict[str, str] = {key: str(value) for key, value in _raw_topic_map.items()}
+topic_map: dict[str, str] = {key: str(value) for key, value in _raw_topic_map.items()}
 # Mapping from numeric ID to name
-_reverse_topic_map: Dict[str, str] = {value: key for key, value in topic_map.items()}
+_reverse_topic_map: dict[str, str] = {value: key for key, value in topic_map.items()}
 
 
 class RealtimeTopic(Enum):
@@ -40,7 +41,7 @@ class RealtimeTopic(Enum):
         return topic_map[self.value]
 
     @staticmethod
-    def decode(val: str) -> Union['RealtimeTopic', str]:
+    def decode(val: str) -> RealtimeTopic | str:
         topic = _reverse_topic_map[val]
         try:
             return RealtimeTopic(topic)

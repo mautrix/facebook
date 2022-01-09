@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,11 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Any, Optional
+from __future__ import annotations
+
+from typing import Any
 
 
 class ResponseError(Exception):
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
         user_message = data.get("error_user_msg")
         if user_message:
@@ -42,10 +44,10 @@ class TwoFactorRequired(OAuthException):
     user_message: str
     login_first_factor: str
     auth_token: str
-    machine_id: Optional[str]
+    machine_id: str | None
     uid: int
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         super().__init__(data)
         tfa_data = data["error_data"]
         self.login_first_factor = tfa_data["login_first_factor"]

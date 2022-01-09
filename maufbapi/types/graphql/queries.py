@@ -13,13 +13,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, List, ClassVar
+from typing import ClassVar, List, Optional
 from abc import ABC
 
 from attr import dataclass
 import attr
 
 from mautrix.types import Serializable, SerializableAttrs, SerializableEnum
+
 from ..common import ThreadFolder
 
 

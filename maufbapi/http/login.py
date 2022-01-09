@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,24 +13,25 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict
+from __future__ import annotations
+
 import base64
+import io
 import struct
 import time
-import io
 
+from Crypto.Cipher import AES, PKCS1_v1_5
 from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_v1_5, AES
 from Crypto.Random import get_random_bytes
 
+from ..types import LoginResponse, MobileConfig, PasswordKeyResponse
 from .base import BaseAndroidAPI
 from .errors import TwoFactorRequired
-from ..types import LoginResponse, PasswordKeyResponse, MobileConfig
 
 
 class LoginAPI(BaseAndroidAPI):
     async def pwd_key_fetch(self) -> PasswordKeyResponse:
-        req_data = self.format({
+        req = {
             "version": "2",
             "flow": "CONTROLLER_INITIALIZATION",
             **self._params,
@@ -38,9 +39,11 @@ class LoginAPI(BaseAndroidAPI):
             "fb_api_req_friendly_name": "pwdKeyFetch",
             "fb_api_caller_class": "com.facebook.auth.login.AuthOperations",
             "access_token": self.state.application.access_token,
-        }, sign=False)
-        resp = await self.http.post(self.graph_url.with_path("//pwd_key_fetch"),
-                                    headers=self._headers, data=req_data)
+        }
+        req_data = self.format(req, sign=False)
+        resp = await self.http.post(
+            self.graph_url.with_path("//pwd_key_fetch"), headers=self._headers, data=req_data
+        )
         json_data = await self._handle_response(resp)
         parsed = PasswordKeyResponse.deserialize(json_data)
         self.state.session.password_encryption_pubkey = parsed.public_key
@@ -48,7 +51,7 @@ class LoginAPI(BaseAndroidAPI):
         return parsed
 
     async def mobile_config_sessionless(self) -> MobileConfig:
-        req_data = self.format({
+        req = {
             "query_hash": "99dc08ed06c105f048909c5362852a32e9431903f022e363940d992fc0095eb9",
             "one_query_hash": "332c0a0c1ce322b99ddbc74da22f3bebcc45267c0da75e4adf3782ed9cd6cb0b",
             "bool_opt_policy": "3",
@@ -58,47 +61,59 @@ class LoginAPI(BaseAndroidAPI):
             "unit_type": "1",
             "access_token": self.state.application.access_token,
             **self._params,
-        }, sign=False)
+        }
+        req_data = self.format(req, sign=False)
         headers = {**self._headers}
         headers.pop("x-fb-rmd", None)
-        resp = await self.http.post(self.b_graph_url / "mobileconfigsessionless",
-                                    headers=headers, data=req_data)
+        resp = await self.http.post(
+            self.b_graph_url / "mobileconfigsessionless", headers=headers, data=req_data
+        )
         json_data = await self._handle_response(resp)
         parsed = MobileConfig.deserialize(json_data)
         self.state.session.password_encryption_key_id = parsed.find(15712, 1).i64
         self.state.session.password_encryption_pubkey = parsed.find(15712, 2).str
         return parsed
 
-    async def login(self, email: str, password: Optional[str] = None,
-                    encrypted_password: Optional[str] = None) -> LoginResponse:
+    async def login(
+        self, email: str, password: str | None = None, encrypted_password: str | None = None
+    ) -> LoginResponse:
         if password:
             if encrypted_password:
                 raise ValueError("Only one of password or encrypted_password must be provided")
             encrypted_password = self._encrypt_password(password)
         elif not encrypted_password:
             raise ValueError("One of password or encrypted_password is required")
-        return await self._login(email=email, password=encrypted_password,
-                                 credentials_type="password")
+        return await self._login(
+            email=email, password=encrypted_password, credentials_type="password"
+        )
 
     async def login_2fa(self, email: str, code: str) -> LoginResponse:
         if not self.state.session.login_first_factor:
             raise ValueError("No two-factor login in progress")
-        return await self._login(email=email, password=code, twofactor_code=code,
-                                 encrypted_msisdn="", currently_logged_in_userid="0",
-                                 userid=str(self.state.session.uid),
-                                 machine_id=self.state.session.machine_id,
-                                 first_factor=self.state.session.login_first_factor,
-                                 credentials_type="two_factor")
+        return await self._login(
+            email=email,
+            password=code,
+            twofactor_code=code,
+            encrypted_msisdn="",
+            currently_logged_in_userid="0",
+            userid=str(self.state.session.uid),
+            machine_id=self.state.session.machine_id,
+            first_factor=self.state.session.login_first_factor,
+            credentials_type="two_factor",
+        )
 
     async def login_approved(self) -> LoginResponse:
         if not self.state.session.transient_auth_token:
             raise ValueError("No two-factor login in progress")
-        return await self._login(password=self.state.session.transient_auth_token,
-                                 email=str(self.state.session.uid), encrypted_msisdn="",
-                                 credentials_type="transient_token")
+        return await self._login(
+            password=self.state.session.transient_auth_token,
+            email=str(self.state.session.uid),
+            encrypted_msisdn="",
+            credentials_type="transient_token",
+        )
 
     async def check_approved_machine(self) -> bool:
-        req: Dict[str, str] = {
+        req: dict[str, str] = {
             "u": str(self.state.session.uid),
             "m": self.state.session.machine_id,
             **self._params,
@@ -112,13 +127,14 @@ class LoginAPI(BaseAndroidAPI):
             "content-type": "application/x-www-form-urlencoded",
             "x-fb-friendly-name": req["fb_api_req_friendly_name"],
         }
-        resp = await self.http.post(url=self.graph_url / "check_approved_machine",
-                                    headers=headers, data=req)
+        resp = await self.http.post(
+            url=self.graph_url / "check_approved_machine", headers=headers, data=req
+        )
         json_data = await self._handle_response(resp)
         return json_data["data"][0]["approved"]
 
     async def _login(self, **kwargs) -> LoginResponse:
-        req: Dict[str, str] = {
+        req: dict[str, str] = {
             **self._params,
             "adid": self.state.device.adid,
             "api_key": self.state.application.client_id,
@@ -146,8 +162,9 @@ class LoginAPI(BaseAndroidAPI):
             "x-fb-friendly-name": req["fb_api_req_friendly_name"],
         }
         headers.pop("x-fb-rmd", None)
-        resp = await self.http.post(url=self.b_graph_url / "auth" / "login",
-                                    headers=headers, data=req_data)
+        resp = await self.http.post(
+            url=self.b_graph_url / "auth" / "login", headers=headers, data=req_data
+        )
         self.log.trace(f"Login response: {resp.status} {await resp.text()}")
         try:
             json_data = await self._handle_response(resp)

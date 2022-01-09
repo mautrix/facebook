@@ -18,32 +18,39 @@ import time
 
 from yarl import URL
 
-from mautrix.client import Client
-from mautrix.errors import MForbidden
+from maufbapi import AndroidAPI, AndroidState
+from maufbapi.http import IncorrectPassword, OAuthException, TwoFactorRequired
 from mautrix.bridge.commands import HelpSection, command_handler
-from mautrix.bridge import custom_puppet as cpu
+from mautrix.errors import MForbidden
 from mautrix.util.signed_token import sign_token
-
-from maufbapi import AndroidState, AndroidAPI
-from maufbapi.http import TwoFactorRequired, OAuthException, IncorrectPassword
 
 from .. import puppet as pu
 from .typehint import CommandEvent
 
 SECTION_AUTH = HelpSection("Authentication", 10, "")
 
-web_unsupported = ("This instance of the Facebook bridge does not support "
-                   "the web-based login interface")
-alternative_web_login = ("Alternatively, you may use [the web-based login interface]({url}) "
-                         "to prevent the bridge and homeserver from seeing your password")
-forced_web_login = ("This instance of the Facebook bridge does not allow in-Matrix login. "
-                    "Please use [the web-based login interface]({url}).")
+web_unsupported = (
+    "This instance of the Facebook bridge does not support the web-based login interface"
+)
+alternative_web_login = (
+    "Alternatively, you may use [the web-based login interface]({url}) "
+    "to prevent the bridge and homeserver from seeing your password"
+)
+forced_web_login = (
+    "This instance of the Facebook bridge does not allow in-Matrix login. "
+    "Please use [the web-based login interface]({url})."
+)
 send_password = "Please send your password here to log in"
 missing_email = "Please use `$cmdprefix+sp login <email>` to log in here"
 
 
-@command_handler(needs_auth=False, management_only=True, help_section=SECTION_AUTH,
-                 help_text="Log in to Facebook", help_args="[_email_]")
+@command_handler(
+    needs_auth=False,
+    management_only=True,
+    help_section=SECTION_AUTH,
+    help_text="Log in to Facebook",
+    help_args="[_email_]",
+)
 async def login(evt: CommandEvent) -> None:
     if evt.sender.client:
         await evt.reply("You're already logged in")
@@ -61,10 +68,13 @@ async def login(evt: CommandEvent) -> None:
 
     if evt.bridge.public_website:
         external_url = URL(evt.config["appservice.public.external"])
-        token = sign_token(evt.bridge.public_website.secret_key, {
-            "mxid": evt.sender.mxid,
-            "expiry": int(time.time()) + 30 * 60,
-        })
+        token = sign_token(
+            evt.bridge.public_website.secret_key,
+            {
+                "mxid": evt.sender.mxid,
+                "expiry": int(time.time()) + 30 * 60,
+            },
+        )
         url = (external_url / "login.html").with_fragment(token)
         if not evt.config["appservice.public.allow_matrix_login"]:
             await evt.reply(forced_web_login.format(url=url))
@@ -97,9 +107,11 @@ async def enter_password(evt: CommandEvent) -> None:
         evt.sender.command_status = None
         await evt.reply("Successfully logged in")
     except TwoFactorRequired:
-        await evt.reply("You have two-factor authentication turned on. Please either send the code"
-                        " from SMS or your authenticator app here, or approve the login from"
-                        " another device logged into Messenger.")
+        await evt.reply(
+            "You have two-factor authentication turned on. Please either send the code from SMS "
+            "or your authenticator app here, or approve the login from another device logged into "
+            "Messenger."
+        )
         checker_task = asyncio.create_task(check_approved_login(state, api, evt))
         evt.sender.command_status = {
             "action": "Login",
@@ -133,8 +145,10 @@ async def check_approved_login(state: AndroidState, api: AndroidAPI, evt: Comman
             try:
                 await api.login_approved()
             except TwoFactorRequired:
-                await evt.reply("Login approved from another device, but Facebook decided that "
-                                "you need to enter the 2FA code anyway.")
+                await evt.reply(
+                    "Login approved from another device, but Facebook decided that you need to "
+                    "enter the 2FA code anyway."
+                )
                 evt.sender.command_status = prev_cmd_status
                 return
             await evt.sender.on_logged_in(state)

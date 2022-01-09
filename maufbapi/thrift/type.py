@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,8 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import NamedTuple, Type, Optional, Any
+from __future__ import annotations
+
+from typing import Any, NamedTuple, Type, TypeVar
 from enum import IntEnum
+
+from .. import thrift
 
 
 class TType(IntEnum):
@@ -23,6 +27,7 @@ class TType(IntEnum):
 
     https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md#struct-encoding
     """
+
     STOP = 0
     TRUE = 1
     FALSE = 2
@@ -40,13 +45,35 @@ class TType(IntEnum):
     FLOAT = 13
 
     # Used internally to represent booleans in schemas.
-    BOOL = 0xa1
+    BOOL = 0xA1
 
 
 class RecursiveType(NamedTuple):
     """A type container that can exactly specify the expected types for nested lists/maps."""
+
     type: TType
-    python_type: Optional[Type[Any]] = None
-    item_type: Optional['RecursiveType'] = None
-    key_type: Optional['RecursiveType'] = None
-    value_type: Optional['RecursiveType'] = None
+    python_type: Type[Any] | None = None
+    item_type: RecursiveType | None = None
+    key_type: RecursiveType | None = None
+    value_type: RecursiveType | None = None
+
+
+T = TypeVar("T")
+
+
+class ThriftField(NamedTuple):
+    name: str
+    rtype: RecursiveType
+
+
+class ThriftObject:
+    thrift_spec: dict[int, ThriftField]
+
+    def to_thrift(self) -> bytes:
+        buf = thrift.ThriftWriter()
+        buf.write_struct(self)
+        return buf.getvalue()
+
+    @classmethod
+    def from_thrift(cls: Type[T], data: bytes) -> T:
+        return thrift.ThriftReader(data).read_struct(cls)

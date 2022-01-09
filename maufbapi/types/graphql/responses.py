@@ -13,14 +13,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, List, Dict, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
-from yarl import URL
 from attr import dataclass
+from yarl import URL
 import attr
 
-from mautrix.types import ExtensibleEnum, SerializableAttrs, JSON, Obj, deserializer, field
-from ..common import ThreadFolder, MessageUnsendability
+from mautrix.types import JSON, ExtensibleEnum, Obj, SerializableAttrs, deserializer, field
+
+from ..common import MessageUnsendability, ThreadFolder
 
 
 @dataclass
@@ -80,7 +81,7 @@ class StructuredName(SerializableAttrs):
 
     def to_dict(self) -> Dict[str, str]:
         return {
-            f"{part.part.value}_name": self.text[part.offset:part.offset + part.length]
+            f"{part.part.value}_name": self.text[part.offset : part.offset + part.length]
             for part in self.parts
         }
 
@@ -273,8 +274,9 @@ class Attachment(SerializableAttrs):
 
     # For video files
     video_type: Optional[VideoType] = None
-    streaming_image_thumbnail: Optional[Picture] = attr.ib(default=None, metadata={
-        "json": "streamingImageThumbnail"})
+    streaming_image_thumbnail: Optional[Picture] = attr.ib(
+        default=None, metadata={"json": "streamingImageThumbnail"}
+    )
     video_filesize: Optional[int] = None
     attachment_video_url: Optional[str] = None
 
@@ -342,8 +344,9 @@ class StoryMediaAttachment(SerializableAttrs):
     title: Optional[ExtensibleText] = None
     image: Optional[Picture] = None
     image_natural: Optional[Picture] = attr.ib(default=None, metadata={"json": "imageNatural"})
-    image_fullscreen: Optional[Picture] = attr.ib(default=None,
-                                                  metadata={"json": "imageFullScreen"})
+    image_fullscreen: Optional[Picture] = attr.ib(
+        default=None, metadata={"json": "imageFullScreen"}
+    )
     image_large: Optional[Picture] = attr.ib(default=None, metadata={"json": "imageLarge"})
     playable_url: Optional[str] = None
     is_looping: bool = False

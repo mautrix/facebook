@@ -8,5 +8,5 @@ if TYPE_CHECKING:
 
 
 class CommandEvent(BaseCommandEvent):
-    bridge: 'MessengerBridge'
-    sender: 'User'
+    bridge: "MessengerBridge"
+    sender: "User"

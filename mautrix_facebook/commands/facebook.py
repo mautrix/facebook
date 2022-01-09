@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,10 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from __future__ import annotations
+
 import asyncio
 
-from mautrix.bridge.commands import HelpSection, command_handler
 from maufbapi.types import graphql
+from mautrix.bridge.commands import HelpSection, command_handler
 
 from .. import puppet as pu, user as u
 from .typehint import CommandEvent
@@ -24,23 +26,32 @@ from .typehint import CommandEvent
 SECTION_MISC = HelpSection("Miscellaneous", 40, "")
 
 
-async def _get_search_result_puppet(source: 'u.User', node: graphql.Participant) -> 'pu.Puppet':
+async def _get_search_result_puppet(source: u.User, node: graphql.Participant) -> pu.Puppet:
     puppet = await pu.Puppet.get_by_fbid(node.id)
     if not puppet.name_set:
         await puppet.update_info(source, node)
     return puppet
 
 
-@command_handler(needs_auth=True, management_only=False,
-                 help_section=SECTION_MISC, help_text="Search for a Facebook user",
-                 help_args="<_search query_>")
+@command_handler(
+    needs_auth=True,
+    management_only=False,
+    help_section=SECTION_MISC,
+    help_text="Search for a Facebook user",
+    help_args="<_search query_>",
+)
 async def search(evt: CommandEvent) -> None:
     resp = await evt.sender.client.search(" ".join(evt.args))
-    puppets = await asyncio.gather(*[_get_search_result_puppet(evt.sender, edge.node)
-                                     for edge in resp.search_results.edges
-                                     if isinstance(edge.node, graphql.Participant)])
-    results = "".join(f"* [{puppet.name}](https://matrix.to/#/{puppet.default_mxid})\n"
-                      for puppet in puppets)
+    puppets = await asyncio.gather(
+        *[
+            _get_search_result_puppet(evt.sender, edge.node)
+            for edge in resp.search_results.edges
+            if isinstance(edge.node, graphql.Participant)
+        ]
+    )
+    results = "".join(
+        f"* [{puppet.name}](https://matrix.to/#/{puppet.default_mxid})\n" for puppet in puppets
+    )
     if results:
         await evt.reply(f"Search results:\n\n{results}")
     else:

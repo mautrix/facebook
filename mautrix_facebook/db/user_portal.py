@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,7 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Optional, TYPE_CHECKING, ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar
 
 from asyncpg import Record
 from attr import dataclass
@@ -33,44 +35,54 @@ class UserPortal:
     in_community: bool
 
     @classmethod
-    def _from_row(cls, row: Optional[Record]) -> Optional['UserPortal']:
+    def _from_row(cls, row: Record | None) -> UserPortal | None:
         if row is None:
             return None
         return cls(**row)
 
     @classmethod
-    async def all(cls, user: int) -> Dict[int, 'UserPortal']:
-        q = ('SELECT "user", portal, portal_receiver, in_community FROM user_portal '
-             'WHERE "user"=$1')
+    async def all(cls, user: int) -> dict[int, UserPortal]:
+        q = (
+            'SELECT "user", portal, portal_receiver, in_community FROM user_portal '
+            'WHERE "user"=$1'
+        )
         rows = await cls.db.fetch(q, user)
         return {up.portal: up for up in (cls._from_row(row) for row in rows)}
 
     @classmethod
-    async def get(cls, user: int, portal: int, portal_receiver: int) -> Optional['UserPortal']:
-        q = ('SELECT "user", portal, portal_receiver, in_community FROM user_portal '
-             'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3')
+    async def get(cls, user: int, portal: int, portal_receiver: int) -> UserPortal | None:
+        q = (
+            'SELECT "user", portal, portal_receiver, in_community FROM user_portal '
+            'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3'
+        )
         row = await cls.db.fetchrow(q, user, portal, portal_receiver)
         return cls._from_row(row)
 
     async def insert(self) -> None:
-        q = ('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
-             "VALUES ($1, $2, $3, $4)")
+        q = (
+            'INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
+            "VALUES ($1, $2, $3, $4)"
+        )
         await self.db.execute(q, self.user, self.portal, self.portal_receiver, self.in_community)
 
     async def upsert(self) -> None:
-        q = ('INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
-             'VALUES ($1, $2, $3, $4) '
-             'ON CONFLICT ("user", portal, portal_receiver) DO UPDATE SET in_community=$4')
+        q = (
+            'INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
+            "VALUES ($1, $2, $3, $4) "
+            'ON CONFLICT ("user", portal, portal_receiver) DO UPDATE SET in_community=$4'
+        )
         await self.db.execute(q, self.user, self.portal, self.portal_receiver, self.in_community)
 
     async def delete(self) -> None:
-        await self.db.execute('DELETE FROM user_portal '
-                              'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3', self.user)
+        q = 'DELETE FROM user_portal WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3'
+        await self.db.execute(q, self.user)
 
     async def save(self) -> None:
-        await self.db.execute('UPDATE user_portal SET in_community=$1 '
-                              'WHERE "user"=$2 AND portal=$3 AND portal_receiver=$4',
-                              self.in_community, self.user, self.portal, self.portal_receiver)
+        q = (
+            "UPDATE user_portal SET in_community=$1 "
+            'WHERE "user"=$2 AND portal=$3 AND portal_receiver=$4'
+        )
+        await self.db.execute(q, self.in_community, self.user, self.portal, self.portal_receiver)
 
     @classmethod
     async def delete_all(cls, user: int) -> None:

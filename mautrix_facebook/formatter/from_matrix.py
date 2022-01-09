@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,13 +13,20 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import cast, NamedTuple, List
+from __future__ import annotations
 
-from mautrix.types import MessageEventContent, Format, RoomID, RelationType
-from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
-                                    SimpleEntity, EntityType)
-from mautrix.util.logging import TraceLogger
+from typing import NamedTuple
+
 from maufbapi.types.mqtt import Mention
+from mautrix.types import Format, MessageEventContent, RelationType, RoomID
+from mautrix.util.formatter import (
+    EntityString,
+    EntityType,
+    MarkdownString,
+    MatrixParser as BaseMatrixParser,
+    SimpleEntity,
+)
+from mautrix.util.logging import TraceLogger
 
 from .. import puppet as pu, user as u
 from ..db import Message as DBMessage
@@ -27,16 +34,22 @@ from ..db import Message as DBMessage
 
 class SendParams(NamedTuple):
     text: str
-    mentions: List[Mention]
+    mentions: list[Mention]
     reply_to: str
 
 
 class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownString):
-    def format(self, entity_type: EntityType, **kwargs) -> 'FacebookFormatString':
+    def format(self, entity_type: EntityType, **kwargs) -> FacebookFormatString:
         prefix = suffix = ""
         if entity_type == EntityType.USER_MENTION:
-            self.entities.append(SimpleEntity(type=entity_type, offset=0, length=len(self.text),
-                                              extra_info={"user_id": kwargs["user_id"]}))
+            self.entities.append(
+                SimpleEntity(
+                    type=entity_type,
+                    offset=0,
+                    length=len(self.text),
+                    extra_info={"user_id": kwargs["user_id"]},
+                )
+            )
             return self
         elif entity_type == EntityType.BOLD:
             prefix = suffix = "*"
@@ -45,7 +58,7 @@ class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownStrin
         elif entity_type == EntityType.STRIKETHROUGH:
             prefix = suffix = "~"
         elif entity_type == EntityType.URL:
-            if kwargs['url'] != self.text:
+            if kwargs["url"] != self.text:
                 suffix = f" ({kwargs['url']})"
         elif entity_type == EntityType.PREFORMATTED:
             prefix = f"```{kwargs['language']}\n"
@@ -69,12 +82,10 @@ class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownStrin
 class MatrixParser(BaseMatrixParser[FacebookFormatString]):
     fs = FacebookFormatString
 
-    async def parse(self, data: str) -> FacebookFormatString:
-        return cast(FacebookFormatString, await super().parse(data))
 
-
-async def matrix_to_facebook(content: MessageEventContent, room_id: RoomID, log: TraceLogger
-                             ) -> SendParams:
+async def matrix_to_facebook(
+    content: MessageEventContent, room_id: RoomID, log: TraceLogger
+) -> SendParams:
     mentions = []
     reply_to = None
     if content.relates_to.rel_type == RelationType.REPLY:
@@ -83,8 +94,10 @@ async def matrix_to_facebook(content: MessageEventContent, room_id: RoomID, log:
             content.trim_reply_fallback()
             reply_to = message.fbid
         else:
-            log.warning(f"Couldn't find reply target {content.relates_to.event_id}"
-                        " to bridge text message reply metadata to Facebook")
+            log.warning(
+                f"Couldn't find reply target {content.relates_to.event_id}"
+                " to bridge text message reply metadata to Facebook"
+            )
     if content.get("format", None) == Format.HTML and content["formatted_body"]:
         parsed = await MatrixParser().parse(content["formatted_body"])
         text = parsed.text
@@ -100,8 +113,9 @@ async def matrix_to_facebook(content: MessageEventContent, room_id: RoomID, log:
                     fbid = puppet.fbid
                 else:
                     continue
-            mentions.append(Mention(user_id=str(fbid), offset=mention.offset,
-                                    length=mention.length))
+            mentions.append(
+                Mention(user_id=str(fbid), offset=mention.offset, length=mention.length)
+            )
     else:
         text = content.body
     return SendParams(text=text, mentions=mentions, reply_to=reply_to)

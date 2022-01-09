@@ -17,7 +17,7 @@ from typing import Dict, List
 
 from attr import dataclass
 
-from maufbapi.thrift import TType, ThriftObject, field, autospec
+from maufbapi.thrift import ThriftObject, TType, autospec, field
 
 
 @autospec

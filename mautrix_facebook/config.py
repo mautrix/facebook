@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,12 +13,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Tuple, List
+from __future__ import annotations
+
+from typing import Any
 import os
 
+from mautrix.bridge.config import BaseBridgeConfig
 from mautrix.types import UserID
 from mautrix.util.config import ConfigUpdateHelper, ForbiddenDefault, ForbiddenKey
-from mautrix.bridge.config import BaseBridgeConfig
 
 
 class Config(BaseBridgeConfig):
@@ -29,13 +31,16 @@ class Config(BaseBridgeConfig):
             return super().__getitem__(key)
 
     @property
-    def forbidden_defaults(self) -> List[ForbiddenDefault]:
+    def forbidden_defaults(self) -> list[ForbiddenDefault]:
         return [
             *super().forbidden_defaults,
             ForbiddenDefault("appservice.database", "postgres://username:password@hostname/db"),
-            ForbiddenDefault("appservice.public.external", "https://example.com/public",
-                             condition="appservice.public.enabled"),
-            ForbiddenDefault("bridge.permissions", ForbiddenKey("example.com"))
+            ForbiddenDefault(
+                "appservice.public.external",
+                "https://example.com/public",
+                condition="appservice.public.enabled",
+            ),
+            ForbiddenDefault("bridge.permissions", ForbiddenKey("example.com")),
         ]
 
     def do_update(self, helper: ConfigUpdateHelper) -> None:
@@ -106,7 +111,9 @@ class Config(BaseBridgeConfig):
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")
         if "bridge.refresh_on_reconnection_fail" in self:
-            base["bridge.on_reconnection_fail.refresh"] = self["bridge.refresh_on_reconnection_fail"]
+            base["bridge.on_reconnection_fail.refresh"] = self[
+                "bridge.refresh_on_reconnection_fail"
+            ]
             base["bridge.on_reconnection_fail.wait_for"] = 0
         else:
             copy("bridge.on_reconnection_fail.refresh")
@@ -118,24 +125,27 @@ class Config(BaseBridgeConfig):
 
         copy_dict("bridge.permissions")
 
-        for key in ("bridge.periodic_reconnect.interval", "bridge.on_reconnection_fail.wait_for"):
+        for key in (
+            "bridge.periodic_reconnect.interval",
+            "bridge.on_reconnection_fail.wait_for",
+        ):
             value = base.get(key, None)
             if isinstance(value, list) and len(value) != 2:
                 raise ValueError(f"{key} must only be a list of two items")
 
-    def _get_permissions(self, key: str) -> Tuple[bool, bool, bool, str]:
+    def _get_permissions(self, key: str) -> tuple[bool, bool, bool, str]:
         level = self["bridge.permissions"].get(key, "")
         admin = level == "admin"
         user = level == "user" or admin
         relay = level == "relay" or user
         return relay, user, admin, level
 
-    def get_permissions(self, mxid: UserID) -> Tuple[bool, bool, bool, str]:
+    def get_permissions(self, mxid: UserID) -> tuple[bool, bool, bool, str]:
         permissions = self["bridge.permissions"] or {}
         if mxid in permissions:
             return self._get_permissions(mxid)
 
-        homeserver = mxid[mxid.index(":") + 1:]
+        homeserver = mxid[mxid.index(":") + 1 :]
         if homeserver in permissions:
             return self._get_permissions(homeserver)
 

@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,23 +13,24 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import (Optional, Dict, AsyncGenerator, AsyncIterable, Awaitable, Union, TYPE_CHECKING,
-                    cast)
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, cast
 from datetime import datetime, timedelta
 import asyncio
 
 from yarl import URL
 import magic
 
-from mautrix.types import UserID, RoomID, SyncToken, ContentURI
+from maufbapi.types.graphql import Participant, Picture
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet, async_getter_lock
+from mautrix.types import ContentURI, RoomID, SyncToken, UserID
 from mautrix.util.simple_template import SimpleTemplate
-from maufbapi.types.graphql import Participant, Picture
 
+from . import matrix as m, portal as p, user as u
 from .config import Config
 from .db import Puppet as DBPuppet
-from . import user as u, portal as p, matrix as m
 
 if TYPE_CHECKING:
     from .__main__ import MessengerBridge
@@ -41,18 +42,38 @@ class Puppet(DBPuppet, BasePuppet):
     hs_domain: str
     mxid_template: SimpleTemplate[int]
 
-    by_fbid: Dict[int, 'Puppet'] = {}
-    by_custom_mxid: Dict[UserID, 'Puppet'] = {}
+    by_fbid: dict[int, Puppet] = {}
+    by_custom_mxid: dict[UserID, Puppet] = {}
 
-    _last_info_sync: Optional[datetime]
+    _last_info_sync: datetime | None
 
-    def __init__(self, fbid: int, name: Optional[str] = None, photo_id: Optional[str] = None,
-                 photo_mxc: Optional[ContentURI] = None, name_set: bool = False,
-                 avatar_set: bool = False, is_registered: bool = False,
-                 custom_mxid: Optional[UserID] = None, access_token: Optional[str] = None,
-                 next_batch: Optional[SyncToken] = None, base_url: Optional[URL] = None) -> None:
-        super().__init__(fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered,
-                         custom_mxid, access_token, next_batch, base_url)
+    def __init__(
+        self,
+        fbid: int,
+        name: str | None = None,
+        photo_id: str | None = None,
+        photo_mxc: ContentURI | None = None,
+        name_set: bool = False,
+        avatar_set: bool = False,
+        is_registered: bool = False,
+        custom_mxid: UserID | None = None,
+        access_token: str | None = None,
+        next_batch: SyncToken | None = None,
+        base_url: URL | None = None,
+    ) -> None:
+        super().__init__(
+            fbid,
+            name,
+            photo_id,
+            photo_mxc,
+            name_set,
+            avatar_set,
+            is_registered,
+            custom_mxid,
+            access_token,
+            next_batch,
+            base_url,
+        )
         self._last_info_sync = None
 
         self.default_mxid = self.get_mxid_from_id(fbid)
@@ -76,39 +97,57 @@ class Puppet(DBPuppet, BasePuppet):
     async def _leave_rooms_with_default_user(self) -> None:
         await super()._leave_rooms_with_default_user()
         # Make the user join all private chat portals.
-        await asyncio.gather(*[self.intent.ensure_joined(portal.mxid)
-                               async for portal in p.Portal.get_all_by_receiver(self.fbid)
-                               if portal.mxid])
+        await asyncio.gather(
+            *[
+                self.intent.ensure_joined(portal.mxid)
+                async for portal in p.Portal.get_all_by_receiver(self.fbid)
+                if portal.mxid
+            ]
+        )
 
-    def intent_for(self, portal: 'p.Portal') -> IntentAPI:
-        if portal.fbid == self.fbid or (portal.backfill_lock.locked
-                                        and self.config["bridge.backfill.invite_own_puppet"]):
+    def intent_for(self, portal: p.Portal) -> IntentAPI:
+        if portal.fbid == self.fbid or (
+            portal.backfill_lock.locked and self.config["bridge.backfill.invite_own_puppet"]
+        ):
             return self.default_mxid_intent
         return self.intent
 
     @classmethod
-    def init_cls(cls, bridge: 'MessengerBridge') -> AsyncIterable[Awaitable[None]]:
+    def init_cls(cls, bridge: "MessengerBridge") -> AsyncIterable[Awaitable[None]]:
         cls.config = bridge.config
         cls.loop = bridge.loop
         cls.mx = bridge.matrix
         cls.az = bridge.az
         cls.hs_domain = cls.config["homeserver.domain"]
-        cls.mxid_template = SimpleTemplate(cls.config["bridge.username_template"], "userid",
-                                           prefix="@", suffix=f":{Puppet.hs_domain}", type=int)
+        cls.mxid_template = SimpleTemplate(
+            template=cls.config["bridge.username_template"],
+            keyword="userid",
+            prefix="@",
+            suffix=f":{Puppet.hs_domain}",
+            type=int,
+        )
         cls.sync_with_custom_puppets = cls.config["bridge.sync_with_custom_puppets"]
-        cls.homeserver_url_map = {server: URL(url) for server, url
-                                  in cls.config["bridge.double_puppet_server_map"].items()}
+        cls.homeserver_url_map = {
+            server: URL(url)
+            for server, url in cls.config["bridge.double_puppet_server_map"].items()
+        }
         cls.allow_discover_url = cls.config["bridge.double_puppet_allow_discovery"]
-        cls.login_shared_secret_map = {server: secret.encode("utf-8") for server, secret
-                                       in cls.config["bridge.login_shared_secret_map"].items()}
+        cls.login_shared_secret_map = {
+            server: secret.encode("utf-8")
+            for server, secret in cls.config["bridge.login_shared_secret_map"].items()
+        }
         cls.login_device_name = "Facebook Messenger Bridge"
 
         return (puppet.try_start() async for puppet in Puppet.get_all_with_custom_mxid())
 
     # region User info updating
 
-    async def update_info(self, source: Optional['u.User'] = None, info: Participant = None,
-                          update_avatar: bool = True) -> 'Puppet':
+    async def update_info(
+        self,
+        source: u.User = None,
+        info: Participant = None,
+        update_avatar: bool = True,
+    ) -> Puppet:
         if not info:
             # if not self.should_sync:
             #     return self
@@ -158,12 +197,18 @@ class Puppet(DBPuppet, BasePuppet):
         return False
 
     @staticmethod
-    async def reupload_avatar(source: Optional['u.User'], intent: IntentAPI, url: str,
-                              fbid: int, use_graph: bool = True) -> ContentURI:
+    async def reupload_avatar(
+        source: u.User | None,
+        intent: IntentAPI,
+        url: str,
+        fbid: int,
+        use_graph: bool = True,
+    ) -> ContentURI:
         data = None
         if use_graph and source and source.state and source.state.session.access_token:
-            graph_url = ((source.client.graph_url / str(fbid) / "picture")
-                         .with_query({"width": "1000", "height": "1000"}))
+            graph_url = (source.client.graph_url / str(fbid) / "picture").with_query(
+                {"width": "1000", "height": "1000"}
+            )
             async with source.client.get(graph_url) as resp:
                 if resp.status < 400:
                     data = await resp.read()
@@ -173,14 +218,18 @@ class Puppet(DBPuppet, BasePuppet):
         mime = magic.from_buffer(data, mime=True)
         return await intent.upload_media(data, mime_type=mime)
 
-    async def _update_photo(self, source: 'u.User', photo: Picture) -> bool:
+    async def _update_photo(self, source: u.User, photo: Picture) -> bool:
         photo_id = p.Portal.get_photo_id(photo)
         if photo_id != self.photo_id or not self.avatar_set:
             self.photo_id = photo_id
             if photo:
-                self.photo_mxc = await self.reupload_avatar(source, self.default_mxid_intent,
-                                                            photo.uri, self.fbid,
-                                                            use_graph=(photo.height or 0) < 500)
+                self.photo_mxc = await self.reupload_avatar(
+                    source,
+                    self.default_mxid_intent,
+                    photo.uri,
+                    self.fbid,
+                    use_graph=(photo.height or 0) < 500,
+                )
             else:
                 self.photo_mxc = ContentURI("")
             try:
@@ -202,7 +251,7 @@ class Puppet(DBPuppet, BasePuppet):
 
     @classmethod
     @async_getter_lock
-    async def get_by_fbid(cls, fbid: Union[str, int], *, create: bool = True) -> Optional['Puppet']:
+    async def get_by_fbid(cls, fbid: str | int, *, create: bool = True) -> Puppet | None:
         if isinstance(fbid, str):
             fbid = int(fbid)
         try:
@@ -224,7 +273,7 @@ class Puppet(DBPuppet, BasePuppet):
         return None
 
     @classmethod
-    async def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Optional['Puppet']:
+    async def get_by_mxid(cls, mxid: UserID, create: bool = True) -> Puppet | None:
         fbid = cls.get_id_from_mxid(mxid)
         if fbid:
             return await cls.get_by_fbid(fbid, create=create)
@@ -232,7 +281,7 @@ class Puppet(DBPuppet, BasePuppet):
 
     @classmethod
     @async_getter_lock
-    async def get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
+    async def get_by_custom_mxid(cls, mxid: UserID) -> Puppet | None:
         try:
             return cls.by_custom_mxid[mxid]
         except KeyError:
@@ -246,7 +295,7 @@ class Puppet(DBPuppet, BasePuppet):
         return None
 
     @classmethod
-    def get_id_from_mxid(cls, mxid: UserID) -> Optional[int]:
+    def get_id_from_mxid(cls, mxid: UserID) -> int | None:
         return cls.mxid_template.parse(mxid)
 
     @classmethod
@@ -254,7 +303,7 @@ class Puppet(DBPuppet, BasePuppet):
         return UserID(cls.mxid_template.format_full(fbid))
 
     @classmethod
-    async def get_all_with_custom_mxid(cls) -> AsyncGenerator['Puppet', None]:
+    async def get_all_with_custom_mxid(cls) -> AsyncGenerator[Puppet, None]:
         puppets = await super().get_all_with_custom_mxid()
         puppet: cls
         for puppet in puppets:

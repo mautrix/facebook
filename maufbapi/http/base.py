@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,27 +13,30 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Dict, TypeVar, Type, List, Union
+from __future__ import annotations
+
+from typing import Type, TypeVar
 from contextlib import asynccontextmanager
 from urllib.parse import quote
-import urllib.request
+import base64
 import hashlib
+import json
 import logging
 import pkgutil
-import base64
 import random
-import json
 import time
+import urllib.request
 
-from mautrix.types import JSON
-from aiohttp import ClientSession, ClientResponse
+from aiohttp import ClientResponse, ClientSession
 from aiohttp.client import _RequestContextManager
-from mautrix.util.logging import TraceLogger
 from yarl import URL
 import zstandard as zstd
 
+from mautrix.types import JSON
+from mautrix.util.logging import TraceLogger
+
 from ..state import AndroidState
-from ..types import GraphQLQuery, GraphQLMutation
+from ..types import GraphQLMutation, GraphQLQuery
 from .errors import ResponseError, error_class_map, error_code_map
 
 try:
@@ -42,7 +45,7 @@ except ImportError:
     ProxyConnector = None
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @asynccontextmanager
@@ -73,7 +76,7 @@ class BaseAndroidAPI:
     # Seems to be a per-request incrementing integer
     _tid: int
 
-    def __init__(self, state: AndroidState, log: Optional[TraceLogger] = None) -> None:
+    def __init__(self, state: AndroidState, log: TraceLogger | None = None) -> None:
         self.log = log or logging.getLogger("mauigpapi.http")
 
         connector = None
@@ -92,8 +95,9 @@ class BaseAndroidAPI:
         self._cid = ""
         self._cid_ts = 0
         self.freeze_cid = False
-        self.nid = base64.b64encode(bytes([random.getrandbits(8) for _ in range(9)])
-                                    ).decode("utf-8")
+        self.nid = base64.b64encode(
+            bytes([random.getrandbits(8) for _ in range(9)]),
+        ).decode("utf-8")
         self._tid = 0
         self._file_url_cache = {}
 
@@ -115,7 +119,7 @@ class BaseAndroidAPI:
     def session_id(self) -> str:
         return f"nid={self.nid};pid=Main;tid={self.tid};nc=0;fc=0;bc=0,cid={self.cid}"
 
-    def format(self, req: Dict[str, str], sign: bool = True, **extra: str) -> str:
+    def format(self, req: dict[str, str], sign: bool = True, **extra: str) -> str:
         req = dict(sorted(req.items()))
         if sign:
             sig_data = "".join(f"{key}={value}" for key, value in req.items())
@@ -126,7 +130,7 @@ class BaseAndroidAPI:
         return "&".join(f"{quote(key)}={quote(value)}" for key, value in sorted(req.items()))
 
     @property
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         headers = {
             "x-fb-connection-quality": self.state.device.connection_quality,
             "x-fb-connection-type": self.state.device.connection_type,
@@ -147,14 +151,20 @@ class BaseAndroidAPI:
         return {k: v for k, v in headers.items() if v is not None}
 
     @property
-    def _params(self) -> Dict[str, str]:
+    def _params(self) -> dict[str, str]:
         return {
             "locale": self.state.device.language,
             "client_country_code": self.state.device.country_code,
         }
 
-    def get(self, url: Union[str, URL], headers: Optional[Dict[str, str]] = None,
-            include_auth: bool = True, sandbox: bool = False, **kwargs) -> _RequestContextManager:
+    def get(
+        self,
+        url: str | URL,
+        headers: dict[str, str] | None = None,
+        include_auth: bool = True,
+        sandbox: bool = False,
+        **kwargs,
+    ) -> _RequestContextManager:
         headers = {
             **self._headers,
             **(headers or {}),
@@ -166,9 +176,14 @@ class BaseAndroidAPI:
                 return sandboxed_get(url)
         return self.http.get(url, headers=headers, **kwargs)
 
-    async def graphql(self, req: GraphQLQuery, headers: Optional[Dict[str, str]] = None,
-                      response_type: Optional[Type[T]] = JSON, path: Optional[List[str]] = None,
-                      b: bool = True) -> T:
+    async def graphql(
+        self,
+        req: GraphQLQuery,
+        headers: dict[str, str] | None = None,
+        response_type: Type[T] | None = JSON,
+        path: list[str] | None = None,
+        b: bool = True,
+    ) -> T:
         headers = {
             **self._headers,
             **(headers or {}),
@@ -195,8 +210,11 @@ class BaseAndroidAPI:
             "fb_api_analytics_tags": ["GraphServices"],
             "server_timestamps": "true",
         }
-        resp = await self.http.post(url=(self.b_graph_url if b else self.graph_url) / "graphql",
-                                    data=params, headers=headers)
+        resp = await self.http.post(
+            url=(self.b_graph_url if b else self.graph_url) / "graphql",
+            data=params,
+            headers=headers,
+        )
         await self._decompress_zstd(resp)
         self.log.trace(f"GraphQL {req} response: {await resp.text()}")
         if response_type is None:
@@ -218,12 +236,13 @@ class BaseAndroidAPI:
         ):
             compressed = await resp.read()
             resp._body = zstd_decomp.decompress(compressed)
-            self.log.trace(f"Decompressed {len(compressed)} bytes of zstd "
-                           f"into {len(resp._body)} bytes of (hopefully) JSON")
+            self.log.trace(
+                f"Decompressed {len(compressed)} bytes of zstd "
+                f"into {len(resp._body)} bytes of (hopefully) JSON"
+            )
             setattr(resp, "_zstd_decompressed", True)
 
-    async def _handle_response(self, resp: ClientResponse, batch_index: Optional[int] = None
-                               ) -> JSON:
+    async def _handle_response(self, resp: ClientResponse, batch_index: int | None = None) -> JSON:
         await self._decompress_zstd(resp)
         self._handle_response_headers(resp)
         body = await resp.json()
@@ -232,9 +251,11 @@ class BaseAndroidAPI:
         error = body.get("error", None)
         if not error:
             return body
-        error_class = (error_code_map.get(error["code"])
-                       or error_class_map.get(error["type"])
-                       or ResponseError)
+        error_class = (
+            error_code_map.get(error["code"])
+            or error_class_map.get(error["type"])
+            or ResponseError
+        )
         raise error_class(error)
 
     async def _raise_response_error(self, resp: ClientResponse) -> None:

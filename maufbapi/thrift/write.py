@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,14 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Union, List, Collection, Dict, Optional, TYPE_CHECKING
-import struct
+from __future__ import annotations
+
+from typing import Any, Collection
 import io
+import struct
 
-from .type import TType
-
-if TYPE_CHECKING:
-    from .autospec import ThriftObject
+from .type import ThriftObject, TType
 
 
 class ThriftWriter(io.BytesIO):
@@ -29,8 +28,9 @@ class ThriftWriter(io.BytesIO):
 
     https://github.com/apache/thrift/blob/master/doc/specs/thrift-compact-protocol.md
     """
+
     _prev_field_id: int
-    _stack: List[int]
+    _stack: list[int]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -45,7 +45,7 @@ class ThriftWriter(io.BytesIO):
         if self._stack:
             self._prev_field_id = self._stack.pop()
 
-    def _write_byte(self, byte: Union[int, TType]) -> None:
+    def _write_byte(self, byte: int | TType) -> None:
         self.write(bytes([byte]))
 
     @staticmethod
@@ -54,7 +54,7 @@ class ThriftWriter(io.BytesIO):
 
     def _write_varint(self, val: int) -> None:
         while True:
-            byte = val & ~0x7f
+            byte = val & ~0x7F
             if byte == 0:
                 self._write_byte(val)
                 break
@@ -62,7 +62,7 @@ class ThriftWriter(io.BytesIO):
                 self._write_byte(0)
                 break
             else:
-                self._write_byte((val & 0xff) | 0x80)
+                self._write_byte((val & 0xFF) | 0x80)
                 val = val >> 7
 
     def _write_word(self, val: int) -> None:
@@ -84,20 +84,19 @@ class ThriftWriter(io.BytesIO):
             self._write_word(field_id)
         self._prev_field_id = field_id
 
-    def _write_string(self, val: Union[str, bytes]) -> None:
+    def _write_string(self, val: str | bytes) -> None:
         if isinstance(val, str):
             val = val.encode("utf-8")
         self._write_varint(len(val))
         self.write(val)
 
-    def write_map(self, field_id: int, key_type: TType, value_type: TType, val: Dict[Any, Any]
-                  ) -> None:
+    def write_map(self, field_id: int, key_type: TType, value_type: TType, val: dict) -> None:
         self._write_field_begin(field_id, TType.MAP)
         if not map:
             self._write_byte(0)
             return
         self._write_varint(len(val))
-        self._write_byte(((key_type.value & 0xf) << 4) | (value_type.value & 0xf))
+        self._write_byte(((key_type.value & 0xF) << 4) | (value_type.value & 0xF))
         for key, value in val.items():
             self.write_val(None, key_type, key)
             self.write_val(None, value_type, value)
@@ -108,10 +107,10 @@ class ThriftWriter(io.BytesIO):
 
     def write_list(self, field_id: int, item_type: TType, val: Collection[Any]) -> None:
         self._write_field_begin(field_id, TType.LIST)
-        if len(val) < 0x0f:
+        if len(val) < 0x0F:
             self._write_byte((len(val) << 4) | item_type.value)
         else:
-            self._write_byte(0xf0 | item_type.value)
+            self._write_byte(0xF0 | item_type.value)
             self._write_varint(len(val))
         for item in val:
             self.write_val(None, item_type, item)
@@ -120,7 +119,7 @@ class ThriftWriter(io.BytesIO):
         self._write_field_begin(field_id, TType.STRUCT)
         self._push_stack()
 
-    def write_val(self, field_id: Optional[int], ttype: TType, val: Any) -> None:
+    def write_val(self, field_id: int | None, ttype: TType, val: Any) -> None:
         if ttype == TType.BOOL:
             if field_id is None:
                 raise ValueError("booleans can only be used in structs")
@@ -143,7 +142,7 @@ class ThriftWriter(io.BytesIO):
         else:
             raise ValueError(f"{ttype} is not supported by write_val()")
 
-    def write_struct(self, obj: 'ThriftObject') -> None:
+    def write_struct(self, obj: ThriftObject) -> None:
         for field_id in iter(obj.thrift_spec):
             meta = obj.thrift_spec[field_id]
 

@@ -20,16 +20,24 @@ from .typehint import CommandEvent
 SECTION_CONNECTION = HelpSection("Connection management", 15, "")
 
 
-@command_handler(needs_auth=False, management_only=True, help_section=SECTION_CONNECTION,
-                 help_text="Mark this room as your bridge notice room")
+@command_handler(
+    needs_auth=False,
+    management_only=True,
+    help_section=SECTION_CONNECTION,
+    help_text="Mark this room as your bridge notice room",
+)
 async def set_notice_room(evt: CommandEvent) -> None:
     evt.sender.notice_room = evt.room_id
     await evt.sender.save()
     await evt.reply("This room has been marked as your bridge notice room")
 
 
-@command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
-                 help_text="Disconnect from Facebook Messenger")
+@command_handler(
+    needs_auth=True,
+    management_only=True,
+    help_section=SECTION_CONNECTION,
+    help_text="Disconnect from Facebook Messenger",
+)
 async def disconnect(evt: CommandEvent) -> None:
     if not evt.sender.mqtt:
         await evt.reply("You don't have a Messenger MQTT connection")
@@ -37,8 +45,13 @@ async def disconnect(evt: CommandEvent) -> None:
     evt.sender.mqtt.disconnect()
 
 
-@command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
-                 help_text="Connect to Facebook Messenger", aliases=["reconnect"])
+@command_handler(
+    needs_auth=True,
+    management_only=True,
+    help_section=SECTION_CONNECTION,
+    help_text="Connect to Facebook Messenger",
+    aliases=["reconnect"],
+)
 async def connect(evt: CommandEvent) -> None:
     if evt.sender.listen_task and not evt.sender.listen_task.done():
         await evt.reply("You already have a Messenger MQTT connection")
@@ -46,8 +59,12 @@ async def connect(evt: CommandEvent) -> None:
     evt.sender.start_listen()
 
 
-@command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
-                 help_text="Check if you're logged into Facebook Messenger")
+@command_handler(
+    needs_auth=True,
+    management_only=True,
+    help_section=SECTION_CONNECTION,
+    help_text="Check if you're logged into Facebook Messenger",
+)
 async def ping(evt: CommandEvent) -> None:
     if not await evt.sender.is_logged_in():
         await evt.reply("You're not logged into Facebook Messenger")
@@ -68,7 +85,11 @@ async def ping(evt: CommandEvent) -> None:
         await evt.reply("The Messenger MQTT listener is connected.")
 
 
-@command_handler(needs_auth=True, management_only=True, help_section=SECTION_CONNECTION,
-                 help_text="\"Refresh\" the Facebook Messenger page")
+@command_handler(
+    needs_auth=True,
+    management_only=True,
+    help_section=SECTION_CONNECTION,
+    help_text="Resync chats and reconnect to MQTT",
+)
 async def refresh(evt: CommandEvent) -> None:
     await evt.sender.refresh(force_notice=True)

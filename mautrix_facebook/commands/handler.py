@@ -17,7 +17,7 @@ from typing import NamedTuple
 
 from mautrix.bridge.commands import HelpSection
 
-HelpCacheKey = NamedTuple('FBHelpCacheKey', is_management=bool, is_admin=bool, is_logged_in=bool)
+HelpCacheKey = NamedTuple("FBHelpCacheKey", is_management=bool, is_admin=bool, is_logged_in=bool)
 
 SECTION_AUTH = HelpSection("Authentication", 10, "")
 SECTION_CONNECTION = HelpSection("Connection management", 15, "")

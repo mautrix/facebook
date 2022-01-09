@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,13 +13,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, List, TYPE_CHECKING, ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar
 
 from asyncpg import Record
 from attr import dataclass
 from yarl import URL
 
-from mautrix.types import UserID, SyncToken, ContentURI
+from mautrix.types import ContentURI, SyncToken, UserID
 from mautrix.util.async_db import Database
 
 fake_db = Database.create("") if TYPE_CHECKING else None
@@ -30,20 +32,20 @@ class Puppet:
     db: ClassVar[Database] = fake_db
 
     fbid: int
-    name: Optional[str]
-    photo_id: Optional[str]
-    photo_mxc: Optional[ContentURI]
+    name: str | None
+    photo_id: str | None
+    photo_mxc: ContentURI | None
     name_set: bool
     avatar_set: bool
     is_registered: bool
 
-    custom_mxid: Optional[UserID]
-    access_token: Optional[str]
-    next_batch: Optional[SyncToken]
-    base_url: Optional[URL]
+    custom_mxid: UserID | None
+    access_token: str | None
+    next_batch: SyncToken | None
+    base_url: URL | None
 
     @classmethod
-    def _from_row(cls, row: Optional[Record]) -> Optional['Puppet']:
+    def _from_row(cls, row: Record | None) -> Puppet | None:
         if row is None:
             return None
         data = {**row}
@@ -51,56 +53,78 @@ class Puppet:
         return cls(**data, base_url=URL(base_url) if base_url else None)
 
     @classmethod
-    async def get_by_fbid(cls, fbid: int) -> Optional['Puppet']:
-        q = ("SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-             "       custom_mxid, access_token, next_batch, base_url "
-             "FROM puppet WHERE fbid=$1")
+    async def get_by_fbid(cls, fbid: int) -> Puppet | None:
+        q = (
+            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
+            "       custom_mxid, access_token, next_batch, base_url "
+            "FROM puppet WHERE fbid=$1"
+        )
         row = await cls.db.fetchrow(q, fbid)
         return cls._from_row(row)
 
     @classmethod
-    async def get_by_name(cls, name: str) -> Optional['Puppet']:
-        q = ("SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-             "       custom_mxid, access_token, next_batch, base_url "
-             "FROM puppet WHERE name=$1")
+    async def get_by_name(cls, name: str) -> Puppet | None:
+        q = (
+            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
+            "       custom_mxid, access_token, next_batch, base_url "
+            "FROM puppet WHERE name=$1"
+        )
         row = await cls.db.fetchrow(q, name)
         return cls._from_row(row)
 
     @classmethod
-    async def get_by_custom_mxid(cls, mxid: UserID) -> Optional['Puppet']:
-        q = ("SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-             "       custom_mxid, access_token, next_batch, base_url "
-             "FROM puppet WHERE custom_mxid=$1")
+    async def get_by_custom_mxid(cls, mxid: UserID) -> Puppet | None:
+        q = (
+            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
+            "       custom_mxid, access_token, next_batch, base_url "
+            "FROM puppet WHERE custom_mxid=$1"
+        )
         row = await cls.db.fetchrow(q, mxid)
         return cls._from_row(row)
 
     @classmethod
-    async def get_all_with_custom_mxid(cls) -> List['Puppet']:
-        q = ("SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-             "       custom_mxid, access_token, next_batch, base_url "
-             "FROM puppet WHERE custom_mxid<>''")
+    async def get_all_with_custom_mxid(cls) -> list[Puppet]:
+        q = (
+            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
+            "       custom_mxid, access_token, next_batch, base_url "
+            "FROM puppet WHERE custom_mxid<>''"
+        )
         rows = await cls.db.fetch(q)
         return [cls._from_row(row) for row in rows]
 
+    @property
+    def _values(self):
+        return (
+            self.fbid,
+            self.name,
+            self.photo_id,
+            self.photo_mxc,
+            self.name_set,
+            self.avatar_set,
+            self.is_registered,
+            self.custom_mxid,
+            self.access_token,
+            self.next_batch,
+            str(self.base_url) if self.base_url else None,
+        )
+
     async def insert(self) -> None:
-        q = ("INSERT INTO puppet (fbid, name, photo_id, photo_mxc, name_set, avatar_set, "
-             "                    is_registered, custom_mxid, access_token, next_batch, base_url) "
-             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)")
-        await self.db.execute(q, self.fbid, self.name, self.photo_id, self.photo_mxc,
-                              self.name_set, self.avatar_set, self.is_registered, self.custom_mxid,
-                              self.access_token, self.next_batch,
-                              str(self.base_url) if self.base_url else None)
+        q = """
+            INSERT INTO puppet (fbid, name, photo_id, photo_mxc, name_set, avatar_set,
+                                is_registered, custom_mxid, access_token, next_batch, base_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        """
+        await self.db.execute(q, *self._values)
 
     async def delete(self) -> None:
         q = "DELETE FROM puppet WHERE fbid=$1"
         await self.db.execute(q, self.fbid)
 
     async def save(self) -> None:
-        q = ('UPDATE puppet SET name=$1, photo_id=$2, photo_mxc=$3, name_set=$4, avatar_set=$5, '
-             '                  is_registered=$6, custom_mxid=$7, access_token=$8, next_batch=$9,'
-             '                  base_url=$10 '
-             'WHERE fbid=$11')
-        await self.db.execute(q, self.name, self.photo_id, self.photo_mxc, self.name_set,
-                              self.avatar_set, self.is_registered, self.custom_mxid,
-                              self.access_token, self.next_batch,
-                              str(self.base_url) if self.base_url else None, self.fbid)
+        q = """
+            UPDATE puppet SET name=$2, photo_id=$3, photo_mxc=$4, name_set=$5, avatar_set=$6,
+                              is_registered=$7, custom_mxid=$8, access_token=$9, next_batch=$10,
+                              base_url=$11
+            WHERE fbid=$1
+        """
+        await self.db.execute(q, *self._values)

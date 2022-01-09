@@ -13,8 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from asyncpg import (Connection, UndefinedObjectError, DuplicateObjectError,
-                     ForeignKeyViolationError)
+from asyncpg import (
+    Connection,
+    DuplicateObjectError,
+    ForeignKeyViolationError,
+    UndefinedObjectError,
+)
+
 from . import upgrade_table
 
 legacy_version_query = "SELECT version_num FROM alembic_version"
@@ -34,8 +39,9 @@ async def upgrade_v1(conn: Connection, scheme: str) -> None:
     if scheme != "sqlite":
         try:
             async with conn.transaction():
-                await conn.execute("CREATE TYPE threadtype AS ENUM "
-                                   "('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
+                await conn.execute(
+                    "CREATE TYPE threadtype AS ENUM ('USER', 'GROUP', 'PAGE', 'UNKNOWN')"
+                )
         except DuplicateObjectError:
             pass
 
@@ -43,8 +49,10 @@ async def upgrade_v1(conn: Connection, scheme: str) -> None:
     if is_legacy:
         legacy_version = await conn.fetchval(legacy_version_query)
         if legacy_version != last_legacy_version:
-            raise RuntimeError("Legacy database is not on last version. Please upgrade the old "
-                               "database with alembic or drop it completely first.")
+            raise RuntimeError(
+                "Legacy database is not on last version. Please upgrade the old database "
+                "with alembic or drop it completely first."
+            )
         already_renamed = await conn.fetchval(table_exists(scheme, "legacy_contact"))
         if not already_renamed:
             async with conn.transaction():
@@ -60,79 +68,93 @@ async def upgrade_v1(conn: Connection, scheme: str) -> None:
 
 
 async def create_v1_tables(conn: Connection) -> None:
-    await conn.execute("""CREATE TABLE "user" (
-        mxid        TEXT PRIMARY KEY,
-        fbid        BIGINT UNIQUE,
-        state       jsonb,
-        notice_room TEXT
-    )""")
-    await conn.execute("""CREATE TABLE portal (
-        fbid        BIGINT,
-        fb_receiver BIGINT,
-        fb_type     threadtype NOT NULL,
-        mxid        TEXT UNIQUE,
-        name        TEXT,
-        photo_id    TEXT,
-        avatar_url  TEXT,
-        encrypted   BOOLEAN NOT NULL DEFAULT false,
-        PRIMARY KEY (fbid, fb_receiver)
-    )""")
-    await conn.execute("""CREATE TABLE puppet (
-        fbid      BIGINT PRIMARY KEY,
-        name      TEXT,
-        photo_id  TEXT,
-        photo_mxc TEXT,
+    await conn.execute(
+        """CREATE TABLE "user" (
+            mxid        TEXT PRIMARY KEY,
+            fbid        BIGINT UNIQUE,
+            state       jsonb,
+            notice_room TEXT
+        )"""
+    )
+    await conn.execute(
+        """CREATE TABLE portal (
+            fbid        BIGINT,
+            fb_receiver BIGINT,
+            fb_type     threadtype NOT NULL,
+            mxid        TEXT UNIQUE,
+            name        TEXT,
+            photo_id    TEXT,
+            avatar_url  TEXT,
+            encrypted   BOOLEAN NOT NULL DEFAULT false,
+            PRIMARY KEY (fbid, fb_receiver)
+        )"""
+    )
+    await conn.execute(
+        """CREATE TABLE puppet (
+            fbid      BIGINT PRIMARY KEY,
+            name      TEXT,
+            photo_id  TEXT,
+            photo_mxc TEXT,
 
-        name_set      BOOLEAN NOT NULL DEFAULT false,
-        avatar_set    BOOLEAN NOT NULL DEFAULT false,
-        is_registered BOOLEAN NOT NULL DEFAULT false,
+            name_set      BOOLEAN NOT NULL DEFAULT false,
+            avatar_set    BOOLEAN NOT NULL DEFAULT false,
+            is_registered BOOLEAN NOT NULL DEFAULT false,
 
-        custom_mxid  TEXT,
-        access_token TEXT,
-        next_batch   TEXT,
-        base_url     TEXT
-    )""")
-    await conn.execute("""CREATE TABLE message (
-        mxid        TEXT,
-        mx_room     TEXT,
-        fbid        TEXT,
-        fb_receiver BIGINT,
-        "index"     SMALLINT,
-        fb_chat     BIGINT,
-        timestamp   BIGINT,
-        PRIMARY KEY (fbid, fb_receiver, "index"),
-        FOREIGN KEY (fb_chat, fb_receiver) REFERENCES portal(fbid, fb_receiver)
-            ON UPDATE CASCADE ON DELETE CASCADE,
-        UNIQUE (mxid, mx_room)
-    )""")
-    await conn.execute("""CREATE TABLE reaction (
-        mxid        TEXT,
-        mx_room     TEXT,
-        fb_msgid    TEXT,
-        fb_receiver BIGINT,
-        fb_sender   BIGINT,
-        reaction    TEXT,
-        PRIMARY KEY (fb_msgid, fb_receiver, fb_sender),
-        UNIQUE (mxid, mx_room)
-    )""")
-    await conn.execute("""CREATE TABLE user_portal (
-        "user"          BIGINT,
-        portal          BIGINT,
-        portal_receiver BIGINT,
-        in_community    BOOLEAN DEFAULT false,
-        FOREIGN KEY (portal, portal_receiver) REFERENCES portal(fbid, fb_receiver)
-            ON UPDATE CASCADE ON DELETE CASCADE,
-        FOREIGN KEY ("user") REFERENCES "user"(fbid) ON UPDATE CASCADE ON DELETE CASCADE,
-        PRIMARY KEY ("user", portal, portal_receiver)
-    )""")
-    await conn.execute("""CREATE TABLE user_contact (
-        "user"       BIGINT,
-        contact      BIGINT,
-        in_community BOOLEAN DEFAULT false,
-        FOREIGN KEY (contact) REFERENCES puppet(fbid)  ON UPDATE CASCADE ON DELETE CASCADE,
-        FOREIGN KEY ("user") REFERENCES "user"(fbid) ON UPDATE CASCADE ON DELETE CASCADE,
-        PRIMARY KEY ("user", contact)
-    )""")
+            custom_mxid  TEXT,
+            access_token TEXT,
+            next_batch   TEXT,
+            base_url     TEXT
+        )"""
+    )
+    await conn.execute(
+        """CREATE TABLE message (
+            mxid        TEXT,
+            mx_room     TEXT,
+            fbid        TEXT,
+            fb_receiver BIGINT,
+            "index"     SMALLINT,
+            fb_chat     BIGINT,
+            timestamp   BIGINT,
+            PRIMARY KEY (fbid, fb_receiver, "index"),
+            FOREIGN KEY (fb_chat, fb_receiver) REFERENCES portal(fbid, fb_receiver)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            UNIQUE (mxid, mx_room)
+        )"""
+    )
+    await conn.execute(
+        """CREATE TABLE reaction (
+            mxid        TEXT,
+            mx_room     TEXT,
+            fb_msgid    TEXT,
+            fb_receiver BIGINT,
+            fb_sender   BIGINT,
+            reaction    TEXT,
+            PRIMARY KEY (fb_msgid, fb_receiver, fb_sender),
+            UNIQUE (mxid, mx_room)
+        )"""
+    )
+    await conn.execute(
+        """CREATE TABLE user_portal (
+            "user"          BIGINT,
+            portal          BIGINT,
+            portal_receiver BIGINT,
+            in_community    BOOLEAN DEFAULT false,
+            FOREIGN KEY (portal, portal_receiver) REFERENCES portal(fbid, fb_receiver)
+                ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY ("user") REFERENCES "user"(fbid) ON UPDATE CASCADE ON DELETE CASCADE,
+            PRIMARY KEY ("user", portal, portal_receiver)
+        )"""
+    )
+    await conn.execute(
+        """CREATE TABLE user_contact (
+            "user"       BIGINT,
+            contact      BIGINT,
+            in_community BOOLEAN DEFAULT false,
+            FOREIGN KEY (contact) REFERENCES puppet(fbid)  ON UPDATE CASCADE ON DELETE CASCADE,
+            FOREIGN KEY ("user") REFERENCES "user"(fbid) ON UPDATE CASCADE ON DELETE CASCADE,
+            PRIMARY KEY ("user", contact)
+        )"""
+    )
 
 
 async def rename_legacy_tables(conn: Connection) -> None:
@@ -154,8 +176,10 @@ async def rename_legacy_tables(conn: Connection) -> None:
 
 
 async def migrate_legacy_data(conn: Connection) -> None:
-    await conn.execute('INSERT INTO "user" (mxid, fbid, notice_room) '
-                       "SELECT mxid, fbid::bigint, notice_room FROM legacy_user")
+    await conn.execute(
+        'INSERT INTO "user" (mxid, fbid, notice_room) '
+        "SELECT mxid, fbid::bigint, notice_room FROM legacy_user"
+    )
     await conn.execute(
         "INSERT INTO portal (fbid, fb_receiver, fb_type, mxid, name, photo_id, encrypted) "
         "SELECT fbid::bigint, fb_receiver::bigint, fb_type::threadtype, mxid, name, photo_id, "
@@ -185,13 +209,17 @@ async def migrate_legacy_data(conn: Connection) -> None:
             await conn.execute(
                 'INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
                 'SELECT "user"::bigint, portal::bigint, portal_receiver::bigint, in_community '
-                'FROM legacy_user_portal')
+                "FROM legacy_user_portal"
+            )
             await conn.execute(
                 'INSERT INTO user_contact ("user", contact, in_community) '
                 'SELECT "user"::bigint, contact::bigint, in_community '
-                "FROM legacy_contact")
+                "FROM legacy_contact"
+            )
     except ForeignKeyViolationError:
         pass
     await conn.execute("UPDATE portal SET fb_receiver=0 WHERE fb_type<>'USER'")
-    await conn.execute("UPDATE reaction SET fb_receiver=0 WHERE fb_receiver "
-                       "IN (SELECT fbid FROM portal WHERE fb_receiver=0)")
+    await conn.execute(
+        "UPDATE reaction SET fb_receiver=0 WHERE fb_receiver "
+        "IN (SELECT fbid FROM portal WHERE fb_receiver=0)"
+    )

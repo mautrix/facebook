@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,51 +13,23 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Tuple, Union, Optional, Dict, Type, NamedTuple, Any, TypeVar
-import sys
+from __future__ import annotations
+
+from typing import Any, Union
 
 import attr
 
-from .type import TType, RecursiveType
-from .write import ThriftWriter
-from .read import ThriftReader
+from .type import RecursiveType, ThriftField, TType
 
-T = TypeVar('T')
-
-
-class ThriftField(NamedTuple):
-    name: str
-    rtype: RecursiveType
+TYPE_META = "fi.mau.facebook.thrift.type"
+INDEX_META = "fi.mau.facebook.thrift.index"
 
 
-class ThriftObject:
-    thrift_spec: Dict[int, ThriftField]
-
-    def to_thrift(self) -> bytes:
-        buf = ThriftWriter()
-        buf.write_struct(self)
-        return buf.getvalue()
-
-    @classmethod
-    def from_thrift(cls: Type[T], data: bytes) -> T:
-        return ThriftReader(data).read_struct(cls)
-
-
-TYPE_META = "net.maunium.thrift.type"
-INDEX_META = "net.maunium.thrift.index"
-
-if sys.version_info >= (3, 7):
-    def _get_type_class(typ):
-        try:
-            return typ.__origin__
-        except AttributeError:
-            return None
-else:
-    def _get_type_class(typ):
-        try:
-            return typ.__extra__
-        except AttributeError:
-            return None
+def _get_type_class(typ):
+    try:
+        return typ.__origin__
+    except AttributeError:
+        return None
 
 
 def _guess_type(python_type, name: str) -> RecursiveType:
@@ -75,14 +47,20 @@ def _guess_type(python_type, name: str) -> RecursiveType:
     type_class = _get_type_class(python_type)
     args = getattr(python_type, "__args__", None)
     if type_class == list:
-        return RecursiveType(TType.LIST, item_type=_guess_type(args[0], f"{name} item"),
-                             python_type=list)
+        return RecursiveType(
+            TType.LIST, item_type=_guess_type(args[0], f"{name} item"), python_type=list
+        )
     elif type_class == dict:
-        return RecursiveType(TType.MAP, key_type=_guess_type(args[0], f"{name} key"),
-                             value_type=_guess_type(args[1], f"{name} value"), python_type=dict)
+        return RecursiveType(
+            TType.MAP,
+            key_type=_guess_type(args[0], f"{name} key"),
+            value_type=_guess_type(args[1], f"{name} value"),
+            python_type=dict,
+        )
     elif type_class == set:
-        return RecursiveType(TType.SET, item_type=_guess_type(args[0], f"{name} item"),
-                             python_type=set)
+        return RecursiveType(
+            TType.SET, item_type=_guess_type(args[0], f"{name} item"), python_type=set
+        )
 
     raise ValueError(f"Unknown type {python_type} for {name}")
 
@@ -116,19 +94,29 @@ def autospec(clazz: Any) -> Any:
 RTType = Union[None, TType, RecursiveType]
 
 
-def _rttype_to_rtype(typ: RTType, item_type: RTType = None, key_type: RTType = None,
-                     value_type: RTType = None) -> Optional[RecursiveType]:
+def _rttype_to_rtype(
+    typ: RTType, item_type: RTType = None, key_type: RTType = None, value_type: RTType = None
+) -> RecursiveType | None:
     if not typ:
         return None
     elif isinstance(typ, RecursiveType):
         return typ
-    return RecursiveType(typ, item_type=_rttype_to_rtype(item_type),
-                         key_type=_rttype_to_rtype(key_type),
-                         value_type=_rttype_to_rtype(value_type))
+    return RecursiveType(
+        typ,
+        item_type=_rttype_to_rtype(item_type),
+        key_type=_rttype_to_rtype(key_type),
+        value_type=_rttype_to_rtype(value_type),
+    )
 
 
-def field(thrift_type: RTType = None, index: Optional[int] = None, item_type: RTType = None,
-          key_type: RTType = None, value_type: RTType = None, **kwargs) -> attr.Attribute:
+def field(
+    thrift_type: RTType = None,
+    index: int | None = None,
+    item_type: RTType = None,
+    key_type: RTType = None,
+    value_type: RTType = None,
+    **kwargs,
+) -> attr.Attribute:
     """
     Specify an explicit type for the :meth:`autospec` decorator.
 
