@@ -635,7 +635,7 @@ class User(DBUser, BaseUser):
     async def _try_listen(self) -> None:
         try:
             if not self.mqtt:
-                self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
+                self.mqtt = AndroidMQTT(self.state, self.config, log=self.log.getChild("mqtt"))
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint
                 self.mqtt.add_event_handler(mqtt_t.Message, self.on_message)
@@ -817,7 +817,7 @@ class User(DBUser, BaseUser):
             if puppet:
                 self.log.trace(f"Received presence for: {puppet.name} - {update.status}")
                 await PresenceUpdater.set_presence(puppet, PresenceState.ONLINE if update.status == 2 else PresenceState.OFFLINE)
-    
+
     # @async_time(METRIC_TYPING)
     # async def on_typing(self, evt: fbchat.Typing) -> None:
     #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None

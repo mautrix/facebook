@@ -29,6 +29,7 @@ from paho.mqtt.client import MQTTMessage, WebsocketConnectionError
 from yarl import URL
 from mautrix.util.logging import TraceLogger
 
+from mautrix_facebook.config import Config
 from ..state import AndroidState
 from ..types import (MessageSyncPayload, RealtimeConfig, RealtimeClientInfo, SendMessageRequest,
                      MarkReadRequest, OpenedThreadRequest, SendMessageResponse, RegionHintPayload)
@@ -59,6 +60,7 @@ class AndroidMQTT:
     _loop: asyncio.AbstractEventLoop
     _client: MQTToTClient
     log: TraceLogger
+    config: Config
     state: AndroidState
     seq_id: Optional[int]
     seq_id_update_callback: Optional[Callable[[int], None]]
@@ -72,8 +74,10 @@ class AndroidMQTT:
 
     # region Initialization
 
-    def __init__(self, state: AndroidState, loop: Optional[asyncio.AbstractEventLoop] = None,
+    def __init__(self, state: AndroidState, config: Config,
+                 loop: Optional[asyncio.AbstractEventLoop] = None,
                  log: Optional[TraceLogger] = None) -> None:
+        self.config = config
         self.seq_id = None
         self.seq_id_update_callback = None
         self.region_hint_callback = None
@@ -134,8 +138,12 @@ class AndroidMQTT:
         #  '/t_dr_response', '/t_omnistore_sync', '/t_push', '/ixt_trigger', '/rs_resp',
         #  '/t_region_hint', '/t_trace', '/t_tn', '/sr_res', '/t_sp', '/ls_resp', '/t_rtc_multi']
         subscribe_topics = [RealtimeTopic.MESSAGE_SYNC, RealtimeTopic.REGION_HINT,
-                            RealtimeTopic.SEND_MESSAGE_RESP, RealtimeTopic.ORCA_PRESENCE,
+                            RealtimeTopic.SEND_MESSAGE_RESP,
                             RealtimeTopic.MARK_THREAD_READ_RESPONSE]
+
+        if self.config["bridge.presence"]:
+            subscribe_topics.append(RealtimeTopic.ORCA_PRESENCE)
+
         topic_ids = [int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
                      for topic in subscribe_topics]
         cfg = RealtimeConfig(
