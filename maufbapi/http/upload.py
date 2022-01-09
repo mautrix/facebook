@@ -13,8 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Optional, Union
+from typing import Optional
 import hashlib
+import base64
 import time
 import json
 
@@ -26,9 +27,11 @@ class UploadAPI(BaseAndroidAPI):
     async def send_media(self, data: bytes, file_name: str, mimetype: str,
                          offline_threading_id: int, chat_id: Optional[int] = None,
                          is_group: Optional[bool] = None, timestamp: Optional[int] = None,
-                         reply_to: Optional[str] = None) -> UploadResponse:
+                         reply_to: Optional[str] = None, caption: Optional[str] = None,
+                         duration: Optional[int] = None) -> UploadResponse:
         headers = {
             **self._headers,
+            "accept-encoding": "x-fb-dz;d=1, gzip, deflate",
             "app_id": self.state.application.client_id,
             "device_id": self.state.device.uuid,
             "attempt_id": str(offline_threading_id),
@@ -38,9 +41,9 @@ class UploadAPI(BaseAndroidAPI):
             "x-entity-type": mimetype,
             "content-type": "application/octet-stream",
             "client_tags": json.dumps({"trigger": "2:thread_list:thread",
-                                       "is_in_chatheads": "false"}),
+                                       "is_in_chatheads": "false",
+                                       "is_in_bubbles": "false"}),
             "original_timestamp": str(timestamp or int(time.time() * 1000)),
-            "x-fb-rmd": "state=NO_MATCH",
             "x-msgr-region": self.state.session.region_hint,
             "x-fb-friendly-name": "post_resumable_upload_session",
         }
@@ -52,6 +55,8 @@ class UploadAPI(BaseAndroidAPI):
             headers["ttl"] = "0"
             if reply_to:
                 headers["replied_to_message_id"] = reply_to
+            if caption:
+                headers["caption"] = base64.b64encode(caption.encode("utf-8")).decode("ascii")
         else:
             headers["send_message_by_server"] = "0"
             headers["thread_type_hint"] = "thread"
@@ -65,10 +70,13 @@ class UploadAPI(BaseAndroidAPI):
             path_type = "messenger_audio"
             headers["audio_type"] = "VOICE_MESSAGE"
             headers["is_voicemail"] = "0"
+            if duration:
+                headers["duration"] = str(duration)
         else:
             path_type = "messenger_file"
             headers["file_type"] = "FILE_ATTACHMENT"
 
+        self.log.trace("Sending upload with headers: %s", headers)
         file_id = hashlib.md5(data).hexdigest() + str(offline_threading_id)
         resp = await self.http.post(self.rupload_url / path_type / file_id,
                                     headers=headers, data=data)

@@ -53,7 +53,7 @@ async def ping(evt: CommandEvent) -> None:
         await evt.reply("You're not logged into Facebook Messenger")
         return
     # try:
-    own_info = await evt.sender.client.get_self()
+    own_info = await evt.sender.get_own_info()
     # TODO catch errors
     # except fbchat.PleaseRefresh as e:
     #     await evt.reply(f"{e}\n\nUse `$cmdprefix+sp refresh` refresh the session.")

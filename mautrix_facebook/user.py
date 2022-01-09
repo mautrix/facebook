@@ -24,9 +24,9 @@ from mautrix.errors import MNotFound
 from mautrix.types import (PushActionType, PushRuleKind, PushRuleScope, UserID, RoomID, EventID,
                            TextMessageEventContent, MessageType, PresenceState)
 from mautrix.client import Client as MxClient
-from mautrix.bridge import BaseUser, BridgeState, async_getter_lock
+from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.bridge._community import CommunityHelper, CommunityID
-from mautrix.util.bridge_state import BridgeStateEvent
+from mautrix.util.bridge_state import BridgeState, BridgeStateEvent
 from mautrix.util.simple_lock import SimpleLock
 from mautrix.util.opt_prometheus import Summary, Gauge, async_time
 
@@ -40,6 +40,7 @@ from .commands import enter_2fa_code
 from .db import User as DBUser, UserPortal, UserContact
 from . import portal as po, puppet as pu
 from .presence import PresenceUpdater
+from .util.interval import get_interval
 
 METRIC_SYNC_THREADS = Summary('bridge_sync_threads', 'calls to sync_threads')
 METRIC_RESYNC = Summary('bridge_on_resync', 'calls to on_resync')
@@ -107,6 +108,8 @@ class User(DBUser, BaseUser):
     _db_instance: Optional[DBUser]
     _sync_lock: SimpleLock
     _is_refreshing: bool
+    _logged_in_info: Optional[graphql.LoggedInUser]
+    _logged_in_info_time: float
 
     _community_helper: CommunityHelper
     _community_id: Optional[CommunityID]
@@ -120,7 +123,7 @@ class User(DBUser, BaseUser):
         self._notice_room_lock = asyncio.Lock()
         self._notice_send_lock = asyncio.Lock()
         self.command_status = None
-        (self.is_whitelisted, self.is_admin,
+        (self.relay_whitelisted, self.is_whitelisted, self.is_admin,
          self.permission_level) = self.config.get_permissions(mxid)
         self._is_logged_in = None
         self._is_connected = None
@@ -131,6 +134,8 @@ class User(DBUser, BaseUser):
         self._sync_lock = SimpleLock("Waiting for thread sync to finish before handling %s",
                                      log=self.log)
         self._is_refreshing = False
+        self._logged_in_info = None
+        self._logged_in_info_time = 0
 
         self.log = self.log.getChild(self.mxid)
 
@@ -158,6 +163,10 @@ class User(DBUser, BaseUser):
         if self._is_connected != val:
             self._is_connected = val
             self._connection_time = time.monotonic()
+
+    @property
+    def connection_time(self) -> float:
+        return self._connection_time
 
     # region Database getters
 
@@ -218,6 +227,12 @@ class User(DBUser, BaseUser):
 
     # endregion
 
+    async def get_own_info(self) -> graphql.LoggedInUser:
+        if not self._logged_in_info or self._logged_in_info_time + 60 * 60 < time.monotonic():
+            self._logged_in_info = await self.client.fetch_logged_in_user()
+            self._logged_in_info_time = time.monotonic()
+        return self._logged_in_info
+
     async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
@@ -227,7 +242,7 @@ class User(DBUser, BaseUser):
         client = AndroidAPI(self.state, log=self.log.getChild("api"))
         while True:
             try:
-                user_info = await client.get_self()
+                user_info = await client.fetch_logged_in_user()
                 break
             except (ProxyError, ProxyTimeoutError, ProxyConnectionError,
                     ClientConnectionError, ConnectionError) as e:
@@ -244,6 +259,8 @@ class User(DBUser, BaseUser):
         if user_info:
             self.log.info("Loaded session successfully")
             self.client = client
+            self._logged_in_info = user_info
+            self._logged_in_info_time = time.monotonic()
             self._track_metric(METRIC_LOGGED_IN, True)
             self._is_logged_in = True
             self.is_connected = None
@@ -257,7 +274,7 @@ class User(DBUser, BaseUser):
             return False
         if self._is_logged_in is None or _override:
             try:
-                self._is_logged_in = bool(await self.client.get_self())
+                self._is_logged_in = bool(await self.get_own_info())
             except Exception:
                 self.log.exception("Exception checking login status")
                 self._is_logged_in = False
@@ -382,8 +399,8 @@ class User(DBUser, BaseUser):
             self.log.exception("Failed to automatically enable custom puppet")
 
         await self._create_community()
-        await self.sync_threads()
-        self.start_listen()
+        if await self.sync_threads():
+            self.start_listen()
 
     async def _create_community(self) -> None:
         template = self.config["bridge.community_template"]
@@ -434,15 +451,30 @@ class User(DBUser, BaseUser):
         }
 
     @async_time(METRIC_SYNC_THREADS)
-    async def sync_threads(self) -> None:
-        if self._prev_thread_sync + 10 > time.monotonic() and self.mqtt.seq_id is not None:
+    async def sync_threads(self) -> bool:
+        if (
+            self._prev_thread_sync + 10 > time.monotonic()
+            and self.mqtt and self.mqtt.seq_id is not None
+        ):
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
-            return
+            return True
         self._prev_thread_sync = time.monotonic()
         try:
             await self._sync_threads()
-        except Exception:
+            return True
+        except InvalidAccessToken as e:
+            await self.send_bridge_notice(
+                f"Got authentication error from Messenger:\n\n> {e!s}\n\n",
+                important=True,
+                state_event=BridgeStateEvent.BAD_CREDENTIALS,
+                error_code="fb-auth-error",
+                error_message=str(e)
+            )
+            await self.logout(remove_fbid=False)
+        except Exception as e:
             self.log.exception("Failed to sync threads")
+            await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
+        return False
 
     async def _sync_threads(self) -> None:
         sync_count = self.config["bridge.initial_chat_sync"]
@@ -524,9 +556,15 @@ class User(DBUser, BaseUser):
                 # don't make a new room
                 if self.notice_room:
                     return self.notice_room
+                creation_content = {}
+                if not self.config["bridge.federate_rooms"]:
+                    creation_content["m.federate"] = False
                 self.notice_room = await self.az.intent.create_room(
-                    is_direct=True, invitees=[self.mxid],
-                    topic="Facebook Messenger bridge notices")
+                    is_direct=True,
+                    invitees=[self.mxid],
+                    topic="Facebook Messenger bridge notices",
+                    creation_content=creation_content,
+                )
                 await self.save()
         return self.notice_room
 
@@ -623,8 +661,7 @@ class User(DBUser, BaseUser):
                                               error_code="fb-disconnected")
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
-            refresh = (self.config["bridge.refresh_on_reconnection_fail"]
-                       and self._prev_reconnect_fail_refresh + 120 < time.monotonic())
+            refresh = self.config["bridge.on_reconnection_fail.refresh"]
             next_action = ("Refreshing session..." if refresh else "Not retrying!")
             event = ("Disconnected from" if isinstance(e, MQTTNotLoggedIn)
                      else "Failed to connect to")
@@ -637,6 +674,11 @@ class User(DBUser, BaseUser):
             elif self.temp_disconnect_notices:
                 await self.send_bridge_notice(message)
             if refresh:
+                wait_for = self.config["bridge.on_reconnection_fail.wait_for"]
+                if wait_for:
+                    await asyncio.sleep(get_interval(wait_for))
+                # Ensure a minimum of 120s between reconnection attempts, even if wait is disabled
+                await asyncio.sleep(self._prev_reconnect_fail_refresh + 120 - time.monotonic())
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 asyncio.create_task(self.refresh())
             else:
@@ -693,6 +735,11 @@ class User(DBUser, BaseUser):
         self.state = state
         self.client = AndroidAPI(state, log=self.log.getChild("api"))
         await self.save()
+        try:
+            self._logged_in_info = await self.client.fetch_logged_in_user(post_login=True)
+            self._logged_in_info_time = time.monotonic()
+        except Exception:
+            self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
         asyncio.create_task(self.post_login())
 

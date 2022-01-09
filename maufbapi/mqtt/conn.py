@@ -128,15 +128,11 @@ class AndroidMQTT:
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
     def _form_client_id(self) -> bytes:
-        # subscribe_topics = ["/t_p", "/t_assist_rp", "/t_rtc", "/webrtc_response",
-        #                     RealtimeTopic.MESSAGE_SYNC, "/pp", "/webrtc",
-        #                     "/quick_promotion_refresh", "/t_omnistore_sync_low_pri",
-        #                     "/get_media_resp", "/t_dr_response", "/t_omnistore_sync", "/t_push",
-        #                     "/t_thread_typing", "/ixt_trigger", "/rs_resp",
-        #                     RealtimeTopic.REGION_HINT, "/t_tn", "/sr_res", "/t_tp", "/t_sp",
-        #                     "/ls_resp", "/t_rtc_multi", RealtimeTopic.SEND_MESSAGE_RESP,
-        #                     RealtimeTopic.MARK_THREAD_READ_RESPONSE,
-        #                     ]
+        # Standard topics:
+        # ['/t_p', '/t_assist_rp', '/t_rtc', '/webrtc_response', '/t_rtc_log', '/t_ms', '/pp',
+        #  '/webrtc', '/quick_promotion_refresh', '/t_omnistore_sync_low_pri', '/get_media_resp',
+        #  '/t_dr_response', '/t_omnistore_sync', '/t_push', '/ixt_trigger', '/rs_resp',
+        #  '/t_region_hint', '/t_trace', '/t_tn', '/sr_res', '/t_sp', '/ls_resp', '/t_rtc_multi']
         subscribe_topics = [RealtimeTopic.MESSAGE_SYNC, RealtimeTopic.REGION_HINT,
                             RealtimeTopic.SEND_MESSAGE_RESP, RealtimeTopic.ORCA_PRESENCE,
                             RealtimeTopic.MARK_THREAD_READ_RESPONSE]
@@ -147,9 +143,9 @@ class AndroidMQTT:
             client_info=RealtimeClientInfo(
                 user_id=self.state.session.uid,
                 user_agent=self.state.user_agent_meta,
-                client_capabilities=0b100001110110111,
+                client_capabilities=0b1100001110110111,
                 endpoint_capabilities=0b1011010,
-                publish_format=1,
+                publish_format=2,
                 no_automatic_foreground=True,
                 make_user_available_in_foreground=True,
                 device_id=self.state.device.uuid,
@@ -246,12 +242,12 @@ class AndroidMQTT:
             "entity_fbid": self.state.session.uid,
             "sync_api_version": 10,
             "queue_params": {
-                "client_delta_sync_bitmask": "B/p8Ym/r2YAFf7PNgA",
+                "client_delta_sync_bitmask": "C9X+fGJvq9GABX+yzYA",
                 "graphql_query_hashes": {
-                    "xma_query_id": "3257579454369025"
+                    "xma_query_id": "4476811655735303"
                 },
                 "graphql_query_params": {
-                    "3257579454369025": {
+                    "4476811655735303": {
                         "xma_id": "<ID>",
                         "small_preview_width": 716,
                         "small_preview_height": 358,
@@ -261,7 +257,7 @@ class AndroidMQTT:
                         "full_screen_height": 4096,
                         "blur": 0,
                         "nt_context": {
-                            "styles_id": "7d328425a4dfa3aa76b1310fa8dc30bf",
+                            "styles_id": "989dd0cc9c9aacc459340a79141aca8c",
                             "pixel_ratio": 3
                         },
                         "use_oss_id": True
@@ -315,12 +311,13 @@ class AndroidMQTT:
             is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
                 message.payload = zlib.decompress(message.payload)
-            topic = RealtimeTopic.decode(message.topic)
-            
+            topic_str, *rest = message.topic.split("#", 1)
+            if len(rest) > 0:
+                self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
+            topic = RealtimeTopic.decode(topic_str)
             if topic == RealtimeTopic.ORCA_PRESENCE:
                 self._on_presence(message.payload)
                 return
-
             _, message.payload = message.payload.split(b"\x00", 1)
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
@@ -331,8 +328,7 @@ class AndroidMQTT:
                     waiter = self._response_waiters.pop(topic)
                 except KeyError:
                     self.log.debug("No handler for MQTT message in %s: %s",
-                                topic, message.payload)
-                    ThriftReader(message.payload).pretty_print()
+                                   topic, message.payload)
                 else:
                     waiter.set_result(message)
         except Exception:
@@ -476,10 +472,10 @@ class AndroidMQTT:
         if self._opened_thread == target:
             return
         self._opened_thread = target
-        req = OpenedThreadRequest()
-        req.chat_id = target
-        self.log.trace("Opened thread request: %s", req)
-        await self.publish(RealtimeTopic.OPENED_THREAD, req)
+        # req = OpenedThreadRequest()
+        # req.chat_id = target
+        # self.log.trace("Opened thread request: %s", req)
+        # await self.publish(RealtimeTopic.OPENED_THREAD, req)
 
     async def mark_read(self, target: int, is_group: bool, read_to: int,
                         offline_threading_id: Optional[int] = None) -> None:

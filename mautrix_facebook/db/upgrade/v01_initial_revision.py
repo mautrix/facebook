@@ -17,36 +17,39 @@ from asyncpg import (Connection, UndefinedObjectError, DuplicateObjectError,
                      ForeignKeyViolationError)
 from . import upgrade_table
 
-legacy_exist_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
-                      "              WHERE table_name='alembic_version')")
 legacy_version_query = "SELECT version_num FROM alembic_version"
 last_legacy_version = "f91274813e8c"
-legacy_renamed_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
-                        "              WHERE table_name='legacy_contact')")
-new_tables_created_query = ("SELECT EXISTS(SELECT FROM information_schema.tables "
-                            "              WHERE table_name='user_contact')")
+
+
+def table_exists(scheme: str, name: str) -> str:
+    if scheme == "sqlite":
+        return f"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{name}')"
+    elif scheme == "postgres":
+        return f"SELECT EXISTS(SELECT FROM information_schema.tables WHERE table_name='{name}')"
+    raise RuntimeError("unsupported database scheme")
 
 
 @upgrade_table.register(description="Initial asyncpg revision", transaction=False)
-async def upgrade_v1(conn: Connection) -> None:
-    try:
-        async with conn.transaction():
-            await conn.execute("CREATE TYPE threadtype AS ENUM "
-                               "('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
-    except DuplicateObjectError:
-        pass
+async def upgrade_v1(conn: Connection, scheme: str) -> None:
+    if scheme != "sqlite":
+        try:
+            async with conn.transaction():
+                await conn.execute("CREATE TYPE threadtype AS ENUM "
+                                   "('USER', 'GROUP', 'PAGE', 'UNKNOWN')")
+        except DuplicateObjectError:
+            pass
 
-    is_legacy = await conn.fetchval(legacy_exist_query)
+    is_legacy = await conn.fetchval(table_exists(scheme, "alembic_version"))
     if is_legacy:
         legacy_version = await conn.fetchval(legacy_version_query)
         if legacy_version != last_legacy_version:
             raise RuntimeError("Legacy database is not on last version. Please upgrade the old "
                                "database with alembic or drop it completely first.")
-        already_renamed = await conn.fetchval(legacy_renamed_query)
+        already_renamed = await conn.fetchval(table_exists(scheme, "legacy_contact"))
         if not already_renamed:
             async with conn.transaction():
                 await rename_legacy_tables(conn)
-        new_created = await conn.fetchval(new_tables_created_query)
+        new_created = await conn.fetchval(table_exists(scheme, "user_contact"))
         if not new_created:
             async with conn.transaction():
                 await create_v1_tables(conn)
@@ -94,10 +97,10 @@ async def create_v1_tables(conn: Connection) -> None:
         mx_room     TEXT,
         fbid        TEXT,
         fb_receiver BIGINT,
-        index       SMALLINT,
+        "index"     SMALLINT,
         fb_chat     BIGINT,
         timestamp   BIGINT,
-        PRIMARY KEY (fbid, fb_receiver, index),
+        PRIMARY KEY (fbid, fb_receiver, "index"),
         FOREIGN KEY (fb_chat, fb_receiver) REFERENCES portal(fbid, fb_receiver)
             ON UPDATE CASCADE ON DELETE CASCADE,
         UNIQUE (mxid, mx_room)

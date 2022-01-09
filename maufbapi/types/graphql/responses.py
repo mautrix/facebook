@@ -19,7 +19,7 @@ from yarl import URL
 from attr import dataclass
 import attr
 
-from mautrix.types import ExtensibleEnum, SerializableAttrs, JSON, Obj, deserializer
+from mautrix.types import ExtensibleEnum, SerializableAttrs, JSON, Obj, deserializer, field
 from ..common import ThreadFolder, MessageUnsendability
 
 
@@ -75,8 +75,8 @@ class StructuredNameChunk(SerializableAttrs):
 @dataclass
 class StructuredName(SerializableAttrs):
     parts: List[StructuredNameChunk]
-    phonetic_name: Optional[str]
     text: str
+    phonetic_name: Optional[str] = None
 
     def to_dict(self) -> Dict[str, str]:
         return {
@@ -353,7 +353,7 @@ class StoryMediaAttachment(SerializableAttrs):
 @dataclass
 class StoryAttachment(SerializableAttrs):
     title: str
-    url: str
+    url: Optional[str] = None
     # TODO enum? share, message_location, attached_story, photo, games_app, messenger_native_templates, unavailable, fallback
     style_list: List[str] = attr.ib(factory=lambda: [])
     title_with_entities: Optional[ExtensibleText] = None
@@ -587,8 +587,6 @@ class FileAttachmentURLResponse(SerializableAttrs):
 @dataclass(kw_only=True)
 class OwnInfo(SerializableAttrs):
     id: str
-    birthday: Optional[str] = None
-    gender: Optional[str] = None
     locale: Optional[str] = None
     email: Optional[str] = None
     name: str
@@ -596,11 +594,22 @@ class OwnInfo(SerializableAttrs):
     middle_name: Optional[str] = None
     last_name: Optional[str] = None
     link: Optional[str] = None
-    is_employee: bool = False
     verified: bool = False
-    published_timeline: bool = False
     timezone: int = 0
     updated_time: Optional[str] = None
+
+
+@dataclass(kw_only=True)
+class LoggedInUser(MinimalParticipant, SerializableAttrs):
+    username: Optional[str] = None
+    structured_name: Optional[StructuredName] = None
+    primary_email: Optional[str] = None
+    registration_time: Optional[int] = None
+    is_verified: bool = False
+
+    profile_pic_small: Optional[Picture] = field(default=None, json="squareProfilePicSmall")
+    profile_pic_big: Optional[Picture] = field(default=None, json="squareProfilePicBig")
+    profile_pic_huge: Optional[Picture] = field(default=None, json="squareProfilePicHuge")
 
 
 @dataclass

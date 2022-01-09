@@ -49,18 +49,20 @@ class LoginAPI(BaseAndroidAPI):
 
     async def mobile_config_sessionless(self) -> MobileConfig:
         req_data = self.format({
-            "query_hash": "4d8d81394cc798f2a72f5761248743fa7f4d3c6b0048f7e9696006230f118896",
-            "one_query_hash": "b1f0cf90cfb2d8424ecb5f82c9d9365a03bf7f3af3315df1c8d9f0b5e4818bdd",
-            "bool_opt_policy": "1",
+            "query_hash": "99dc08ed06c105f048909c5362852a32e9431903f022e363940d992fc0095eb9",
+            "one_query_hash": "332c0a0c1ce322b99ddbc74da22f3bebcc45267c0da75e4adf3782ed9cd6cb0b",
+            "bool_opt_policy": "3",
             "device_id": self.state.device.uuid,
-            "api_version": "7",
-            "name_to_id": "true",
+            "api_version": "8",
             "fetch_type": "SYNC_FULL",
+            "unit_type": "1",
             "access_token": self.state.application.access_token,
             **self._params,
         }, sign=False)
+        headers = {**self._headers}
+        headers.pop("x-fb-rmd", None)
         resp = await self.http.post(self.b_graph_url / "mobileconfigsessionless",
-                                    headers=self._headers, data=req_data)
+                                    headers=headers, data=req_data)
         json_data = await self._handle_response(resp)
         parsed = MobileConfig.deserialize(json_data)
         self.state.session.password_encryption_key_id = parsed.find(15712, 1).i64
@@ -121,10 +123,11 @@ class LoginAPI(BaseAndroidAPI):
             "adid": self.state.device.adid,
             "api_key": self.state.application.client_id,
             "community_id": "",
+            "secure_family_device_id": "",
             "cpl": "true",
             "currently_logged_in_userid": "0",
             "device_id": self.state.device.uuid,
-            "fb_api_caller_class": "com.facebook.auth.login.AuthOperations$PasswordAuthOperation",
+            "fb_api_caller_class": "AuthOperations$PasswordAuthOperation",
             "fb_api_req_friendly_name": "authenticate",
             "format": "json",
             "generate_analytics_claim": "1",
@@ -142,6 +145,7 @@ class LoginAPI(BaseAndroidAPI):
             "content-type": "application/x-www-form-urlencoded",
             "x-fb-friendly-name": req["fb_api_req_friendly_name"],
         }
+        headers.pop("x-fb-rmd", None)
         resp = await self.http.post(url=self.b_graph_url / "auth" / "login",
                                     headers=headers, data=req_data)
         self.log.trace(f"Login response: {resp.status} {await resp.text()}")

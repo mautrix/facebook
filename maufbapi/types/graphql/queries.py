@@ -34,14 +34,15 @@ class GraphQLMutation(GraphQLQuery, ABC):
 
 @dataclass
 class NTContext(SerializableAttrs):
-    styles_id: str = "7d328425a4dfa3aa76b1310fa8dc30bf"
+    styles_id: str = "989dd0cc9c9aacc459340a79141aca8c"
     using_white_navbar: bool = True
     pixel_ratio: int = 3
+    bloks_version: str = "d422eb53f4f2e6b7a1ba2f29278d512554f9c2b2dfc0c1935e1da91427dbd3aa"
 
 
 @dataclass
 class ThreadQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 5487678687924830
+    doc_id: ClassVar[int] = 4491485477625742
 
     thread_ids: List[str]
     msg_count: int = 20
@@ -65,10 +66,9 @@ class ThreadQuery(GraphQLQuery, SerializableAttrs):
     profile_pic_small_size: int = 138
 
 
-
 @dataclass
 class ThreadListQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 3562683343826563
+    doc_id: ClassVar[int] = 4462910183829186
 
     msg_count: int = 20
     thread_count: int = 20
@@ -92,7 +92,7 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class MoreMessagesQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 3447218621980314
+    doc_id: ClassVar[int] = 4328279000625922
 
     before_time_ms: str
     thread_id: str
@@ -117,7 +117,7 @@ class ThreadNameMutationSource(SerializableEnum):
 
 @dataclass
 class ThreadNameMutation(GraphQLMutation, SerializableAttrs):
-    doc_id: ClassVar[int] = 3090707060965997
+    doc_id: ClassVar[int] = 4678460715515343
 
     new_thread_name: str
     thread_id: str
@@ -128,8 +128,8 @@ class ThreadNameMutation(GraphQLMutation, SerializableAttrs):
 
 @dataclass
 class FetchStickersWithPreviewsQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 3154119451330002
-    caller_class: ClassVar[str] = "com.facebook.messaging.sync.delta.NewMessageHandlerHelper"
+    doc_id: ClassVar[int] = 4628171213877041
+    caller_class: ClassVar[str] = "NewMessageHandlerHelper"
 
     sticker_ids: List[str]
     preview_size: int = 165
@@ -183,7 +183,7 @@ class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class SubsequentMediaQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 2948398158550055
+    doc_id: ClassVar[int] = 4376490155778570
 
     thread_id: str
     cursor_id: Optional[str] = None

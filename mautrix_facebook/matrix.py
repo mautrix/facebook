@@ -16,10 +16,9 @@
 from typing import List, Union, TYPE_CHECKING
 import time
 
-from mautrix.types import (EventID, RoomID, UserID, Event, EventType, MessageEvent, StateEvent,
-                           RedactionEvent, PresenceEventContent, ReceiptEvent, PresenceState,
-                           ReactionEvent, ReactionEventContent, RelationType, PresenceEvent,
-                           TypingEvent, TextMessageEventContent, MessageType, EncryptedEvent,
+from mautrix.types import (EventID, RoomID, UserID, Event, EventType, RedactionEvent, ReceiptEvent,
+                           PresenceEventContent, ReactionEvent, ReactionEventContent, RelationType,
+                           PresenceEvent, TypingEvent, TextMessageEventContent, MessageType,
                            SingleReceiptEventContent)
 from mautrix.errors import MatrixError
 from mautrix.bridge import BaseMatrixHandler
@@ -129,7 +128,11 @@ class MatrixHandler(BaseMatrixHandler):
                                                "You are not whitelisted on this "
                                                "Facebook Messenger bridge.")
             return
-        elif not await user.is_logged_in() and not self.config["bridge.allow_invites"]:
+        elif (
+            not await user.is_logged_in()
+            and not portal.has_relay
+            and not self.config["bridge.allow_invites"]
+        ):
             await portal.main_intent.kick_user(room_id, user.mxid, "You are not logged in to this "
                                                                    "Facebook Messenger bridge.")
             return
@@ -206,15 +209,6 @@ class MatrixHandler(BaseMatrixHandler):
         message = await DBMessage.get_by_mxid(event_id, portal.mxid)
         await user.mqtt.mark_read(portal.fbid, portal.fb_type != ThreadType.USER,
                                   read_to=message.timestamp if message else timestamp)
-
-    def filter_matrix_event(self, evt: Event) -> bool:
-        if isinstance(evt, (ReceiptEvent, TypingEvent, PresenceEvent)):
-            return False
-        elif not isinstance(evt, (ReactionEvent, RedactionEvent, MessageEvent, StateEvent,
-                                  EncryptedEvent)):
-            return True
-        return (evt.sender == self.az.bot_mxid
-                or pu.Puppet.get_id_from_mxid(evt.sender) is not None)
 
     async def handle_ephemeral_event(self, evt: Union[ReceiptEvent, PresenceEvent, TypingEvent]
                                      ) -> None:

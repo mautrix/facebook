@@ -2,14 +2,14 @@
 # Uncommented lines after the group definition insert things into that group.
 
 #/animated_stickers
-pillow>=4,<9
+pillow>=4,<10
 
 #/e2be
 python-olm>=3,<4
-unpaddedbase64>=1,<2
+unpaddedbase64>=1,<3
 
 #/metrics
-prometheus_client>=0.6,<0.12
+prometheus_client>=0.6,<0.13
 
 #/proxy
 pysocks
@@ -17,3 +17,6 @@ aiohttp-socks
 
 #/weblogin
 setuptools
+
+#/sqlite
+aiosqlite>=0.16,<0.18

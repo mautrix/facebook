@@ -191,9 +191,22 @@
     "/rs_req": 244,
     "/rs_resp": 245,
     "/workplace_rooms": 247,
+    "/messenger_sync_unsubscribe_queue": 248,
     "/generative_group_ranking_send_updated_scores": 250,
+    "/rtc_ringback": 253,
+    "/rtc_ringback_req": 254,
     "/workplace_desks": 255,
+    "/t_rtc_multi_proxy": 256,
     "/t_portal_comms_req": 257,
     "/voodoo_json": 258,
-    "/ixt_trigger": 259
+    "/ixt_trigger": 259,
+    "/t_presence_on_bladerunner": 261,
+    "/t_send_contextual_presence": 262,
+    "/universal_search_generative_ranking_publish_to_server": 263,
+    "/universal_search_generative_ranking_publish_to_client": 264,
+    "/t_contextual_presence_subscription": 286,
+    "/launch_media_on_portal": 270,
+    "/t_trace": 273,
+    "/t_rtc_log": 274,
+    "/t_disable_rtc_multi_topic_auto_subscription": 275
 }

@@ -22,7 +22,7 @@ from mautrix.types import UserID, RoomID
 from mautrix.util.async_db import Database
 from maufbapi import AndroidState
 
-fake_db = Database("") if TYPE_CHECKING else None
+fake_db = Database.create("") if TYPE_CHECKING else None
 
 
 @dataclass
@@ -72,5 +72,5 @@ class User:
         await self.db.execute('DELETE FROM "user" WHERE mxid=$1', self.mxid)
 
     async def save(self) -> None:
-        await self.db.execute('UPDATE "user" SET fbid=$2, state=$3, notice_room=$4 WHERE mxid=$1',
-                              self.mxid, self.fbid, self._state_json, self.notice_room)
+        await self.db.execute('UPDATE "user" SET fbid=$1, state=$2, notice_room=$3 WHERE mxid=$4',
+                              self.fbid, self._state_json, self.notice_room, self.mxid)

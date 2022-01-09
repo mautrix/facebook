@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import attr
 from typing import List, Optional, Union, Dict
 from uuid import uuid4
 
@@ -30,10 +31,11 @@ from ..types import (ThreadListResponse, ThreadListQuery, MessageList, MoreMessa
 from ..types.graphql import PageInfo, ThreadMessageID, OwnInfo, Thread
 from .base import BaseAndroidAPI
 from .login import LoginAPI
+from .post_login import PostLoginAPI
 from .upload import UploadAPI
 
 
-class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
+class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
     _file_url_cache: Dict[ThreadMessageID, FileAttachmentURLResponse]
 
     async def fetch_thread_list(self, **kwargs) -> ThreadListResponse:
@@ -139,6 +141,8 @@ class AndroidAPI(LoginAPI, UploadAPI, BaseAndroidAPI):
         return None
 
     async def get_self(self) -> OwnInfo:
-        async with self.get(self.graph_url / str(self.state.session.uid)) as resp:
+        fields = ",".join(field.name for field in attr.fields(OwnInfo))
+        url = (self.graph_url / str(self.state.session.uid)).with_query({"fields": fields})
+        async with self.get(url) as resp:
             json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)

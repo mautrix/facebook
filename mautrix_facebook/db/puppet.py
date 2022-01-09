@@ -22,7 +22,7 @@ from yarl import URL
 from mautrix.types import UserID, SyncToken, ContentURI
 from mautrix.util.async_db import Database
 
-fake_db = Database("") if TYPE_CHECKING else None
+fake_db = Database.create("") if TYPE_CHECKING else None
 
 
 @dataclass
@@ -96,11 +96,11 @@ class Puppet:
         await self.db.execute(q, self.fbid)
 
     async def save(self) -> None:
-        q = ('UPDATE puppet SET name=$2, photo_id=$3, photo_mxc=$4, name_set=$5, avatar_set=$6, '
-             '                  is_registered=$7, custom_mxid=$8, access_token=$9, next_batch=$10,'
-             '                  base_url=$11 '
-             'WHERE fbid=$1')
-        await self.db.execute(q, self.fbid, self.name, self.photo_id, self.photo_mxc,
-                              self.name_set, self.avatar_set, self.is_registered, self.custom_mxid,
+        q = ('UPDATE puppet SET name=$1, photo_id=$2, photo_mxc=$3, name_set=$4, avatar_set=$5, '
+             '                  is_registered=$6, custom_mxid=$7, access_token=$8, next_batch=$9,'
+             '                  base_url=$10 '
+             'WHERE fbid=$11')
+        await self.db.execute(q, self.name, self.photo_id, self.photo_mxc, self.name_set,
+                              self.avatar_set, self.is_registered, self.custom_mxid,
                               self.access_token, self.next_batch,
-                              str(self.base_url) if self.base_url else None)
+                              str(self.base_url) if self.base_url else None, self.fbid)

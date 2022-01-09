@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import cast, NamedTuple, List
 
-from mautrix.types import TextMessageEventContent, Format, RoomID, RelationType
+from mautrix.types import MessageEventContent, Format, RoomID, RelationType
 from mautrix.util.formatter import (MatrixParser as BaseMatrixParser, MarkdownString, EntityString,
                                     SimpleEntity, EntityType)
 from mautrix.util.logging import TraceLogger
@@ -69,12 +69,11 @@ class FacebookFormatString(EntityString[SimpleEntity, EntityType], MarkdownStrin
 class MatrixParser(BaseMatrixParser[FacebookFormatString]):
     fs = FacebookFormatString
 
-    @classmethod
-    def parse(cls, data: str) -> FacebookFormatString:
-        return cast(FacebookFormatString, super().parse(data))
+    async def parse(self, data: str) -> FacebookFormatString:
+        return cast(FacebookFormatString, await super().parse(data))
 
 
-async def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID, log: TraceLogger
+async def matrix_to_facebook(content: MessageEventContent, room_id: RoomID, log: TraceLogger
                              ) -> SendParams:
     mentions = []
     reply_to = None
@@ -86,8 +85,8 @@ async def matrix_to_facebook(content: TextMessageEventContent, room_id: RoomID, 
         else:
             log.warning(f"Couldn't find reply target {content.relates_to.event_id}"
                         " to bridge text message reply metadata to Facebook")
-    if content.format == Format.HTML and content.formatted_body:
-        parsed = MatrixParser.parse(content.formatted_body)
+    if content.get("format", None) == Format.HTML and content["formatted_body"]:
+        parsed = await MatrixParser().parse(content["formatted_body"])
         text = parsed.text
         mentions = []
         for mention in parsed.entities:

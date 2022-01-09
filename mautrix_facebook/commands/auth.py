@@ -154,7 +154,7 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
         await evt.reply("Successfully logged in")
         evt.sender.command_status = None
     except IncorrectPassword:
-        await evt.reply("Incorrect two-factor authentication code. Pleaase try again.")
+        await evt.reply("Incorrect two-factor authentication code. Please try again.")
     except OAuthException as e:
         await evt.reply(f"Error from Messenger:\n\n> {e}")
         evt.sender.command_status = None

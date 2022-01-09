@@ -30,11 +30,13 @@ from mautrix.types import (RoomID, EventType, ContentURI, MessageEventContent, E
                            ImageInfo, MessageType, LocationMessageEventContent, FileInfo,
                            AudioInfo, Format, RelationType, TextMessageEventContent,
                            MediaMessageEventContent, Membership, EncryptedFile, VideoInfo,
-                           MemberStateEventContent)
-from mautrix.appservice import IntentAPI
+                           MemberStateEventContent, UserID)
+from mautrix.appservice import IntentAPI, DOUBLE_PUPPET_SOURCE_KEY
 from mautrix.errors import MForbidden, MNotFound, IntentError, MatrixError, SessionNotFound
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
+from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
+from mautrix.util import ffmpeg
 
 from maufbapi.types import mqtt, graphql
 
@@ -94,10 +96,10 @@ class Portal(DBPortal, BasePortal):
     def __init__(self, fbid: int, fb_receiver: int, fb_type: ThreadType,
                  mxid: Optional[RoomID] = None, name: Optional[str] = None,
                  photo_id: Optional[str] = None, avatar_url: Optional[ContentURI] = None,
-                 encrypted: bool = False, name_set: bool = False, avatar_set: bool = False
-                 ) -> None:
+                 encrypted: bool = False, name_set: bool = False, avatar_set: bool = False,
+                 relay_user_id: Optional[UserID] = None) -> None:
         super().__init__(fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
-                         name_set, avatar_set)
+                         name_set, avatar_set, relay_user_id)
         self.log = self.log.getChild(self.fbid_log)
 
         self._main_intent = None
@@ -110,6 +112,8 @@ class Portal(DBPortal, BasePortal):
         self.backfill_lock = SimpleLock("Waiting for backfilling to finish before handling %s",
                                         log=self.log)
         self._backfill_leave = None
+
+        self._relay_user = None
 
     @classmethod
     def init_cls(cls, bridge: 'MessengerBridge') -> None:
@@ -193,8 +197,7 @@ class Portal(DBPortal, BasePortal):
         changed = False
         if not self.is_direct:
             changed = any(await asyncio.gather(self._update_name(info.name),
-                                               self._update_photo(source, info.image),
-                                               loop=self.loop))
+                                               self._update_photo(source, info.image)))
         changed = await self._update_participants(source, info) or changed
         if changed:
             await self.update_bridge_info()
@@ -214,6 +217,7 @@ class Portal(DBPortal, BasePortal):
     async def _reupload_fb_file(cls, url: str, source: 'u.User', intent: IntentAPI, *,
                                 filename: Optional[str] = None, encrypt: bool = False,
                                 referer: str = "messenger_thread_photo", find_size: bool = False,
+                                convert_audio: bool = False
                                 ) -> Tuple[ContentURI, MediaInfo, Optional[EncryptedFile]]:
         if not url:
             raise ValueError("URL not provided")
@@ -225,6 +229,10 @@ class Portal(DBPortal, BasePortal):
                 raise ValueError("File not available: too large")
             data = await resp.read()
         mime = magic.from_buffer(data, mime=True)
+        if convert_audio and mime != "audio/ogg":
+            data = await ffmpeg.convert_bytes(data, ".ogg", output_args=("-c:a", "libvorbis"),
+                                              input_mime=mime)
+            mime = "audio/ogg"
         info = FileInfo(mimetype=mime, size=len(data))
         if Image and mime.startswith("image/") and find_size:
             with Image.open(BytesIO(data)) as img:
@@ -309,7 +317,7 @@ class Portal(DBPortal, BasePortal):
         content = MemberStateEventContent(membership=Membership.JOIN,
                                           avatar_url=puppet.photo_mxc,
                                           displayname=name or puppet.name)
-        content[self.bridge.real_user_content_key] = True
+        content[DOUBLE_PUPPET_SOURCE_KEY] = self.bridge.name
         current_state = await intent.state_store.get_member(self.mxid, intent.mxid)
         if not current_state or current_state.displayname != content.displayname:
             self.log.debug("Syncing %s's per-room nick %s to the room",
@@ -488,9 +496,16 @@ class Portal(DBPortal, BasePortal):
         # We lock backfill lock here so any messages that come between the room being created
         # and the initial backfill finishing wouldn't be bridged before the backfill messages.
         with self.backfill_lock:
-            self.mxid = await self.main_intent.create_room(name=name, is_direct=self.is_direct,
-                                                           initial_state=initial_state,
-                                                           invitees=invites)
+            creation_content = {}
+            if not self.config["bridge.federate_rooms"]:
+                creation_content["m.federate"] = False
+            self.mxid = await self.main_intent.create_room(
+                name=name,
+                is_direct=self.is_direct,
+                initial_state=initial_state,
+                invitees=invites,
+                creation_content=creation_content,
+            )
             if not self.mxid:
                 raise Exception("Failed to create room: no mxid returned")
 
@@ -555,46 +570,55 @@ class Portal(DBPortal, BasePortal):
             try:
                 await self.az.intent.mark_read(self.mxid, event_id)
             except Exception:
-                self.log.exception("Failed to send delivery receipt for %s", event_id)
+                self.log.exception(f"Failed to send delivery receipt for {event_id}")
 
     async def _send_bridge_error(self, msg: str) -> None:
         await self._send_message(self.main_intent, TextMessageEventContent(
             msgtype=MessageType.NOTICE,
             body=f"\u26a0 Your message may not have been bridged: {msg}"))
 
+    def _status_from_exception(self, e: Exception) -> MessageSendCheckpointStatus:
+        if isinstance(e, NotImplementedError):
+            return MessageSendCheckpointStatus.UNSUPPORTED
+        return MessageSendCheckpointStatus.PERM_FAILURE
+
     async def handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
                                     event_id: EventID) -> None:
-        # TODO handle errors?
-        # try:
-        await self._handle_matrix_message(sender, message, event_id)
-        # except fbchat.PleaseRefresh:
-        #     self.log.debug(f"Got PleaseRefresh error while trying to bridge {event_id}")
-        #     await sender.refresh()
-        #     try:
-        #         await self._handle_matrix_message(sender, message, event_id)
-        #     except fbchat.FacebookError as e:
-        #         self.log.exception(f"Got FacebookError while trying to bridge {event_id} "
-        #                            "after auto-refreshing")
-        #         await self._send_bridge_error(getattr(e, "description", e.message))
-        # except fbchat.FacebookError as e:
-        #     self.log.exception(f"Got FacebookError while trying to bridge {event_id}")
-        #     await self._send_bridge_error(getattr(e, "description", e.message))
+        try:
+            await self._handle_matrix_message(sender, message, event_id)
+        except Exception as e:
+            self.log.exception(f"Failed to handle Matrix event {event_id}: {e}")
+            sender.send_remote_checkpoint(
+                self._status_from_exception(e),
+                event_id,
+                self.mxid,
+                EventType.ROOM_MESSAGE,
+                message.msgtype,
+                error=e,
+            )
+            await self._send_bridge_error(str(e))
+        else:
+            await self._send_delivery_receipt(event_id)
 
-    async def _handle_matrix_message(self, sender: 'u.User', message: MessageEventContent,
+    async def _handle_matrix_message(self, orig_sender: 'u.User', message: MessageEventContent,
                                      event_id: EventID) -> None:
-        if ((message.get(self.az.real_user_content_key, False)
-             and await p.Puppet.get_by_custom_mxid(sender.mxid))):
-            self.log.debug(f"Ignoring puppet-sent message by confirmed puppet user {sender.mxid}")
-            return
+        if message.get_edit():
+            raise NotImplementedError("Edits are not supported by the Facebook bridge.")
+        sender, is_relay = await self.get_relay_sender(orig_sender, f"message {event_id}")
+        if not sender:
+            raise Exception("not logged in")
+        elif not sender.mqtt:
+            raise Exception("not connected to MQTT")
+        elif is_relay:
+            await self.apply_relay_message_format(orig_sender, message)
         if message.msgtype == MessageType.TEXT or message.msgtype == MessageType.NOTICE:
             await self._handle_matrix_text(event_id, sender, message)
         elif message.msgtype.is_media:
-            await self._handle_matrix_media(event_id, sender, message)
+            await self._handle_matrix_media(event_id, sender, message, is_relay)
         # elif message.msgtype == MessageType.LOCATION:
         #     await self._handle_matrix_location(sender, message)
         else:
-            self.log.warning(f"Unsupported msgtype {message.msgtype} in {event_id}")
-            return
+            raise NotImplementedError(f"Unsupported message type {message.msgtype}")
 
     async def _make_dbm(self, sender: 'u.User', event_id: EventID) -> DBMessage:
         oti = sender.mqtt.generate_offline_threading_id()
@@ -615,13 +639,19 @@ class Portal(DBPortal, BasePortal):
                                               offline_threading_id=dbm.fb_txn_id)
         if not resp.success and resp.error_message:
             self.log.debug(f"Error handling Matrix message {event_id}: {resp.error_message}")
-            await self._send_bridge_error(resp.error_message)
+            raise Exception(resp.error_message)
         else:
             self.log.debug(f"Handled Matrix message {event_id} -> OTI: {dbm.fb_txn_id}")
-            await self._send_delivery_receipt(event_id)
+            sender.send_remote_checkpoint(
+                MessageSendCheckpointStatus.SUCCESS,
+                event_id,
+                self.mxid,
+                EventType.ROOM_MESSAGE,
+                message.msgtype,
+            )
 
     async def _handle_matrix_media(self, event_id: EventID, sender: 'u.User',
-                                   message: MediaMessageEventContent) -> None:
+                                   message: MediaMessageEventContent, is_relay: bool) -> None:
         if message.file and decrypt_attachment:
             data = await self.main_intent.download_media(message.file.url)
             data = decrypt_attachment(data, message.file.key.key,
@@ -629,7 +659,7 @@ class Portal(DBPortal, BasePortal):
         elif message.url:
             data = await self.main_intent.download_media(message.url)
         else:
-            return None
+            raise NotImplementedError("No file or URL specified")
         mime = message.info.mimetype or magic.from_buffer(data, mime=True)
         dbm = await self._make_dbm(sender, event_id)
         reply_to = None
@@ -640,17 +670,40 @@ class Portal(DBPortal, BasePortal):
             else:
                 self.log.warning(f"Couldn't find reply target {message.relates_to.event_id}"
                                  " to bridge media message reply metadata to Facebook")
+        filename = message.body
+        if is_relay:
+            caption = (await matrix_to_facebook(message, self.mxid, self.log)).text
+        else:
+            caption = None
+        if message.msgtype == MessageType.AUDIO:
+            if not mime.startswith("audio/mp"):
+                data = await ffmpeg.convert_bytes(
+                    data, output_extension=".m4a", output_args=("-c:a", "aac"), input_mime=mime
+                )
+                mime = "audio/mpeg"
+                filename = "audio.m4a"
+            duration = message.info.duration
+        else:
+            duration = None
         # await sender.mqtt.opened_thread(self.fbid)
-        resp = await sender.client.send_media(data, message.body, mime,
+        resp = await sender.client.send_media(data, filename, mime, caption=caption,
                                               offline_threading_id=dbm.fb_txn_id,
                                               reply_to=reply_to, chat_id=self.fbid,
-                                              is_group=self.fb_type != ThreadType.USER)
+                                              is_group=self.fb_type != ThreadType.USER,
+                                              duration=duration)
         if not resp.media_id and resp.debug_info:
             self.log.debug(f"Error uploading media for Matrix message {event_id}: "
                            f"{resp.debug_info.message}")
-            await self._send_bridge_error(f"Media upload error: {resp.debug_info.message}")
-            return
-        await self._send_delivery_receipt(event_id)
+            raise Exception(f"Media upload error: {resp.debug_info.message}")
+        else:
+            sender.send_remote_checkpoint(
+                MessageSendCheckpointStatus.SUCCESS,
+                event_id,
+                self.mxid,
+                EventType.ROOM_MESSAGE,
+                message.msgtype,
+            )
+
         try:
             self._oti_dedup.pop(dbm.fb_txn_id)
         except KeyError:
@@ -671,17 +724,42 @@ class Portal(DBPortal, BasePortal):
 
     async def handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
                                       redaction_event_id: EventID) -> None:
-        if not self.mxid:
-            return
+        try:
+            await self._handle_matrix_redaction(sender, event_id, redaction_event_id)
+        except Exception as e:
+            self.log.exception(f"Failed to handle Matrix event {event_id}: {e}")
+            sender.send_remote_checkpoint(
+                self._status_from_exception(e),
+                event_id,
+                self.mxid,
+                EventType.ROOM_REDACTION,
+                error=e,
+            )
+            await self._send_bridge_error(str(e))
+        else:
+            await self._send_delivery_receipt(event_id)
 
+    async def _handle_matrix_redaction(self, sender: 'u.User', event_id: EventID,
+                                       redaction_event_id: EventID) -> None:
+        sender, _ = await self.get_relay_sender(sender, f"redaction {event_id}")
+        if not sender:
+            raise Exception("not logged in")
         message = await DBMessage.get_by_mxid(event_id, self.mxid)
         if message:
             try:
                 await message.delete()
                 await sender.client.unsend(message.fbid)
+            except Exception as e:
+                self.log.exception(f"Unsend failed: {e}")
+                raise
+            else:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    redaction_event_id,
+                    self.mxid,
+                    EventType.ROOM_REDACTION,
+                )
                 await self._send_delivery_receipt(redaction_event_id)
-            except Exception:
-                self.log.exception("Unsend failed")
             return
 
         reaction = await DBReaction.get_by_mxid(event_id, self.mxid)
@@ -689,12 +767,26 @@ class Portal(DBPortal, BasePortal):
             try:
                 await reaction.delete()
                 await sender.client.react(reaction.fb_msgid, None)
+            except Exception as e:
+                self.log.exception(f"Removing reaction failed: {e}")
+                raise
+            else:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    redaction_event_id,
+                    self.mxid,
+                    EventType.ROOM_REDACTION,
+                )
                 await self._send_delivery_receipt(redaction_event_id)
-            except Exception:
-                self.log.exception("Removing reaction failed")
+            return
+
+        raise NotImplementedError("Only message and reaction redactions are supported")
 
     async def handle_matrix_reaction(self, sender: 'u.User', event_id: EventID,
                                      reacting_to: EventID, reaction: str) -> None:
+        sender, is_relay = await self.get_relay_sender(sender, f"reaction {event_id}")
+        if not sender or is_relay:
+            return
         # Facebook doesn't use variation selectors, Matrix does
         reaction = reaction.rstrip("\ufe0f")
 
@@ -706,12 +798,35 @@ class Portal(DBPortal, BasePortal):
 
             existing = await DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.fbid)
             if existing and existing.reaction == reaction:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    event_id,
+                    self.mxid,
+                    EventType.REACTION,
+                )
                 return
 
-            await sender.client.react(message.fbid, reaction)
-            await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
-                                        reaction)
-        await self._send_delivery_receipt(event_id)
+            try:
+                await sender.client.react(message.fbid, reaction)
+            except Exception as e:
+                self.log.exception(f"Failed to react to {event_id}")
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.PERM_FAILURE,
+                    event_id,
+                    self.mxid,
+                    EventType.REACTION,
+                    error=e,
+                )
+            else:
+                sender.send_remote_checkpoint(
+                    MessageSendCheckpointStatus.SUCCESS,
+                    event_id,
+                    self.mxid,
+                    EventType.REACTION,
+                )
+                await self._send_delivery_receipt(event_id)
+                await self._upsert_reaction(existing, self.main_intent, event_id, message, sender,
+                                            reaction)
 
     async def handle_matrix_leave(self, user: 'u.User') -> None:
         if self.is_direct:
@@ -729,7 +844,7 @@ class Portal(DBPortal, BasePortal):
         # stopped_typing = [self.thread_for(user).stop_typing() for user in self._typing - users]
         # started_typing = [self.thread_for(user).start_typing() for user in users - self._typing]
         # self._typing = users
-        # await asyncio.gather(*stopped_typing, *started_typing, loop=self.loop)
+        # await asyncio.gather(*stopped_typing, *started_typing)
 
     async def enable_dm_encryption(self) -> bool:
         ok = await super().enable_dm_encryption()
@@ -968,6 +1083,7 @@ class Portal(DBPortal, BasePortal):
         if attachment.mime_type and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
+        voice_message = False
         if attachment.extensible_media:
             sa = attachment.parse_extensible().story_attachment
             self.log.trace("Story attachment %s content: %s", attachment.media_id_str, sa)
@@ -983,6 +1099,7 @@ class Portal(DBPortal, BasePortal):
             msgtype = MessageType.AUDIO
             url = attachment.audio_info.url
             info = AudioInfo(duration=attachment.audio_info.duration_ms)
+            voice_message = True
         elif attachment.image_info:
             referer = "messenger_thread_photo"
             msgtype = MessageType.IMAGE
@@ -1011,11 +1128,15 @@ class Portal(DBPortal, BasePortal):
             return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
             url, source, intent, filename=filename, encrypt=self.encrypted,
-            find_size=False, referer=referer)
+            find_size=False, referer=referer, convert_audio=voice_message)
         info.size = additional_info.size
         info.mimetype = attachment.mime_type or additional_info.mimetype
-        return MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
-                                        body=filename, info=info)
+        content = MediaMessageEventContent(url=mxc, file=decryption_info, msgtype=msgtype,
+                                           body=filename, info=info)
+        if voice_message:
+            content["org.matrix.msc1767.audio"] = {"duration": info.duration}
+            content["org.matrix.msc3245.voice"] = {}
+        return content
 
     async def _handle_graphql_message(self, source: 'u.User', intent: IntentAPI,
                                       message: graphql.Message) -> List[EventID]:
@@ -1219,6 +1340,7 @@ class Portal(DBPortal, BasePortal):
             event_id = await sender.intent.set_room_avatar(self.mxid, self.avatar_url)
         except IntentError:
             event_id = await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
+        await self.save()
         await DBMessage(mxid=event_id, mx_room=self.mxid, index=0, timestamp=timestamp,
                         fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
                         fb_sender=sender.fbid, fb_txn_id=None).insert()
@@ -1236,6 +1358,7 @@ class Portal(DBPortal, BasePortal):
             event_id = await sender.intent.set_room_name(self.mxid, self.name)
         except IntentError:
             event_id = await self.main_intent.set_room_name(self.mxid, self.name)
+        await self.save()
         await DBMessage(mxid=event_id, mx_room=self.mxid, index=0, timestamp=timestamp,
                         fbid=message_id, fb_chat=self.fbid, fb_receiver=self.fb_receiver,
                         fb_sender=sender.fbid, fb_txn_id=None).insert()
@@ -1272,9 +1395,9 @@ class Portal(DBPortal, BasePortal):
 
         await self._upsert_reaction(existing, intent, mxid, message, sender, reaction)
 
-    async def _upsert_reaction(self, existing: DBReaction, intent: IntentAPI, mxid: EventID,
-                               message: DBMessage, sender: Union['u.User', 'p.Puppet'],
-                               reaction: str) -> None:
+    async def _upsert_reaction(self, existing: Optional[DBReaction], intent: IntentAPI,
+                               mxid: EventID, message: DBMessage,
+                               sender: Union['u.User', 'p.Puppet'], reaction: str) -> None:
         if existing:
             self.log.debug(f"_upsert_reaction redacting {existing.mxid} and inserting {mxid}"
                            f" (message: {message.mxid})")

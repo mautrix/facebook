@@ -57,13 +57,14 @@ setuptools.setup(
         "Framework :: AsyncIO",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
     ],
     package_data={
         "mautrix_facebook": ["example-config.yaml"],
         "mautrix_facebook.web": ["static/*", "static/**/*"],
+        "maufbapi.http": ["zstd-dict.dat"],
         "maufbapi.mqtt": ["topics.json"],
     },
     data_files=[

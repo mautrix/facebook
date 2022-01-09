@@ -16,11 +16,10 @@
 from typing import Optional, Dict, Any
 import asyncio
 import logging
+import time
 
 from mautrix.types import UserID, RoomID
 from mautrix.bridge import Bridge
-from mautrix.bridge.state_store.asyncpg import PgBridgeStateStore
-from mautrix.util.async_db import Database
 
 from .config import Config
 from .db import upgrade_table, init as init_db
@@ -31,6 +30,7 @@ from .matrix import MatrixHandler
 from .version import version, linkified_version
 from .web import PublicBridgeWebsite
 from .presence import PresenceUpdater
+from .util.interval import get_interval
 
 
 class MessengerBridge(Bridge):
@@ -39,26 +39,20 @@ class MessengerBridge(Bridge):
     command = "python -m mautrix-facebook"
     description = "A Matrix-Facebook Messenger puppeting bridge."
     repo_url = "https://github.com/mautrix/facebook"
-    real_user_content_key = "net.maunium.facebook.puppet"
     version = version
     markdown_version = linkified_version
     config_class = Config
     matrix_class = MatrixHandler
+    upgrade_table = upgrade_table
 
-    db: Database
     config: Config
     matrix: MatrixHandler
     public_website: Optional[PublicBridgeWebsite]
-    state_store: PgBridgeStateStore
 
     periodic_reconnect_task: asyncio.Task
 
-    def make_state_store(self) -> None:
-        self.state_store = PgBridgeStateStore(self.db, self.get_puppet, self.get_double_puppet)
-
     def prepare_db(self) -> None:
-        self.db = Database(self.config["appservice.database"], upgrade_table=upgrade_table,
-                           loop=self.loop, db_args=self.config["appservice.database_opts"])
+        super().prepare_db()
         init_db(self.db)
 
     def prepare_bridge(self) -> None:
@@ -80,18 +74,9 @@ class MessengerBridge(Bridge):
         User.shutdown = True
         for user in User.by_fbid.values():
             user.stop_listen()
-
-    async def stop(self) -> None:
-        await super().stop()
-        self.log.debug("Saving user sessions")
-        for user in User.by_mxid.values():
-            await user.save()
+        self.add_shutdown_actions(user.save() for user in User.by_mxid.values())
 
     async def start(self) -> None:
-        await self.db.start()
-        await self.state_store.upgrade_table.upgrade(self.db.pool)
-        if self.matrix.e2ee:
-            self.matrix.e2ee.crypto_db.override_pool(self.db.pool)
         self.add_startup_actions(User.init_cls(self))
         self.add_startup_actions(Puppet.init_cls(self))
         if self.config["bridge.presence"]:
@@ -121,7 +106,7 @@ class MessengerBridge(Bridge):
     async def _periodic_reconnect_loop(self) -> None:
         log = logging.getLogger("mau.periodic_reconnect")
         always_reconnect = self.config["bridge.periodic_reconnect.always"]
-        interval = self.config["bridge.periodic_reconnect.interval"]
+        interval = get_interval(self.config["bridge.periodic_reconnect.interval"])
         if interval <= 0:
             log.debug("Periodic reconnection is not enabled")
             return
@@ -138,10 +123,17 @@ class MessengerBridge(Bridge):
             except asyncio.CancelledError:
                 log.debug("Periodic reconnect loop stopped")
                 return
+            must_be_connected_before = time.monotonic()
+            min_connected_time = self.config["bridge.periodic_reconnect.min_connected_time"]
+            if min_connected_time:
+                must_be_connected_before -= min_connected_time
             log.info("Executing periodic reconnections")
             for user in User.by_fbid.values():
                 if not user.is_connected and not always_reconnect:
                     log.debug("Not reconnecting %s: not connected", user.mxid)
+                    continue
+                if user.is_connected and user.connection_time >= must_be_connected_before:
+                    log.debug("No reconnecting %s: connected too recently", user.mxid)
                     continue
                 log.debug("Executing periodic reconnect for %s", user.mxid)
                 try:

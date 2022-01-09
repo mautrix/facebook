@@ -133,7 +133,7 @@ async def facebook_to_matrix(msg: Union[graphql.MessageText, mqtt.Message]) -> T
         text = msg.text
         mentions = msg.ranges
     else:
-        raise ValueError(f"Unsupported Facebook message type {type(msg).__name__}")
+        raise NotImplementedError(f"Unsupported Facebook message type {type(msg).__name__}")
     text = text or ""
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
     mention_user_ids = []
