@@ -289,7 +289,7 @@ class Portal(DBPortal, BasePortal):
         mime = magic.from_buffer(data, mime=True)
         if convert_audio and mime != "audio/ogg":
             data = await ffmpeg.convert_bytes(
-                data, ".ogg", output_args=("-c:a", "libvorbis"), input_mime=mime
+                data, ".ogg", output_args=("-c:a", "libopus"), input_mime=mime
             )
             mime = "audio/ogg"
         info = FileInfo(mimetype=mime, size=len(data))
@@ -1323,6 +1323,7 @@ class Portal(DBPortal, BasePortal):
             url = attachment.audio_info.url
             info = AudioInfo(duration=attachment.audio_info.duration_ms)
             voice_message = True
+            attachment.mime_type = None
         elif attachment.image_info:
             referer = "messenger_thread_photo"
             msgtype = MessageType.IMAGE
@@ -1369,6 +1370,7 @@ class Portal(DBPortal, BasePortal):
         if voice_message:
             content["org.matrix.msc1767.audio"] = {"duration": info.duration}
             content["org.matrix.msc3245.voice"] = {}
+            content.body += ".ogg"
         return content
 
     async def _handle_graphql_message(
