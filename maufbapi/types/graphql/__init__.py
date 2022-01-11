@@ -39,6 +39,7 @@ from .responses import (
     MinimalMessage,
     MinimalParticipant,
     MinimalSticker,
+    MontageReplyData,
     OwnInfo,
     PageInfo,
     Participant,

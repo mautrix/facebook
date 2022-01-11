@@ -407,6 +407,13 @@ class Reply(SerializableAttrs):
     status: ReplyStatus
 
 
+@dataclass
+class MontageReplyData(SerializableAttrs):
+    message_id: Optional[str] = None
+    snippet: Optional[str] = None
+    # we really only care about the snippet, but there are other fields too
+
+
 @dataclass(kw_only=True)
 class Message(MinimalMessage, SerializableAttrs):
     snippet: str
@@ -417,6 +424,7 @@ class Message(MinimalMessage, SerializableAttrs):
     message_reactions: List[Reaction] = attr.ib(factory=lambda: [])
     replied_to_message: Optional[Reply] = None
     message_unsendability_status: MessageUnsendability = MessageUnsendability.CAN_UNSEND
+    montage_reply_data: Optional[MontageReplyData] = None
 
     is_sponsored: bool = False
     is_user_generated: bool = True

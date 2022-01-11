@@ -24,7 +24,7 @@ from maufbapi.thrift import RecursiveType, ThriftObject, TType, autospec, field
 from mautrix.types import ExtensibleEnum, SerializableAttrs, SerializableEnum
 
 from ..common import MessageUnsendability as Unsendability
-from ..graphql import ExtensibleAttachment
+from ..graphql import ExtensibleAttachment, MontageReplyData
 
 
 @autospec
@@ -54,7 +54,7 @@ class MessageMetadata(ThriftObject):
     # index 6: unknown bool (ex: true)
     action_summary: str = field(index=7, default=None)
     tags: List[str] = field(factory=lambda: [])
-    # index 9: unknown int32 (ex: 3)
+    # index 9: unknown int32 (ex: 2 or 3)
     # index 10: unknown bool (ex: false)
     # index 11: ???
     message_unsendability: Unsendability = field(
@@ -212,6 +212,13 @@ class Message(ThriftObject):
         return [
             Mention.deserialize(item) for item in json.loads(self.extra_metadata.get("prng", "[]"))
         ]
+
+    @property
+    def montage_reply_data(self) -> Optional[MontageReplyData]:
+        data = self.extra_metadata.get("montage_reply_data")
+        if not data:
+            return None
+        return MontageReplyData.parse_json(data)
 
 
 @autospec
