@@ -12,7 +12,7 @@ jobs:
         python-version: "3.10"
     - uses: isort/isort-action@master
       with:
-        sortPaths: "./maufbapi ./mautrix_signal"
+        sortPaths: "./maufbapi ./mautrix_facebook"
     - uses: psf/black@21.12b0
       with:
-        src: "./maufbapi ./mautrix_signal"
+        src: "./maufbapi ./mautrix_facebook"
