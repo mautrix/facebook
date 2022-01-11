@@ -110,9 +110,9 @@ def _handle_codeblock_post(
 ) -> None:
     if cb_lang is not None:
         if cb_lang:
-            output.append("<pre><code>")
+            output.append(f'<pre><code class="language-{cb_lang}">')
         else:
-            output.append(f'<pre><code class="{cb_lang}">')
+            output.append("<pre><code>")
         if cb_content:
             output.append(cb_content)
             output.append("</code></pre>")
@@ -149,7 +149,7 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
             codeblock, line, post_args = _handle_codeblock_pre(output, codeblock, line)
             output.append(_convert_formatting(line))
             if i != len(lines) - 1:
-                output.append("<br/>")
+                output.append("<br/>\n")
             _handle_codeblock_post(output, *post_args)
     html = "".join(output)
 
@@ -169,7 +169,7 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
         return f'<a href="https://matrix.to/#/{mxid}">{match.group(2)}</a>'
 
     html = MENTION_REGEX.sub(_mention_replacer, html)
-    if html != escape(content.body).replace("\n", "<br/>"):
+    if html != escape(content.body).replace("\n", "<br/>\n"):
         content.format = Format.HTML
         content.formatted_body = html
     return content
