@@ -20,10 +20,10 @@ from collections import deque
 from html import escape
 from io import BytesIO
 import asyncio
+import base64
 import mimetypes
 import re
 import time
-import base64
 
 from yarl import URL
 import magic
@@ -1181,15 +1181,16 @@ class Portal(DBPortal, BasePortal):
         )
         await self._send_delivery_receipt(event_ids[-1])
 
-    async def _handle_facebook_story_reply(self, intent: IntentAPI, message: mqtt.Message | graphql.Message, timestamp: int) -> EventID | None:
+    async def _handle_facebook_story_reply(
+        self, intent: IntentAPI, message: mqtt.Message | graphql.Message, timestamp: int
+    ) -> EventID | None:
         text = message.montage_reply_data.snippet
         if message.montage_reply_data.message_id:
             card_id_data = f"S:_ISC:{message.montage_reply_data.message_id}"
             card_id = base64.b64encode(card_id_data.encode("utf-8")).decode("utf-8")
-            story_url = str(URL("https://www.facebook.com/stories/").with_query({
-                "card_id": card_id,
-                "view_single": "true",
-            }))
+            story_url = URL("https://www.facebook.com/stories/").with_query(
+                {"card_id": card_id, "view_single": "true"}
+            )
             text += f" ({story_url})"
         content = TextMessageEventContent(msgtype=MessageType.NOTICE, body=text)
         return await self._send_message(intent, content, timestamp=timestamp)
