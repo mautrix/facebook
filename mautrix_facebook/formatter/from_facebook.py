@@ -149,7 +149,10 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
             codeblock, line, post_args = _handle_codeblock_pre(output, codeblock, line)
             output.append(_convert_formatting(line))
             if i != len(lines) - 1:
-                output.append("<br/>\n")
+                if codeblock:
+                    output.append("\n")
+                else:
+                    output.append("<br/>")
             _handle_codeblock_post(output, *post_args)
     html = "".join(output)
 
