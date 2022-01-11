@@ -411,6 +411,7 @@ class Reply(SerializableAttrs):
 class MontageReplyData(SerializableAttrs):
     message_id: Optional[str] = None
     snippet: Optional[str] = None
+    montage_thread_id: Optional[str] = None
     # we really only care about the snippet, but there are other fields too
 
 

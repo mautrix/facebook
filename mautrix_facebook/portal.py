@@ -1187,9 +1187,10 @@ class Portal(DBPortal, BasePortal):
         text = message.montage_reply_data.snippet
         if message.montage_reply_data.message_id:
             card_id_data = f"S:_ISC:{message.montage_reply_data.message_id}"
-            card_id = base64.b64encode(card_id_data.encode("utf-8")).decode("utf-8")
-            story_url = URL("https://www.facebook.com/stories/").with_query(
-                {"card_id": card_id, "view_single": "true"}
+            story_url = (
+                URL("https://www.facebook.com/stories")
+                / message.montage_reply_data.montage_thread_id
+                / base64.b64encode(card_id_data.encode("utf-8")).decode("utf-8")
             )
             text += f" ({story_url})"
         content = TextMessageEventContent(msgtype=MessageType.NOTICE, body=text)
