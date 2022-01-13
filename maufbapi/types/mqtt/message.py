@@ -465,3 +465,10 @@ class RegionHintPayload(ThriftObject):
     @property
     def region_hint(self) -> RegionHint:
         return RegionHint.from_thrift(self.region_hint_data)
+
+
+@autospec
+@dataclass
+class TypingNotification(ThriftObject):
+    user_id: int = field(TType.I64)
+    typing_status: int = field(TType.I32)

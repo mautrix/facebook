@@ -29,7 +29,8 @@ from .message import (
     ThreadChange,
     ThreadChangeAction,
     ThreadKey,
+    TypingNotification,
     UnsendMessage,
     VideoInfo,
 )
-from .requests import MarkReadRequest, OpenedThreadRequest, SendMessageRequest
+from .requests import MarkReadRequest, OpenedThreadRequest, SendMessageRequest, SetTypingRequest

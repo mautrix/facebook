@@ -231,13 +231,10 @@ class MatrixHandler(BaseMatrixHandler):
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: list[UserID]) -> None:
         portal = await po.Portal.get_by_mxid(room_id)
-        if not portal:
+        if not portal or not portal.is_direct:
             return
 
-        # FIXME
-        # users = [await u.User.get_by_mxid(mxid, create=False) for mxid in typing]
-        # await portal.handle_matrix_typing({user for user in users
-        #                                    if user is not None})
+        await portal.handle_matrix_typing(set(typing))
 
     async def handle_read_receipt(
         self,

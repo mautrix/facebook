@@ -36,4 +36,6 @@ from .mqtt import (
     RegionHintPayload,
     SendMessageRequest,
     SendMessageResponse,
+    SetTypingRequest,
+    TypingNotification,
 )

@@ -35,6 +35,8 @@ class RealtimeTopic(Enum):
     MARK_THREAD_READ = "/t_mt_req"
     MARK_THREAD_READ_RESPONSE = "/t_mt_resp"
     OPENED_THREAD = "/opened_thread"
+    TYPING_NOTIFICATION = "/t_tn"
+    SET_TYPING = "/t_st"
 
     @property
     def encoded(self) -> str:

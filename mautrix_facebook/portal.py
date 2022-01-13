@@ -109,7 +109,7 @@ class Portal(DBPortal, BasePortal):
     _oti_dedup: dict[int, DBMessage]
     _send_locks: dict[int, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
-    _typing: set[u.User]
+    _typing: set[UserID]
     backfill_lock: SimpleLock
     _backfill_leave: set[IntentAPI] | None
 
@@ -982,13 +982,19 @@ class Portal(DBPortal, BasePortal):
         else:
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
 
-    async def handle_matrix_typing(self, users: set[u.User]) -> None:
-        # FIXME
-        pass
-        # stopped_typing = [self.thread_for(user).stop_typing() for user in self._typing - users]
-        # started_typing = [self.thread_for(user).start_typing() for user in users - self._typing]
-        # self._typing = users
-        # await asyncio.gather(*stopped_typing, *started_typing)
+    async def _set_typing(self, users: set[UserID], typing: bool) -> None:
+        for mxid in users:
+            user: u.User = await u.User.get_by_mxid(mxid, create=False)
+            if user and user.mqtt:
+                print(f"{user.mxid}.set_typing({self.fbid}, {typing=})")
+                await user.mqtt.set_typing(self.fbid, typing)
+
+    async def handle_matrix_typing(self, users: set[UserID]) -> None:
+        await asyncio.gather(
+            self._set_typing(users - self._typing, typing=True),
+            self._set_typing(self._typing - users, typing=False),
+        )
+        self._typing = users
 
     async def enable_dm_encryption(self) -> bool:
         ok = await super().enable_dm_encryption()

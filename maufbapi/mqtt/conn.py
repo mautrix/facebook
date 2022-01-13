@@ -37,12 +37,13 @@ from ..thrift import ThriftObject
 from ..types import (
     MarkReadRequest,
     MessageSyncPayload,
-    OpenedThreadRequest,
     RealtimeClientInfo,
     RealtimeConfig,
     RegionHintPayload,
     SendMessageRequest,
     SendMessageResponse,
+    SetTypingRequest,
+    TypingNotification,
 )
 from ..types.mqtt import Mention
 from .events import Connect, Disconnect
@@ -157,6 +158,7 @@ class AndroidMQTT:
             RealtimeTopic.REGION_HINT,
             RealtimeTopic.SEND_MESSAGE_RESP,
             RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+            RealtimeTopic.TYPING_NOTIFICATION,
         ]
         topic_ids = [
             int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
@@ -316,6 +318,14 @@ class AndroidMQTT:
             for event in item.get_parts():
                 asyncio.create_task(self._dispatch(event))
 
+    def _on_typing_notification(self, payload: bytes) -> None:
+        try:
+            parsed = TypingNotification.from_thrift(payload)
+        except Exception:
+            self.log.debug("Failed to parse typing notification %s", payload, exc_info=True)
+            return
+        asyncio.create_task(self._dispatch(parsed))
+
     def _on_region_hint(self, payload: bytes) -> None:
         rhp = RegionHintPayload.from_thrift(payload)
         if self.region_hint_callback:
@@ -330,9 +340,12 @@ class AndroidMQTT:
             if len(rest) > 0:
                 self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
             topic = RealtimeTopic.decode(topic_str)
-            _, message.payload = message.payload.split(b"\x00", 1)
+            if topic != RealtimeTopic.TYPING_NOTIFICATION or message.payload.startswith(b"\x00"):
+                _, message.payload = message.payload.split(b"\x00", 1)
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
+            elif topic == RealtimeTopic.TYPING_NOTIFICATION:
+                self._on_typing_notification(message.payload)
             elif topic == RealtimeTopic.REGION_HINT:
                 self._on_region_hint(message.payload)
             else:
@@ -432,6 +445,7 @@ class AndroidMQTT:
         topic: RealtimeTopic | str,
         payload: str | bytes | dict | ThriftObject,
         prefix: bytes = b"",
+        compress: bool = True,
     ) -> asyncio.Future:
         if isinstance(payload, dict):
             payload = json.dumps(payload)
@@ -439,7 +453,10 @@ class AndroidMQTT:
             payload = payload.encode("utf-8")
         if isinstance(payload, ThriftObject):
             payload = payload.to_thrift()
-        payload = zlib.compress(prefix + payload, level=9)
+        if compress:
+            payload = zlib.compress(prefix + payload, level=9)
+        elif prefix:
+            payload = prefix + payload
         info = self._client.publish(
             topic.encoded if isinstance(topic, RealtimeTopic) else topic, payload, qos=1
         )
@@ -532,5 +549,11 @@ class AndroidMQTT:
             prefix=b"\x00",
         )
         self.log.trace("Mark read response: %s", repr(resp.payload))
+
+    async def set_typing(self, target: int, typing: bool = True) -> None:
+        req = SetTypingRequest(
+            user_id=target, own_id=self.state.session.uid, typing_status=int(typing)
+        )
+        await self.publish(RealtimeTopic.SET_TYPING, req, prefix=b"\x00")
 
     # endregion

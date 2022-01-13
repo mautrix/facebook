@@ -91,3 +91,11 @@ class OpenedThreadRequest(ThriftObject):
     @chat_id.setter
     def chat_id(self, value: int) -> None:
         self._chat_id = ChatIDWrapper(str(value)).to_thrift()
+
+
+@autospec
+@dataclass
+class SetTypingRequest(ThriftObject):
+    user_id: int = field(TType.I64)
+    own_id: int = field(TType.I64)
+    typing_status: int = field(TType.I32)

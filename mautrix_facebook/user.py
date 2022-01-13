@@ -722,6 +722,7 @@ class User(DBUser, BaseUser):
                 self.mqtt.add_event_handler(mqtt_t.RemoveMember, self.on_member_removed)
                 self.mqtt.add_event_handler(mqtt_t.ThreadChange, self.on_thread_change)
                 self.mqtt.add_event_handler(mqtt_t.MessageSyncError, self.on_message_sync_error)
+                self.mqtt.add_event_handler(mqtt_t.TypingNotification, self.on_typing)
                 self.mqtt.add_event_handler(Connect, self.on_connect)
                 self.mqtt.add_event_handler(Disconnect, self.on_disconnect)
             await self.mqtt.listen(self.seq_id)
@@ -900,14 +901,15 @@ class User(DBUser, BaseUser):
     #             await puppet.default_mxid_intent.set_presence(
     #                 presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
     #                 ignore_cache=True)
-    #
-    # @async_time(METRIC_TYPING)
-    # async def on_typing(self, evt: fbchat.Typing) -> None:
-    #     fb_receiver = self.fbid if isinstance(evt.thread, fbchat.User) else None
-    #     portal = po.Portal.get_by_thread(evt.thread, fb_receiver)
-    #     if portal.mxid and not portal.backfill_lock.locked:
-    #         puppet = pu.Puppet.get_by_fbid(evt.author.id)
-    #         await puppet.intent.set_typing(portal.mxid, is_typing=evt.status, timeout=120000)
+
+    @async_time(METRIC_TYPING)
+    async def on_typing(self, evt: mqtt_t.TypingNotification) -> None:
+        portal = await po.Portal.get_by_fbid(evt.user_id, fb_receiver=self.fbid, create=False)
+        if portal and portal.mxid and not portal.backfill_lock.locked:
+            puppet = await pu.Puppet.get_by_fbid(evt.user_id)
+            await puppet.intent.set_typing(
+                portal.mxid, is_typing=bool(evt.typing_status), timeout=10000
+            )
 
     @async_time(METRIC_MEMBERS_ADDED)
     async def on_members_added(self, evt: mqtt_t.AddMember) -> None:
