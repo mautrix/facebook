@@ -986,7 +986,6 @@ class Portal(DBPortal, BasePortal):
         for mxid in users:
             user: u.User = await u.User.get_by_mxid(mxid, create=False)
             if user and user.mqtt:
-                print(f"{user.mxid}.set_typing({self.fbid}, {typing=})")
                 await user.mqtt.set_typing(self.fbid, typing)
 
     async def handle_matrix_typing(self, users: set[UserID]) -> None:
