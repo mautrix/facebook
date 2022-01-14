@@ -1274,15 +1274,18 @@ class Portal(DBPortal, BasePortal):
                     height=sa.media.image_natural.height,
                 )
             else:
-                self.log.debug("Unsupported story media attachment: %s", sa.serialize())
+                self.log.trace("Unsupported story media attachment: %s", sa.serialize())
                 body = "Unsupported shared media attachment"
                 html = body
                 if sa.title:
                     body = f"{body}: **{sa.title}**"
                     html = f"{html}: <strong>{escape(sa.title)}</strong>"
-                if sa.description:
-                    body = f"{body}\n\n>{sa.description.text}"
-                    html = f"<p>{html}</p><blockquote>{escape(sa.description.text)}</blockquote>"
+                html = f"<p>{html}</p>"
+                if sa.description and sa.description.text != "msngr.com":
+                    body += f"\n\n>{sa.description.text}"
+                    html += f"<blockquote>{escape(sa.description.text)}</blockquote>"
+                body += f"\n\n{sa.url}"
+                html += f"<p><a href='{sa.url}'>Open external link</a></p>"
                 return TextMessageEventContent(
                     msgtype=MessageType.TEXT,
                     format=Format.HTML,
