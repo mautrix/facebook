@@ -255,6 +255,12 @@ class User(DBUser, BaseUser):
         if self._is_logged_in and not _override:
             return True
         elif not self.state:
+            # If we have a user in the DB with no state, we can assume
+            # FB logged us out and the bridge has restarted
+            await self.push_bridge_state(
+                BridgeStateEvent.BAD_CREDENTIALS,
+                error="logged-out",
+            )
             return False
         attempt = 0
         client = AndroidAPI(self.state, log=self.log.getChild("api"))
