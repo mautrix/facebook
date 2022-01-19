@@ -36,6 +36,9 @@ setuptools.setup(
     name="mautrix-facebook",
     version=version,
     url="https://github.com/mautrix/facebook",
+    project_urls={
+        "Changelog": "https://github.com/mautrix/facebook/blob/master/CHANGELOG.md",
+    },
 
     author="Tulir Asokan",
     author_email="tulir@maunium.net",
