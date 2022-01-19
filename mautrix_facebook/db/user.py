@@ -52,7 +52,7 @@ class User:
     async def all_logged_in(cls) -> list[User]:
         q = """
             SELECT mxid, fbid, state, notice_room FROM "user"
-            WHERE fbid<>0 AND state IS NOT NULL
+            WHERE fbid<>0
         """
         rows = await cls.db.fetch(q)
         return [cls._from_row(row) for row in rows]
