@@ -259,8 +259,7 @@ class User(DBUser, BaseUser):
             # FB logged us out and the bridge has restarted
             await self.push_bridge_state(
                 BridgeStateEvent.BAD_CREDENTIALS,
-                error="fb-auth-error",
-                message="Bridge has restarted in BAD_CREDENTIALS state. Please delete and log in again.",
+                error="logged-out",
             )
             return False
         attempt = 0
