@@ -260,7 +260,7 @@ class User(DBUser, BaseUser):
             await self.push_bridge_state(
                 BridgeStateEvent.BAD_CREDENTIALS,
                 error="fb-auth-error",
-                message="Bridge has restarted in BAD_CREDENTIALS state. Please delete and log in again."
+                message="Bridge has restarted in BAD_CREDENTIALS state. Please delete and log in again.",
             )
             return False
         attempt = 0
