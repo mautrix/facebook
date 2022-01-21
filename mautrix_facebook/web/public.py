@@ -31,6 +31,7 @@ from mautrix.types import UserID
 from mautrix.util.signed_token import verify_token
 
 from .. import puppet as pu, user as u
+from .segment_analytics import track
 
 
 class InvalidTokenError(Exception):
@@ -227,10 +228,12 @@ class PublicBridgeWebsite:
             await api.mobile_config_sessionless()
 
         try:
+            track(user, "$login_start")
             self.log.debug(f"Logging in as {email} for {user.mxid}")
             resp = await api.login(email, password=password, encrypted_password=encrypted_password)
             self.log.debug(f"Got successful login response with UID {resp.uid} for {user.mxid}")
             await user.on_logged_in(state)
+            track(user, "$login_success")
             return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
         except TwoFactorRequired as e:
             self.log.debug(
@@ -249,6 +252,7 @@ class PublicBridgeWebsite:
                 headers=self._acao_headers,
             )
         except OAuthException as e:
+            track(user, "$login_failed", {"error": str(e)})
             self.log.debug(f"Got OAuthException {e} for {user.mxid}")
             return web.json_response({"error": str(e)}, headers=self._acao_headers, status=401)
 
@@ -283,6 +287,7 @@ class PublicBridgeWebsite:
                 " after 2fa login"
             )
             await user.on_logged_in(state)
+            track(user, "$login_success")
             return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
         except IncorrectPassword:
             self.log.debug(f"Got incorrect 2fa code error for {user.mxid}")
@@ -295,6 +300,7 @@ class PublicBridgeWebsite:
                 status=401,
             )
         except OAuthException as e:
+            track(user, "$login_failed", {"error": str(e)})
             self.log.debug(f"Got OAuthException {e} for {user.mxid} in 2fa stage")
             return web.json_response({"error": str(e)}, headers=self._acao_headers, status=401)
 
@@ -316,8 +322,10 @@ class PublicBridgeWebsite:
                 " after approval login"
             )
             await user.on_logged_in(state)
+            track(user, "$login_success")
             return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
         except OAuthException as e:
+            track(user, "$login_failed", {"error": str(e)})
             self.log.debug(f"Got OAuthException {e} for {user.mxid} in checkpoint login stage")
             return web.json_response({"error": str(e)}, headers=self._acao_headers, status=401)
 
