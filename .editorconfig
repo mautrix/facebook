@@ -14,3 +14,6 @@ indent_style = space
 
 [*.{yaml, yml}]
 indent_style = space
+
+[.pre-commit-config.yaml]
+indent_size = 2
