@@ -6,6 +6,7 @@
 
 *.yaml
 !mautrix_facebook/example-config.yaml
+!.pre-commit-config.yaml
 
 *.log
 *.log.*
