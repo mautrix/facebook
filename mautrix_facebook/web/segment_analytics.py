@@ -18,7 +18,7 @@ async def _track(user: User, event: str, properties: dict) -> None:
         await http.post(
             URL.build(scheme="https", host=host, path="/v1/track"),
             json={
-                "userId": user.mx_id,
+                "userId": user.mxid,
                 "event": event,
                 "properties": properties,
             },
