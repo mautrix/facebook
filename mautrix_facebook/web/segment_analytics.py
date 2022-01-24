@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from yarl import URL
@@ -11,7 +12,7 @@ host: str = "api.segment.io"
 segment_key: str | None = None
 
 
-def track(user: User, event: str, properties: dict) -> None:
+async def _track(user: User, event: str, properties: dict) -> None:
     if segment_key:
         properties["bridge"] = "facebook"
         await http.post(
@@ -24,6 +25,10 @@ def track(user: User, event: str, properties: dict) -> None:
             auth=aiohttp.BasicAuth(login=segment_key, encoding="utf-8"),
         )
         log.debug(f"Tracked {event}")
+
+
+def track(*args, **kwargs):
+    asyncio.create_task(_track(*args, **kwargs))
 
 
 def init(segment_key):
