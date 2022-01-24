@@ -12,10 +12,10 @@ host: str = "api.segment.io"
 
 try:
     segment_key = os.environ["SEGMENT_API_KEY"]
-    http = aiohttp.ClientSession()
-    log.debug("Enabled segment analytics tracking")
-except (ImportError, KeyError):
+except KeyError:
     segment_key = None
+else:
+    http = aiohttp.ClientSession()
 
 
 def track(user: User, event: str, properties: dict) -> None:
