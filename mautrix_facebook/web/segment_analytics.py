@@ -1,5 +1,4 @@
 import logging
-import os
 
 from yarl import URL
 import aiohttp
@@ -7,15 +6,9 @@ import aiohttp
 from ..user import User
 
 log = logging.getLogger("mau.web.public.analytics")
-http: aiohttp.ClientSession
+http: aiohttp.ClientSession = aiohttp.ClientSession()
 host: str = "api.segment.io"
-
-try:
-    segment_key = os.environ["SEGMENT_API_KEY"]
-except KeyError:
-    segment_key = None
-else:
-    http = aiohttp.ClientSession()
+segment_key: str | None = None
 
 
 def track(user: User, event: str, properties: dict) -> None:
@@ -31,3 +24,8 @@ def track(user: User, event: str, properties: dict) -> None:
             auth=aiohttp.BasicAuth(login=segment_key, encoding="utf-8"),
         )
         log.debug(f"Tracked {event}")
+
+
+def init(segment_key):
+    global segment_key
+    segment_key = segment_key
