@@ -69,7 +69,6 @@ class Config(BaseBridgeConfig):
         copy("bridge.username_template")
         copy("bridge.displayname_template")
         copy("bridge.displayname_preference")
-        copy("bridge.community_template")
         copy("bridge.command_prefix")
 
         copy("bridge.initial_chat_sync")

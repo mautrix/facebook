@@ -6,12 +6,11 @@ from .puppet import Puppet
 from .reaction import Reaction
 from .upgrade import upgrade_table
 from .user import User
-from .user_contact import UserContact
 from .user_portal import UserPortal
 
 
 def init(db: Database) -> None:
-    for table in (Portal, Message, Reaction, User, Puppet, UserPortal, UserContact):
+    for table in (Portal, Message, Reaction, User, Puppet, UserPortal):
         table.db = db
 
 
@@ -25,5 +24,4 @@ __all__ = [
     "Puppet",
     "User",
     "UserPortal",
-    "UserContact",
 ]

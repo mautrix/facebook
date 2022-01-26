@@ -32,7 +32,6 @@ class UserPortal:
     user: int
     portal: int
     portal_receiver: int
-    in_community: bool
 
     @classmethod
     def _from_row(cls, row: Record | None) -> UserPortal | None:
@@ -42,47 +41,34 @@ class UserPortal:
 
     @classmethod
     async def all(cls, user: int) -> dict[int, UserPortal]:
-        q = (
-            'SELECT "user", portal, portal_receiver, in_community FROM user_portal '
-            'WHERE "user"=$1'
-        )
+        q = 'SELECT "user", portal, portal_receiver FROM user_portal WHERE "user"=$1'
         rows = await cls.db.fetch(q, user)
         return {up.portal: up for up in (cls._from_row(row) for row in rows)}
 
     @classmethod
     async def get(cls, user: int, portal: int, portal_receiver: int) -> UserPortal | None:
         q = (
-            'SELECT "user", portal, portal_receiver, in_community FROM user_portal '
+            'SELECT "user", portal, portal_receiver FROM user_portal '
             'WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3'
         )
         row = await cls.db.fetchrow(q, user, portal, portal_receiver)
         return cls._from_row(row)
 
     async def insert(self) -> None:
-        q = (
-            'INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
-            "VALUES ($1, $2, $3, $4)"
-        )
-        await self.db.execute(q, self.user, self.portal, self.portal_receiver, self.in_community)
+        q = 'INSERT INTO user_portal ("user", portal, portal_receiver) ' "VALUES ($1, $2, $3)"
+        await self.db.execute(q, self.user, self.portal, self.portal_receiver)
 
     async def upsert(self) -> None:
         q = (
-            'INSERT INTO user_portal ("user", portal, portal_receiver, in_community) '
-            "VALUES ($1, $2, $3, $4) "
-            'ON CONFLICT ("user", portal, portal_receiver) DO UPDATE SET in_community=$4'
+            'INSERT INTO user_portal ("user", portal, portal_receiver) '
+            "VALUES ($1, $2, $3) "
+            'ON CONFLICT ("user", portal, portal_receiver) DO NOTHING'
         )
-        await self.db.execute(q, self.user, self.portal, self.portal_receiver, self.in_community)
+        await self.db.execute(q, self.user, self.portal, self.portal_receiver)
 
     async def delete(self) -> None:
         q = 'DELETE FROM user_portal WHERE "user"=$1 AND portal=$2 AND portal_receiver=$3'
         await self.db.execute(q, self.user)
-
-    async def save(self) -> None:
-        q = (
-            "UPDATE user_portal SET in_community=$1 "
-            'WHERE "user"=$2 AND portal=$3 AND portal_receiver=$4'
-        )
-        await self.db.execute(q, self.in_community, self.user, self.portal, self.portal_receiver)
 
     @classmethod
     async def delete_all(cls, user: int) -> None:

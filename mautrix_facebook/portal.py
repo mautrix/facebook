@@ -448,20 +448,11 @@ class Portal(DBPortal, BasePortal):
             self.log.warning("Canceling _update_matrix_room as update_info didn't return info")
             return
 
-        up = await UserPortal.get(source.fbid, self.fbid, self.fb_receiver)
-        if not up:
-            in_community = await source._community_helper.add_room(source._community_id, self.mxid)
-            await UserPortal(
-                user=source.fbid,
-                portal=self.fbid,
-                portal_receiver=self.fb_receiver,
-                in_community=in_community,
-            ).insert()
-        elif not up.in_community:
-            up.in_community = await source._community_helper.add_room(
-                source._community_id, self.mxid
-            )
-            await up.save()
+        await UserPortal(
+            user=source.fbid,
+            portal=self.fbid,
+            portal_receiver=self.fb_receiver,
+        ).upsert()
         await self._sync_read_receipts(info.read_receipts.nodes)
 
     async def _sync_read_receipts(self, receipts: list[graphql.ReadReceipt]) -> None:
@@ -628,12 +619,10 @@ class Portal(DBPortal, BasePortal):
             if not self.is_direct:
                 await self._update_participants(source, info)
 
-            in_community = await source._community_helper.add_room(source._community_id, self.mxid)
             await UserPortal(
                 user=source.fbid,
                 portal=self.fbid,
                 portal_receiver=self.fb_receiver,
-                in_community=in_community,
             ).upsert()
 
             try:

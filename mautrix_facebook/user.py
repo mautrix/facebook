@@ -26,8 +26,6 @@ from maufbapi.http import InvalidAccessToken, ResponseError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn
 from maufbapi.types import graphql, mqtt as mqtt_t
 from mautrix.bridge import BaseUser, async_getter_lock
-from mautrix.bridge._community import CommunityHelper, CommunityID
-from mautrix.client import Client as MxClient
 from mautrix.errors import MNotFound
 from mautrix.types import (
     EventID,
@@ -46,7 +44,7 @@ from mautrix.util.simple_lock import SimpleLock
 from . import portal as po, puppet as pu
 from .commands import enter_2fa_code
 from .config import Config
-from .db import User as DBUser, UserContact, UserPortal
+from .db import User as DBUser, UserPortal
 from .util.interval import get_interval
 
 METRIC_SYNC_THREADS = Summary("bridge_sync_threads", "calls to sync_threads")
@@ -120,9 +118,6 @@ class User(DBUser, BaseUser):
     _logged_in_info: graphql.LoggedInUser | None
     _logged_in_info_time: float
 
-    _community_helper: CommunityHelper
-    _community_id: CommunityID | None
-
     def __init__(
         self,
         mxid: UserID,
@@ -147,7 +142,6 @@ class User(DBUser, BaseUser):
         self._connection_time = time.monotonic()
         self._prev_thread_sync = -10
         self._prev_reconnect_fail_refresh = time.monotonic()
-        self._community_id = None
         self._sync_lock = SimpleLock(
             "Waiting for thread sync to finish before handling %s", log=self.log
         )
@@ -168,7 +162,6 @@ class User(DBUser, BaseUser):
         cls.config = bridge.config
         cls.az = bridge.az
         cls.loop = bridge.loop
-        cls._community_helper = CommunityHelper(cls.az)
         cls.temp_disconnect_notices = bridge.config["bridge.temporary_disconnect_notices"]
         return (user.load_session() async for user in cls.all_logged_in())
 
@@ -418,7 +411,6 @@ class User(DBUser, BaseUser):
         self.mqtt = None
 
         if self.fbid and remove_fbid:
-            await UserContact.delete_all(self.fbid)
             await UserPortal.delete_all(self.fbid)
             del self.by_fbid[self.fbid]
             self.fbid = None
@@ -439,62 +431,8 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
 
-        await self._create_community()
         if await self.sync_threads():
             self.start_listen()
-
-    async def _create_community(self) -> None:
-        template = self.config["bridge.community_template"]
-        if not template:
-            return
-        localpart, server = MxClient.parse_user_id(self.mxid)
-        community_localpart = template.format(localpart=localpart, server=server)
-        self.log.debug(f"Creating personal filtering community {community_localpart}...")
-        self._community_id, created = await self._community_helper.create(community_localpart)
-        if created:
-            await self._community_helper.update(
-                self._community_id,
-                name="Facebook Messenger",
-                avatar_url=self.config["appservice.bot_avatar"],
-                short_desc="Your Facebook bridged chats",
-            )
-            await self._community_helper.invite(self._community_id, self.mxid)
-
-    async def _add_community(
-        self,
-        up: UserPortal | None,
-        contact: UserContact | None,
-        portal: po.Portal,
-        puppet: pu.Puppet | None,
-    ) -> None:
-        if portal.mxid:
-            if not up or not up.in_community:
-                ic = await self._community_helper.add_room(self._community_id, portal.mxid)
-                if up and ic:
-                    up.in_community = True
-                    await up.save()
-                elif not up:
-                    await UserPortal(
-                        user=self.fbid,
-                        in_community=ic,
-                        portal=portal.fbid,
-                        portal_receiver=portal.fb_receiver,
-                    ).insert()
-        if puppet:
-            await self._add_community_puppet(contact, puppet)
-
-    async def _add_community_puppet(
-        self, contact: UserContact | None, puppet: "pu.Puppet"
-    ) -> None:
-        if not contact or not contact.in_community:
-            await puppet.default_mxid_intent.ensure_registered()
-            ic = await self._community_helper.join(self._community_id, puppet.default_mxid_intent)
-            if contact and ic:
-                contact.in_community = True
-                await contact.save()
-            elif not contact:
-                # This uses upsert instead of insert as a hacky fix for potential conflicts
-                await UserContact(user=self.fbid, contact=puppet.fbid, in_community=ic).upsert()
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
@@ -533,8 +471,6 @@ class User(DBUser, BaseUser):
     async def _sync_threads(self) -> None:
         sync_count = self.config["bridge.initial_chat_sync"]
         self.log.debug("Fetching threads...")
-        ups = await UserPortal.all(self.fbid)
-        contacts = await UserContact.all(self.fbid)
         # TODO paginate with 20 threads per request
         resp = await self.client.fetch_thread_list(thread_count=sync_count)
         self.seq_id = int(resp.sync_sequence_id)
@@ -545,31 +481,16 @@ class User(DBUser, BaseUser):
         await self.push_bridge_state(BridgeStateEvent.BACKFILLING)
         for thread in resp.nodes:
             try:
-                await self._sync_thread(thread, ups, contacts)
+                await self._sync_thread(thread)
             except Exception:
                 self.log.exception("Failed to sync thread %s", thread.id)
 
         await self.update_direct_chats()
 
-    async def _sync_thread(
-        self,
-        thread: graphql.Thread,
-        ups: dict[int, UserPortal],
-        contacts: dict[int, UserContact],
-    ) -> None:
+    async def _sync_thread(self, thread: graphql.Thread) -> None:
         self.log.debug(f"Syncing thread {thread.thread_key.id}")
         is_direct = bool(thread.thread_key.other_user_id)
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
-        puppet = (
-            await pu.Puppet.get_by_fbid(thread.thread_key.other_user_id) if is_direct else None
-        )
-
-        await self._add_community(
-            ups.get(portal.fbid, None),
-            contacts.get(puppet.fbid, None) if puppet else None,
-            portal,
-            puppet,
-        )
 
         was_created = False
         if not portal.mxid:
