@@ -60,7 +60,12 @@ class MessengerBridge(Bridge):
         super().prepare_bridge()
         if self.config["appservice.public.enabled"]:
             secret = self.config["appservice.public.shared_secret"]
-            self.public_website = PublicBridgeWebsite(loop=self.loop, shared_secret=secret)
+            segment_key = self.config["appservice.public.segment_key"]
+            self.public_website = PublicBridgeWebsite(
+                loop=self.loop,
+                shared_secret=secret,
+                segment_key=segment_key,
+            )
             self.az.app.add_subapp(
                 self.config["appservice.public.prefix"], self.public_website.app
             )
