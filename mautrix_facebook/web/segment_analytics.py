@@ -1,36 +1,38 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 
 from yarl import URL
 import aiohttp
 
-from ..user import User
+from .. import user as u
 
 log = logging.getLogger("mau.web.public.analytics")
-http: aiohttp.ClientSession = aiohttp.ClientSession()
-host: str = "api.segment.io"
+segment_url: URL = URL("https://api.segment.io/v1/track")
+http: aiohttp.ClientSession | None = None
 segment_key: str | None = None
 
 
-async def _track(user: User, event: str, properties: dict) -> None:
+async def _track(user: u.User, event: str, properties: dict) -> None:
+    await http.post(
+        segment_url,
+        json={
+            "userId": user.mxid,
+            "event": event,
+            "properties": {"bridge": "facebook", **properties},
+        },
+        auth=aiohttp.BasicAuth(login=segment_key, encoding="utf-8"),
+    )
+    log.debug(f"Tracked {event}")
+
+
+def track(user: u.User, event: str, properties: dict | None = None):
     if segment_key:
-        properties["bridge"] = "facebook"
-        await http.post(
-            URL.build(scheme="https", host=host, path="/v1/track"),
-            json={
-                "userId": user.mxid,
-                "event": event,
-                "properties": properties,
-            },
-            auth=aiohttp.BasicAuth(login=segment_key, encoding="utf-8"),
-        )
-        log.debug(f"Tracked {event}")
+        asyncio.create_task(_track(user, event, properties or {}))
 
 
-def track(*args, **kwargs):
-    asyncio.create_task(_track(*args, **kwargs))
-
-
-def init(segment_key):
-    global segment_key
-    segment_key = segment_key
+def init(key):
+    global segment_key, http
+    segment_key = key
+    http = aiohttp.ClientSession()
