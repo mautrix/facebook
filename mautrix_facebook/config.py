@@ -50,8 +50,6 @@ class Config(BaseBridgeConfig):
 
         copy("homeserver.asmux")
 
-        copy("appservice.community_id")
-
         if self["appservice.bot_avatar"] == "mxc://maunium.net/ddtNPZSKMNqaUzqrHuWvUADv":
             base["appservice.bot_avatar"] = "mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak"
 

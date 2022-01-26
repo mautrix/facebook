@@ -74,10 +74,6 @@ appservice:
     bot_displayname: Facebook bridge bot
     bot_avatar: mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak
 
-    # Community ID for bridged users (changes registration file) and rooms.
-    # Must be created manually. Example: "+facebook:example.com"
-    community_id: null
-
     # Whether or not to receive ephemeral events via appservice transactions.
     # Requires MSC2409 support (i.e. Synapse 1.22+).
     # You should disable bridge -> sync_with_custom_puppets when this is enabled.

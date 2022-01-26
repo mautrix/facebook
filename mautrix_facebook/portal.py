@@ -583,13 +583,6 @@ class Portal(DBPortal, BasePortal):
                     "content": {"url": self.avatar_url},
                 }
             )
-        if self.config["appservice.community_id"]:
-            initial_state.append(
-                {
-                    "type": "m.room.related_groups",
-                    "content": {"groups": [self.config["appservice.community_id"]]},
-                }
-            )
 
         # We lock backfill lock here so any messages that come between the room being created
         # and the initial backfill finishing wouldn't be bridged before the backfill messages.
