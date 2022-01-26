@@ -26,7 +26,7 @@ import time
 import urllib.request
 import zlib
 
-from paho.mqtt.client import MQTTMessage, WebsocketConnectionError
+from paho.mqtt.client import MQTTMessage, WebsocketConnectionError, error_string
 from yarl import URL
 import paho.mqtt.client
 
@@ -141,7 +141,7 @@ class AndroidMQTT:
         self._client.on_message = self._on_message_handler
         self._client.on_publish = self._on_publish_handler
         self._client.on_connect = self._on_connect_handler
-        # self._client.on_disconnect = self._on_disconnect_handler
+        self._client.on_disconnect = self._on_disconnect_handler
         self._client.on_socket_open = self._on_socket_open
         self._client.on_socket_close = self._on_socket_close
         self._client.on_socket_register_write = self._on_socket_register_write
@@ -222,6 +222,9 @@ class AndroidMQTT:
             return
 
         asyncio.create_task(self._post_connect())
+
+    def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
+        self.log.debug(f"MQTT disconnection code %d: %s", rc, error_string(rc))
 
     async def _post_connect(self) -> None:
         self._opened_thread = None
