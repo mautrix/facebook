@@ -79,7 +79,7 @@ class MQTToTClient(paho.mqtt.client.Client):
         return self._packet_queue(command, packet, 0, 0)
 
     def _packet_handle(self):
-        cmd = self._in_packet['command'] & 0xF0
+        cmd = self._in_packet["command"] & 0xF0
         # Facebook's MQTToT is based on MQTTv3.1, but paho.mqtt only allows DISCONNECT on MQTTv5
         if cmd == paho.mqtt.client.DISCONNECT:
             return self._handle_disconnect()
