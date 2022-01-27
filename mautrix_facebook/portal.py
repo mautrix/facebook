@@ -847,23 +847,31 @@ class Portal(DBPortal, BasePortal):
         self, sender: u.User, event_id: EventID, redaction_event_id: EventID
     ) -> None:
         try:
-            await self._handle_matrix_redaction(sender, event_id, redaction_event_id)
+            await self._handle_matrix_redaction(sender, event_id)
         except Exception as e:
-            self.log.exception(f"Failed to handle Matrix event {event_id}: {e}")
+            self.log.error(
+                f"Failed to handle Matrix redaction {redaction_event_id}: {e}",
+                exc_info=not isinstance(e, NotImplementedError),
+            )
             sender.send_remote_checkpoint(
                 self._status_from_exception(e),
-                event_id,
+                redaction_event_id,
                 self.mxid,
                 EventType.ROOM_REDACTION,
                 error=e,
             )
-            await self._send_bridge_error(str(e))
+            if not isinstance(e, NotImplementedError):
+                await self._send_bridge_error(str(e))
         else:
-            await self._send_delivery_receipt(event_id)
+            await self._send_delivery_receipt(redaction_event_id)
+            sender.send_remote_checkpoint(
+                MessageSendCheckpointStatus.SUCCESS,
+                redaction_event_id,
+                self.mxid,
+                EventType.ROOM_REDACTION,
+            )
 
-    async def _handle_matrix_redaction(
-        self, sender: u.User, event_id: EventID, redaction_event_id: EventID
-    ) -> None:
+    async def _handle_matrix_redaction(self, sender: u.User, event_id: EventID) -> None:
         sender, _ = await self.get_relay_sender(sender, f"redaction {event_id}")
         if not sender:
             raise Exception("not logged in")
@@ -875,14 +883,6 @@ class Portal(DBPortal, BasePortal):
             except Exception as e:
                 self.log.exception(f"Unsend failed: {e}")
                 raise
-            else:
-                sender.send_remote_checkpoint(
-                    MessageSendCheckpointStatus.SUCCESS,
-                    redaction_event_id,
-                    self.mxid,
-                    EventType.ROOM_REDACTION,
-                )
-                await self._send_delivery_receipt(redaction_event_id)
             return
 
         reaction = await DBReaction.get_by_mxid(event_id, self.mxid)
@@ -893,14 +893,6 @@ class Portal(DBPortal, BasePortal):
             except Exception as e:
                 self.log.exception(f"Removing reaction failed: {e}")
                 raise
-            else:
-                sender.send_remote_checkpoint(
-                    MessageSendCheckpointStatus.SUCCESS,
-                    redaction_event_id,
-                    self.mxid,
-                    EventType.ROOM_REDACTION,
-                )
-                await self._send_delivery_receipt(redaction_event_id)
             return
 
         raise NotImplementedError("Only message and reaction redactions are supported")
