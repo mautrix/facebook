@@ -51,8 +51,8 @@ class MessengerBridge(Bridge):
     matrix: MatrixHandler
     public_website: PublicBridgeWebsite | None
 
-    periodic_reconnect_task: asyncio.Task
-    periodic_presence_task: asyncio.Task
+    periodic_reconnect_task: asyncio.Task | None
+    periodic_presence_task: asyncio.Task | None
 
     def prepare_db(self) -> None:
         super().prepare_db()
@@ -73,10 +73,14 @@ class MessengerBridge(Bridge):
             )
         else:
             self.public_website = None
+        self.periodic_reconnect_task = None
+        self.periodic_presence_task = None
 
     def prepare_stop(self) -> None:
-        self.periodic_reconnect_task.cancel()
-        self.periodic_presence_task.cancel()
+        if self.periodic_reconnect_task:
+            self.periodic_reconnect_task.cancel()
+        if self.periodic_presence_task:
+            self.periodic_presence_task.cancel()
         self.log.debug("Stopping puppet syncers")
         for puppet in Puppet.by_custom_mxid.values():
             puppet.stop()
