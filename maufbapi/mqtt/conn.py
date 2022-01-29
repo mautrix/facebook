@@ -56,6 +56,7 @@ except ImportError:
     socks = None
 
 T = TypeVar("T")
+no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
 
 
 # TODO add some custom stuff in these?
@@ -357,10 +358,7 @@ class AndroidMQTT:
             if len(rest) > 0:
                 self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
             topic = RealtimeTopic.decode(topic_str)
-            if topic not in (
-                RealtimeTopic.TYPING_NOTIFICATION,
-                RealtimeTopic.ORCA_PRESENCE,
-            ) or message.payload.startswith(b"\x00"):
+            if topic not in no_prefix_topics or message.payload.startswith(b"\x00"):
                 _, message.payload = message.payload.split(b"\x00", 1)
 
             if topic == RealtimeTopic.MESSAGE_SYNC:
