@@ -26,7 +26,6 @@ import re
 import time
 
 from yarl import URL
-import magic
 
 from maufbapi.types import graphql, mqtt
 from mautrix.appservice import DOUBLE_PUPPET_SOURCE_KEY, IntentAPI
@@ -53,7 +52,7 @@ from mautrix.types import (
     UserID,
     VideoInfo,
 )
-from mautrix.util import ffmpeg
+from mautrix.util import ffmpeg, magic
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
 
@@ -287,7 +286,7 @@ class Portal(DBPortal, BasePortal):
             if length > cls.matrix.media_config.upload_size:
                 raise ValueError("File not available: too large")
             data = await resp.read()
-        mime = magic.from_buffer(data, mime=True)
+        mime = magic.mimetype(data)
         if convert_audio and mime != "audio/ogg":
             data = await ffmpeg.convert_bytes(
                 data, ".ogg", output_args=("-c:a", "libopus"), input_mime=mime
@@ -768,7 +767,7 @@ class Portal(DBPortal, BasePortal):
             data = await self.main_intent.download_media(message.url)
         else:
             raise NotImplementedError("No file or URL specified")
-        mime = message.info.mimetype or magic.from_buffer(data, mime=True)
+        mime = message.info.mimetype or magic.mimetype(data)
         dbm = await self._make_dbm(sender, event_id)
         reply_to = None
         if message.relates_to.rel_type == RelationType.REPLY:

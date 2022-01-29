@@ -20,12 +20,12 @@ from datetime import datetime, timedelta
 import asyncio
 
 from yarl import URL
-import magic
 
 from maufbapi.types.graphql import Participant, Picture
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet, async_getter_lock
 from mautrix.types import ContentURI, RoomID, SyncToken, UserID
+from mautrix.util import magic
 from mautrix.util.simple_template import SimpleTemplate
 
 from . import matrix as m, portal as p, user as u
@@ -215,7 +215,7 @@ class Puppet(DBPuppet, BasePuppet):
         if data is None:
             async with source.client.get(url) as resp:
                 data = await resp.read()
-        mime = magic.from_buffer(data, mime=True)
+        mime = magic.mimetype(data)
         return await intent.upload_media(data, mime_type=mime)
 
     async def _update_photo(self, source: u.User, photo: Picture) -> bool:
