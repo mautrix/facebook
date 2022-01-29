@@ -151,8 +151,6 @@ class User(DBUser, BaseUser):
         self._logged_in_info = None
         self._logged_in_info_time = 0
 
-        self.log = self.log.getChild(self.mxid)
-
         self.client = None
         self.mqtt = None
         self.listen_task = None
