@@ -30,6 +30,7 @@ from mautrix.errors import MNotFound
 from mautrix.types import (
     EventID,
     MessageType,
+    PresenceState,
     PushActionType,
     PushRuleKind,
     PushRuleScope,
@@ -45,6 +46,7 @@ from . import portal as po, puppet as pu
 from .commands import enter_2fa_code
 from .config import Config
 from .db import User as DBUser, UserPortal
+from .presence import PresenceUpdater
 from .util.interval import get_interval
 
 METRIC_SYNC_THREADS = Summary("bridge_sync_threads", "calls to sync_threads")
@@ -637,6 +639,7 @@ class User(DBUser, BaseUser):
                 self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint
+                self.mqtt.enable_web_presence = self.config["bridge.presence_from_facebook"]
                 self.mqtt.add_event_handler(mqtt_t.Message, self.on_message)
                 self.mqtt.add_event_handler(mqtt_t.ExtendedMessage, self.on_message)
                 self.mqtt.add_event_handler(mqtt_t.NameChange, self.on_title_change)
@@ -645,6 +648,7 @@ class User(DBUser, BaseUser):
                 self.mqtt.add_event_handler(mqtt_t.ReadReceipt, self.on_message_seen)
                 self.mqtt.add_event_handler(mqtt_t.OwnReadReceipt, self.on_message_seen_self)
                 self.mqtt.add_event_handler(mqtt_t.Reaction, self.on_reaction)
+                self.mqtt.add_event_handler(mqtt_t.Presence, self.on_presence)
                 self.mqtt.add_event_handler(mqtt_t.AddMember, self.on_members_added)
                 self.mqtt.add_event_handler(mqtt_t.RemoveMember, self.on_member_removed)
                 self.mqtt.add_event_handler(mqtt_t.ThreadChange, self.on_thread_change)
@@ -820,14 +824,15 @@ class User(DBUser, BaseUser):
         else:
             await portal.handle_facebook_reaction_add(self, puppet, evt.message_id, evt.reaction)
 
-    # @async_time(METRIC_PRESENCE)
-    # async def on_presence(self, evt: fbchat.Presence) -> None:
-    #     for user, status in evt.statuses.items():
-    #         puppet = pu.Puppet.get_by_fbid(user, create=False)
-    #         if puppet:
-    #             await puppet.default_mxid_intent.set_presence(
-    #                 presence=PresenceState.ONLINE if status.active else PresenceState.OFFLINE,
-    #                 ignore_cache=True)
+    @async_time(METRIC_PRESENCE)
+    async def on_presence(self, evt: mqtt_t.Presence) -> None:
+        for update in evt.updates:
+            puppet = await pu.Puppet.get_by_fbid(update.user_id, create=False)
+            if puppet:
+                self.log.trace(f"Received presence for: {puppet.name} - {update.status}")
+                await PresenceUpdater.set_presence(
+                    puppet, PresenceState.ONLINE if update.status == 2 else PresenceState.OFFLINE
+                )
 
     @async_time(METRIC_TYPING)
     async def on_typing(self, evt: mqtt_t.TypingNotification) -> None:

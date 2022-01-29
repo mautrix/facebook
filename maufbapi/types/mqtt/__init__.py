@@ -21,6 +21,7 @@ from .message import (
     MessageSyncPayload,
     NameChange,
     OwnReadReceipt,
+    Presence,
     Reaction,
     ReadReceipt,
     RegionHintPayload,

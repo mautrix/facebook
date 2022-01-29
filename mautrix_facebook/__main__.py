@@ -27,6 +27,7 @@ from .config import Config
 from .db import init as init_db, upgrade_table
 from .matrix import MatrixHandler
 from .portal import Portal
+from .presence import PresenceUpdater
 from .puppet import Puppet
 from .user import User
 from .util.interval import get_interval
@@ -86,6 +87,8 @@ class MessengerBridge(Bridge):
     async def start(self) -> None:
         self.add_startup_actions(User.init_cls(self))
         self.add_startup_actions(Puppet.init_cls(self))
+        if self.config["bridge.presence_from_facebook"]:
+            self.add_startup_actions(PresenceUpdater.refresh_periodically())
         Portal.init_cls(self)
         if self.config["bridge.resend_bridge_info"]:
             self.add_startup_actions(self.resend_bridge_info())

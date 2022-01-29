@@ -220,14 +220,6 @@ class MatrixHandler(BaseMatrixHandler):
             user, event_id, content.relates_to.event_id, content.relates_to.key
         )
 
-    async def handle_presence(self, user_id: UserID, info: PresenceEventContent) -> None:
-        if not self.config["bridge.presence"]:
-            return
-        # user = await u.User.get_by_mxid(user_id, create=False)
-        # if user and user.mqtt:
-        #     user.log.debug(f"Setting foreground status to {info.presence == PresenceState.ONLINE}")
-        #     user.mqtt.set_foreground(info.presence == PresenceState.ONLINE)
-
     @staticmethod
     async def handle_typing(room_id: RoomID, typing: list[UserID]) -> None:
         portal = await po.Portal.get_by_mxid(room_id)
@@ -256,9 +248,7 @@ class MatrixHandler(BaseMatrixHandler):
     async def handle_ephemeral_event(
         self, evt: ReceiptEvent | PresenceEvent | TypingEvent
     ) -> None:
-        if evt.type == EventType.PRESENCE:
-            await self.handle_presence(evt.sender, evt.content)
-        elif evt.type == EventType.TYPING:
+        if evt.type == EventType.TYPING:
             await self.handle_typing(evt.room_id, evt.content.user_ids)
         elif evt.type == EventType.RECEIPT:
             await self.handle_receipt(evt)

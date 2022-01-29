@@ -45,7 +45,7 @@ from ..types import (
     SetTypingRequest,
     TypingNotification,
 )
-from ..types.mqtt import Mention
+from ..types.mqtt import Mention, Presence
 from .events import Connect, Disconnect
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
@@ -75,6 +75,7 @@ class AndroidMQTT:
     seq_id: int | None
     seq_id_update_callback: Callable[[int], None] | None
     region_hint_callback: Callable[[str], None] | None
+    enable_web_presence: bool
     _opened_thread: int | None
     _publish_waiters: dict[int, asyncio.Future]
     _response_waiters: dict[RealtimeTopic, asyncio.Future]
@@ -93,6 +94,7 @@ class AndroidMQTT:
         self.seq_id = None
         self.seq_id_update_callback = None
         self.region_hint_callback = None
+        self.enable_web_presence = False
         self._opened_thread = None
         self._publish_waiters = {}
         self._response_waiters = {}
@@ -160,6 +162,10 @@ class AndroidMQTT:
             RealtimeTopic.MARK_THREAD_READ_RESPONSE,
             RealtimeTopic.TYPING_NOTIFICATION,
         ]
+
+        if self.enable_web_presence:
+            subscribe_topics.append(RealtimeTopic.ORCA_PRESENCE)
+
         topic_ids = [
             int(topic.encoded if isinstance(topic, RealtimeTopic) else topic_map[topic])
             for topic in subscribe_topics
@@ -329,6 +335,14 @@ class AndroidMQTT:
             return
         asyncio.create_task(self._dispatch(parsed))
 
+    def _on_presence(self, payload: bytes) -> None:
+        try:
+            presence = Presence.deserialize(json.loads(payload))
+            asyncio.create_task(self._dispatch(presence))
+        except Exception:
+            self.log.debug("Failed to parse presence payload %s", payload, exc_info=True)
+            return
+
     def _on_region_hint(self, payload: bytes) -> None:
         rhp = RegionHintPayload.from_thrift(payload)
         if self.region_hint_callback:
@@ -343,12 +357,18 @@ class AndroidMQTT:
             if len(rest) > 0:
                 self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
             topic = RealtimeTopic.decode(topic_str)
-            if topic != RealtimeTopic.TYPING_NOTIFICATION or message.payload.startswith(b"\x00"):
+            if topic not in (
+                RealtimeTopic.TYPING_NOTIFICATION,
+                RealtimeTopic.ORCA_PRESENCE,
+            ) or message.payload.startswith(b"\x00"):
                 _, message.payload = message.payload.split(b"\x00", 1)
+
             if topic == RealtimeTopic.MESSAGE_SYNC:
                 self._on_message_sync(message.payload)
             elif topic == RealtimeTopic.TYPING_NOTIFICATION:
                 self._on_typing_notification(message.payload)
+            elif topic == RealtimeTopic.ORCA_PRESENCE:
+                self._on_presence(message.payload)
             elif topic == RealtimeTopic.REGION_HINT:
                 self._on_region_hint(message.payload)
             else:

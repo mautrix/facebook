@@ -161,6 +161,19 @@ class Reaction(ThriftObject):
     # index 7: unknown number as string, similar to MessageMetadata's index 3
 
 
+@dataclass
+class PresenceInfo(SerializableAttrs):
+    user_id: int = attr.ib(metadata={"json": "u"})
+    status: int = attr.ib(metadata={"json": "p"})
+    last_seen: int = attr.ib(metadata={"json": "l"}, default=0)
+
+
+@dataclass
+class Presence(SerializableAttrs):
+    updates: List[PresenceInfo] = attr.ib(metadata={"json": "list"})
+    list_type: str
+
+
 class MentionType(SerializableEnum):
     PERSON = "p"
 

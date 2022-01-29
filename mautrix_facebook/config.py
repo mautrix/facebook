@@ -83,7 +83,7 @@ class Config(BaseBridgeConfig):
             }
         else:
             copy("bridge.login_shared_secret_map")
-        copy("bridge.presence")
+        copy("bridge.presence_from_facebook")
         copy("bridge.update_avatar_initial_sync")
         copy("bridge.encryption.allow")
         copy("bridge.encryption.default")
