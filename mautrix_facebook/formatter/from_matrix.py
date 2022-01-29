@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 from maufbapi.types.mqtt import Mention
 from mautrix.types import Format, MessageEventContent, RelationType, RoomID
+from mautrix.util import utf16_surrogate
 from mautrix.util.formatter import (
     EntityString,
     EntityType,
@@ -99,8 +100,8 @@ async def matrix_to_facebook(
                 " to bridge text message reply metadata to Facebook"
             )
     if content.get("format", None) == Format.HTML and content["formatted_body"]:
-        parsed = await MatrixParser().parse(content["formatted_body"])
-        text = parsed.text
+        parsed = await MatrixParser().parse(utf16_surrogate.add(content["formatted_body"]))
+        text = utf16_surrogate.remove(parsed.text)
         mentions = []
         for mention in parsed.entities:
             mxid = mention.extra_info["user_id"]

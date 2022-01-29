@@ -21,6 +21,7 @@ import re
 
 from maufbapi.types import graphql, mqtt
 from mautrix.types import Format, MessageType, TextMessageEventContent
+from mautrix.util import utf16_surrogate
 
 from .. import puppet as pu, user as u
 
@@ -130,6 +131,8 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
         raise NotImplementedError(f"Unsupported Facebook message type {type(msg).__name__}")
     text = text or ""
     content = TextMessageEventContent(msgtype=MessageType.TEXT, body=text)
+
+    text = utf16_surrogate.add(text)
     mention_user_ids = []
     for m in reversed(mentions):
         original = text[m.offset : m.offset + m.length]
@@ -137,6 +140,8 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
             original = original[1:]
         mention_user_ids.append(int(m.user_id))
         text = f"{text[:m.offset]}@{m.user_id}\u2063{original}\u2063{text[m.offset + m.length:]}"
+    text = utf16_surrogate.remove(text)
+
     html = escape(text)
     output = []
     if html:
