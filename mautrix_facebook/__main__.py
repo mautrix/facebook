@@ -52,6 +52,7 @@ class MessengerBridge(Bridge):
     public_website: PublicBridgeWebsite | None
 
     periodic_reconnect_task: asyncio.Task
+    periodic_presence_task: asyncio.Task
 
     def prepare_db(self) -> None:
         super().prepare_db()
@@ -75,6 +76,7 @@ class MessengerBridge(Bridge):
 
     def prepare_stop(self) -> None:
         self.periodic_reconnect_task.cancel()
+        self.periodic_presence_task.cancel()
         self.log.debug("Stopping puppet syncers")
         for puppet in Puppet.by_custom_mxid.values():
             puppet.stop()
@@ -87,8 +89,6 @@ class MessengerBridge(Bridge):
     async def start(self) -> None:
         self.add_startup_actions(User.init_cls(self))
         self.add_startup_actions(Puppet.init_cls(self))
-        if self.config["bridge.presence_from_facebook"]:
-            self.add_startup_actions(PresenceUpdater.refresh_periodically())
         Portal.init_cls(self)
         if self.config["bridge.resend_bridge_info"]:
             self.add_startup_actions(self.resend_bridge_info())
@@ -96,6 +96,10 @@ class MessengerBridge(Bridge):
         if self.public_website:
             self.public_website.ready_wait.set_result(None)
         self.periodic_reconnect_task = asyncio.create_task(self._try_periodic_reconnect_loop())
+        if self.config["bridge.presence_from_facebook"]:
+            self.periodic_presence_task = asyncio.create_task(
+                PresenceUpdater.refresh_periodically()
+            )
 
     async def resend_bridge_info(self) -> None:
         self.config["bridge.resend_bridge_info"] = False
