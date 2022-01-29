@@ -1,10 +1,12 @@
-# v0.3.3 (2022-01-??, unreleased)
+# v0.3.3 (2022-01-29)
 
 * Added relay mode.
 * Added automatic conversion of voice messages in both directions (mp4/aac to facebook and ogg/opus to Matrix).
 * Added external URLs to unsupported attachment messages and story reply messages.
 * Added support for typing notifications in both directions.
 * Added Python 3.10 support.
+* Removed legacy community features.
+* Changed example config to disable temporary disconnect notices by default.
 * Updated Docker image to Alpine 3.15.
 * Formatted all code using [black](https://github.com/psf/black) and [isort](https://github.com/PyCQA/isort). 
 
