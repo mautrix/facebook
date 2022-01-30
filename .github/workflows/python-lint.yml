@@ -13,9 +13,10 @@ jobs:
     - uses: isort/isort-action@master
       with:
         sortPaths: "./maufbapi ./mautrix_facebook"
-    - uses: psf/black@21.12b0
+    - uses: psf/black@stable
       with:
         src: "./maufbapi ./mautrix_facebook"
+        version: "22.1.0"
     - name: pre-commit
       run: |
         pip install pre-commit
