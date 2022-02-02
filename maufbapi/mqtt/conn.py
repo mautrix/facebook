@@ -195,7 +195,7 @@ class AndroidMQTT:
                 endpoint_capabilities=0b1011010,
                 publish_format=2,
                 no_automatic_foreground=True,
-                make_user_available_in_foreground=True,
+                make_user_available_in_foreground=False,
                 device_id=self.state.device.uuid,
                 is_initially_foreground=True,
                 network_type=1 if self.state.device.connection_type == "WIFI" else 0,
