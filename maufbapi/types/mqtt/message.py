@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import base64
 import json
 
@@ -43,27 +43,66 @@ class ThreadKey(ThriftObject):
             return None
 
 
+class ThreadReadStateEffect(ExtensibleEnum):
+    MARK_READ = 1
+    MARK_UNREAD = 2
+    KEEP_AS_IS = 3
+
+
+@autospec
+@dataclass(kw_only=True)
+class IGItemIDBlob(ThriftObject):
+    first_64_bits: int = field(TType.I64)
+    second_64_bits: int = field(TType.I64)
+
+    @property
+    def combine(self) -> int:
+        return self.first_64_bits << 64 + self.second_64_bits
+
+
+@autospec
+@dataclass(kw_only=True)
+class ConversationID(ThriftObject):
+    conversation_fbid: int = field(TType.I64, default=None)
+    canonical_participant_fbids: Set[int] = field(
+        TType.SET, item_type=TType.I64, factory=lambda: {}
+    )
+
+
 @autospec
 @dataclass(kw_only=True)
 class MessageMetadata(ThriftObject):
     thread: ThreadKey
     id: str
     offline_threading_id: int = field(TType.I64, default=None)
-    sender: int = field(TType.I64)
+    sender: int = field(TType.I64)  # actor_fbid
     timestamp: int = field(TType.I64)
-    # index 6: unknown bool (ex: true)
-    action_summary: str = field(index=7, default=None)
+    should_buzz_device: bool = False
+    admin_text: str = field(default=None)
     tags: List[str] = field(factory=lambda: [])
-    # index 9: unknown int32 (ex: 2 or 3)
-    # index 10: unknown bool (ex: false)
-    # index 11: ???
-    message_unsendability: Unsendability = field(
-        TType.BINARY, index=12, default=Unsendability.DENY_FOR_NON_SENDER
+    thread_read_state_effect: ThreadReadStateEffect = field(
+        TType.I32, default=ThreadReadStateEffect.MARK_READ
     )
-    # indices 13-16: ???
-    # index 17: struct (or maybe union?)
-    #   index 1: int64 group id
-    #   index 2: set of int64 recipient user ids in private chats?
+    skip_bump_thread: bool = False
+    skip_snippet_update: bool = False
+    message_unsendability: Unsendability = field(
+        TType.BINARY, default=Unsendability.DENY_FOR_NON_SENDER
+    )
+    snippet: str = None
+    # microseconds: int32?
+    # index 15: undefined
+    ig_item_id_blob: IGItemIDBlob = field(index=16, default=None)
+    cid: ConversationID
+
+    # data: struct(map) = field(index=1001)
+    # folder_id: struct(system_folder_id: ??, user_folder_id: ??)
+    # non_persistent_data: struct(map)
+
+
+class ImageSource(ExtensibleEnum):
+    FILE = 1
+    QUICKCAM_FRONT = 2
+    QUICKCAM_BACK = 3
 
 
 @autospec
@@ -71,15 +110,16 @@ class MessageMetadata(ThriftObject):
 class ImageInfo(ThriftObject):
     original_width: int = field(TType.I32)
     original_height: int = field(TType.I32)
-    previews: Dict[int, str] = field(
+    uri_map: Dict[int, str] = field(
         TType.MAP,
         key_type=TType.I32,
         default=None,
         value_type=RecursiveType(TType.BINARY, python_type=str),
     )
-    # index 4: unknown int32
-    # indices 5 and 6: ???
-    alt_previews: Dict[int, str] = field(
+    image_source: ImageSource = field(TType.I32)
+    raw_image_uri: str = None
+    raw_image_uri_format: str = None
+    animated_uri_map: Dict[int, str] = field(
         TType.MAP,
         key_type=TType.I32,
         default=None,
@@ -87,9 +127,18 @@ class ImageInfo(ThriftObject):
         value_type=RecursiveType(TType.BINARY, python_type=str),
     )
     image_type: str = field(default=None)
-    alt_preview_type: str = field(default=None)
-    # index 9: ???
-    # index 10: unknown bool
+    animated_image_type: str = field(default=None)
+    render_as_sticker: bool = False
+    mini_preview: bytes = None
+    blurred_image_uri: str = None
+
+
+class VideoSource(ExtensibleEnum):
+    NON_QUICKCAM = 1
+    QUICKCAM = 2
+    SPEAKING_STICKER = 3
+    RECORDED_STICKER = 4
+    VIDEO_MAIL = 5
 
 
 @autospec
@@ -100,20 +149,21 @@ class VideoInfo(ThriftObject):
     duration_ms: int = field(TType.I32)
     thumbnail_url: str
     download_url: str
-    # index 6: unknown int32 (ex: 1)
-    # index 7: unknown int32 (ex: 0)
-    # index 8: unknown int32 (ex: 0)
+    source: VideoSource = field(TType.I32, default=VideoSource.NON_QUICKCAM)
+    rotation: int = field(TType.I32, default=0)
+    loop_count: int = field(TType.I32, default=0)
 
 
 @autospec
 @dataclass(kw_only=True)
 class AudioInfo(ThriftObject):
-    # index 1: mysterious boolean (true)
-    # index 2: mysterious binary (empty)
-    url: str = field(index=3)
+    is_voicemail: bool
+    call_id: str = None
+    url: str
     duration_ms: int = field(TType.I32)
-    # index 5: mysterious int32 (2)
-    waveform: List[float] = field(TType.LIST, item_type=TType.FLOAT, index=6)
+    sampling_frequency_hz: int = field(TType.I32)
+    waveform: List[float] = field(TType.LIST, item_type=TType.FLOAT)
+    # message_voice_transcription
 
 
 @autospec
@@ -122,19 +172,32 @@ class Attachment(ThriftObject):
     media_id_str: str
     mime_type: str = field(default=None)
     file_name: str = field(default=None)
-    media_id: int = field(TType.I64, default=None)
+    media_id: int = field(TType.I64, default=None)  # fbid
     file_size: int = field(TType.I64, default=None)
-    # index 6: ???
+    # attribution_info: struct
     extensible_media: str = field(default=None, index=7)
-    # indices 8 and 9: ???
+    # xma_graphql: str
+    # blob_graphql: str
     image_info: ImageInfo = field(default=None, index=10)
     video_info: VideoInfo = field(default=None)
     audio_info: AudioInfo = field(default=None)
     # can contain a dash_manifest key with some XML as the value
     # or fbtype key with a number as value
     extra_metadata: Dict[str, str] = field(factory=lambda: {})
+    # node_media_fbid: int64
+    # raven_metadata: ???
+    # client_attachment_type: ???
+    # raven_poll_info: ???
+    # generic_data_map: ???
 
-    # index 1007?!: unknown bool
+    # haystack_handle: index 1000: str
+    # generic_metadata: dict
+    # hash: str
+    # encryption_key: str
+    # titan_type: int32
+    # other_user_fbids: list
+    # mercury_json: str
+    # use_ref_counting: bool
 
     def parse_extensible(self) -> ExtensibleAttachment:
         if not self.extensible_media:
@@ -191,7 +254,7 @@ class Mention(SerializableAttrs):
 class Message(ThriftObject):
     metadata: MessageMetadata
     text: str = field(default=None)
-    # index 3: ???
+    # index 3: undefined
     sticker: int = field(TType.I64, index=4, default=None)
     attachments: List[Attachment] = field(factory=lambda: [])
     # index 6: some sort of struct:
@@ -201,12 +264,17 @@ class Message(ThriftObject):
     #    4: timestamp?
     extra_metadata: Dict[str, bytes] = field(index=7, factory=lambda: {})
 
-    # index 1000?!: int64 (ex: 81)
-    # index 1017: int64 (ex: 924)
-    # index 1003: struct
-    #   index 1: struct
-    #     index 1: binary, replying to message id
-    # index 1012: map<binary, binary>
+    # iris_seq_id = field(TType.I64, index=1000)
+    # generic_data_map: struct(map)
+    # reply_to_message_id: str
+    # message_reply:
+    #   reply_to_message_id: struct(id: str)
+    #   status: enum(VALID=0, DELETED, TEMPORARILY_UNAVAILABLE)
+    #   reply_to_item_id:
+    #     offline_threading_id: str = field(index=10)
+    #     client_context: str
+    #     item_id: IGItemIDBlob
+    # request_context: index 1012: map<binary, binary>
     #   key apiArgs: binary containing thrift
     #     index 2: binary url, https://www.facebook.com/intern/agent/realtime_delivery/
     #     index 4: int64 (ex: 0)
@@ -218,7 +286,11 @@ class Message(ThriftObject):
     #          "buenopath": "XRealtimeDeliveryThriftServerController:sendRealtimeDeliveryRequest:/ls_req:TASK_LABEL=SEND_MESSAGE_V{N}"}
     #     index 9: binary (ex: www)
     #     index 10: boolean (ex: false)
-    # index 1015: list<binary>, some sort of tags
+    # random_nonce: int32
+    # participants: list<???>
+    # iris_tags: list<binary>
+    # meta_tags: list<???>
+    # tq_seq_id: int64 (ex: 924)
 
     @property
     def mentions(self) -> List[Mention]:
@@ -390,7 +462,7 @@ class RemoveMember(ThriftObject):
 
 @autospec
 @dataclass(kw_only=True)
-class UnknownReceipt1(ThriftObject):
+class DeliveryReceipt(ThriftObject):
     thread: ThreadKey
     user_id: Optional[int] = field(TType.I64, default=None)
     # indices 3-5: ???
@@ -401,16 +473,20 @@ class UnknownReceipt1(ThriftObject):
 @autospec
 @dataclass(kw_only=True)
 class MessageSyncEvent(ThriftObject):
-    # index 1: unknown struct (no fields known)
+    # 1: no_op: struct (no fields)
     message: Message = field(index=2, default=None)
     own_read_receipt: OwnReadReceipt = field(index=4, default=None)
+    # 5: mark_unread?
+    # 6: message_delete?
+    # 7: thread_delete?
     add_member: AddMember = field(index=8, default=None)
     remove_member: RemoveMember = field(index=9, default=None)
     name_change: NameChange = field(index=10, default=None)
     avatar_change: AvatarChange = field(index=11, default=None)
+    # 12: mute_settings?
     thread_change: ThreadChange = field(index=17, default=None)
     read_receipt: ReadReceipt = field(index=19, default=None)
-    unknown_receipt_1: UnknownReceipt1 = field(index=25, default=None)
+    delivery_receipt: DeliveryReceipt = field(index=25, default=None)
     binary: BinaryData = field(index=42, default=None)
 
     def get_parts(self) -> List[Any]:
@@ -423,7 +499,7 @@ class MessageSyncEvent(ThriftObject):
             self.avatar_change,
             self.thread_change,
             self.read_receipt,
-            self.unknown_receipt_1,
+            self.delivery_receipt,
         ]
         if self.binary:
             for inner_item in self.binary.parse().items:

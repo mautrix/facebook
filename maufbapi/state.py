@@ -27,11 +27,11 @@ from mautrix.types import SerializableAttrs
 @dataclass
 class AndroidApplication(SerializableAttrs):
     name: str = "Orca-Android"
-    version: str = "341.0.0.6.237"
+    version: str = "346.0.0.7.117"
     id: str = "com.facebook.orca"
     locale: str = "en_US"
-    build: int = 336996394
-    version_id: int = 4768178896567799
+    build: int = 348143456
+    version_id: int = 4663247527104165
 
     client_id = "256002347743983"
     client_secret = "374e60f8b9bb6b8cbb30f78030438895"
@@ -64,15 +64,29 @@ class AndroidDevice(SerializableAttrs):
     country_code: str = "US"
 
     uuid: Optional[str] = None
+    fdid: Optional[str] = None
     adid: Optional[str] = None
 
-    device_group: Optional[str] = None  # 7761
+    device_group: Optional[str] = None
 
     @classmethod
     def deserialize(cls, data) -> "AndroidDevice":
         data.pop("software")
         data.pop("user_agent")
+        if "device_group" not in data:
+            data["device_group"] = str(random.randint(7000, 7999))
+        if "fdid" not in data:
+            data["fdid"] = data["uuid"]
         return super().deserialize(data)
+
+    @property
+    def net_iface(self) -> str:
+        if self.connection_type == "WIFI":
+            return "Wifi"
+        elif self.connection_type == "MOBILE.LTE":
+            return "Cell"
+        else:
+            return "Unknown"
 
 
 @dataclass
@@ -108,17 +122,25 @@ class AndroidState(SerializableAttrs):
     carrier: AndroidCarrier = attr.ib(factory=lambda: AndroidCarrier())
     session: AndroidSession = attr.ib(factory=lambda: AndroidSession())
 
-    def generate(self, seed: str) -> None:
+    def generate(self, seed: bytes) -> None:
         rand = random.Random(seed)
+        self.device.fdid = str(UUID(int=rand.getrandbits(128), version=4))
         self.device.adid = "".join(rand.choices(string.hexdigits, k=16))
         self.device.uuid = str(UUID(int=rand.getrandbits(128), version=4))
+        self.device.device_group = str(rand.randint(7000, 7999))
         # TODO randomize carrier and device model
+
+    @property
+    def _minimal_ua_parts(self) -> Dict[str, str]:
+        return {
+            "FBAN": self.application.name,
+            "FBAV": self.application.version,
+        }
 
     @property
     def _ua_parts(self) -> Dict[str, str]:
         return {
-            "FBAN": self.application.name,
-            "FBAV": self.application.version,
+            **self._minimal_ua_parts,
             "FBPN": self.application.id,
             "FBLC": self.device.language,
             "FBBV": str(self.application.build),
@@ -135,6 +157,11 @@ class AndroidState(SerializableAttrs):
     @property
     def user_agent_meta(self) -> str:
         ua_meta = ";".join(f"{key}/{value}" for key, value in self._ua_parts.items())
+        return f"[{ua_meta};]"
+
+    @property
+    def minimal_user_agent_meta(self) -> str:
+        ua_meta = ";".join(f"{key}/{value}" for key, value in self._minimal_ua_parts.items())
         return f"[{ua_meta};]"
 
     @property

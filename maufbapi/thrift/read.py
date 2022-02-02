@@ -16,8 +16,11 @@
 from __future__ import annotations
 
 from typing import Any, Type, TypeVar
+from enum import Enum
 import io
 import struct
+
+from mautrix.types import ExtensibleEnum
 
 from .type import RecursiveType, ThriftObject, TType
 
@@ -265,7 +268,12 @@ class ThriftReader(io.BytesIO):
                     return rtype.python_type(self.read_val(rtype.type).decode("utf-8"))
                 except UnicodeDecodeError as e:
                     raise ValueError(f"Failed to decode string at {field_path}: {e}")
-            return self.read_val(rtype.type)
+            elif isinstance(rtype.python_type, type) and issubclass(
+                rtype.python_type, (ExtensibleEnum, Enum)
+            ):
+                return rtype.python_type(self.read_val(rtype.type))
+            else:
+                return self.read_val(rtype.type)
 
     def read_struct(self, type: Type[T], field_path: str = "root") -> T:
         """

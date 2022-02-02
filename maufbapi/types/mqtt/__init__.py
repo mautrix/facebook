@@ -1,4 +1,4 @@
-from .client_info import RealtimeClientInfo, RealtimeConfig
+from .client_info import PHPOverride, RealtimeClientInfo, RealtimeConfig, UnknownStruct
 from .message import (
     AddMember,
     AddMemberParticipant,

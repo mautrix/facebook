@@ -61,6 +61,7 @@ class UploadAPI(BaseAndroidAPI):
             "x-fb-friendly-name": "post_resumable_upload_session",
         }
         if chat_id:
+            headers["thread_key_type"] = "GROUP" if is_group else "ONE_TO_ONE"
             headers["send_message_by_server"] = "1"
             headers["sender_fbid"] = str(self.state.session.uid)
             headers["to"] = f"tfbid_{chat_id}" if is_group else str(chat_id)
@@ -76,18 +77,26 @@ class UploadAPI(BaseAndroidAPI):
         if mimetype.startswith("image/"):
             path_type = "messenger_gif" if mimetype == "image/gif" else "messenger_image"
             headers["image_type"] = "FILE_ATTACHMENT"
+            headers["media_type"] = "PHOTO"
+            headers["media_send_type"] = "PICK"
         elif mimetype.startswith("video/"):
             path_type = "messenger_video"
             headers["video_type"] = "FILE_ATTACHMENT"
+            headers["media_type"] = "VIDEO"
+            headers["media_send_type"] = "PICK"
         elif mimetype.startswith("audio/"):
             path_type = "messenger_audio"
             headers["audio_type"] = "VOICE_MESSAGE"
+            headers["media_type"] = "AUDIO"
+            headers["media_send_type"] = "CAPTURE"
             headers["is_voicemail"] = "0"
             if duration:
                 headers["duration"] = str(duration)
         else:
             path_type = "messenger_file"
             headers["file_type"] = "FILE_ATTACHMENT"
+            headers["media_type"] = "FILE"
+            headers["media_send_type"] = "PICK"
 
         self.log.trace("Sending upload with headers: %s", headers)
         file_id = hashlib.md5(data).hexdigest() + str(offline_threading_id)

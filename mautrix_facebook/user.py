@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, TypeVar, cast
 import asyncio
+import hashlib
+import hmac
 import time
 
 from aiohttp import ClientConnectionError
@@ -238,6 +240,20 @@ class User(DBUser, BaseUser):
 
     # endregion
 
+    def generate_state(self) -> AndroidState:
+        state = AndroidState()
+        state.session.region_hint = self.config["facebook.default_region_hint"]
+        state.device.connection_type = self.config["facebook.connection_type"]
+        state.carrier.name = self.config["facebook.carrier"]
+        state.carrier.hni = self.config["facebook.hni"]
+        seed = hmac.new(
+            key=self.config["facebook.device_seed"].encode("utf-8"),
+            msg=self.mxid.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).digest()
+        state.generate(seed)
+        return state
+
     async def get_own_info(self) -> graphql.LoggedInUser:
         if not self._logged_in_info or self._logged_in_info_time + 60 * 60 < time.monotonic():
             self._logged_in_info = await self.client.fetch_logged_in_user()
@@ -255,6 +271,9 @@ class User(DBUser, BaseUser):
                 error="logged-out",
             )
             return False
+        self.state.device.connection_type = self.config["facebook.connection_type"]
+        self.state.carrier.name = self.config["facebook.carrier"]
+        self.state.carrier.hni = self.config["facebook.hni"]
         attempt = 0
         client = AndroidAPI(self.state, log=self.log.getChild("api"))
         while True:
@@ -628,8 +647,9 @@ class User(DBUser, BaseUser):
 
     def _update_region_hint(self, region_hint: str) -> None:
         self.log.debug(f"Got region hint {region_hint}")
-        self.state.session.region_hint = region_hint
-        asyncio.create_task(self.save())
+        if region_hint:
+            self.state.session.region_hint = region_hint
+            asyncio.create_task(self.save())
 
     async def _try_listen(self) -> None:
         try:

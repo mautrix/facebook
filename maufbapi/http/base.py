@@ -37,7 +37,7 @@ from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
 from ..types import GraphQLMutation, GraphQLQuery
-from .errors import ResponseError, error_class_map, error_code_map
+from .errors import GraphQLError, ResponseError, error_class_map, error_code_map
 
 try:
     from aiohttp_socks import ProxyConnector
@@ -139,12 +139,13 @@ class BaseAndroidAPI:
             "x-fb-http-engine": "Liger",
             "x-fb-client-ip": "True",
             "x-fb-server-cluster": "True",
-            "x-fb-connection-token": self.cid,
-            "x-fb-session-id": self.session_id,
+            # "x-fb-connection-token": self.cid,
+            # "x-fb-session-id": self.session_id,
             "x-fb-device-group": self.state.device.device_group,
             "x-fb-sim-hni": str(self.state.carrier.hni),
             "x-fb-net-hni": str(self.state.carrier.hni),
             "x-fb-rmd": "cached=0;state=NO_MATCH",
+            "x-fb-request-analytics-tags": "unknown",
             # "x-fb-background-state": "1",
             "authorization": f"OAuth {self.state.session.access_token or 'null'}",
         }
@@ -207,9 +208,11 @@ class BaseAndroidAPI:
             "strip_nulls": "false",
             "fb_api_req_friendly_name": req.__class__.__name__,
             "fb_api_caller_class": req.caller_class,
-            "fb_api_analytics_tags": ["GraphServices"],
+            "fb_api_analytics_tags": json.dumps(req.analytics_tags),
             "server_timestamps": "true",
         }
+        if not req.include_client_country_code:
+            params.pop("client_country_code")
         resp = await self.http.post(
             url=(self.b_graph_url if b else self.graph_url) / "graphql",
             data=params,
@@ -249,21 +252,18 @@ class BaseAndroidAPI:
         if isinstance(body, list) and batch_index is not None:
             body = body[batch_index][1]
         error = body.get("error", None)
-        if not error:
+        errors = body.get("errors", [])
+        if error:
+            error_class = (
+                error_code_map.get(error["code"])
+                or error_class_map.get(error["type"])
+                or ResponseError
+            )
+            raise error_class(error)
+        elif errors:
+            raise GraphQLError(errors[0], errors[1:])
+        else:
             return body
-        error_class = (
-            error_code_map.get(error["code"])
-            or error_class_map.get(error["type"])
-            or ResponseError
-        )
-        raise error_class(error)
-
-    async def _raise_response_error(self, resp: ClientResponse) -> None:
-        try:
-            data = await resp.json()
-        except json.JSONDecodeError:
-            data = {}
-        # TODO if needed
 
     def _handle_response_headers(self, resp: ClientResponse) -> None:
         # TODO if needed

@@ -37,6 +37,8 @@ from ..thrift import ThriftObject
 from ..types import (
     MarkReadRequest,
     MessageSyncPayload,
+    NTContext,
+    PHPOverride,
     RealtimeClientInfo,
     RealtimeConfig,
     RegionHintPayload,
@@ -151,17 +153,30 @@ class AndroidMQTT:
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
     def _form_client_id(self) -> bytes:
-        # Standard topics:
-        # ['/t_p', '/t_assist_rp', '/t_rtc', '/webrtc_response', '/t_rtc_log', '/t_ms', '/pp',
-        #  '/webrtc', '/quick_promotion_refresh', '/t_omnistore_sync_low_pri', '/get_media_resp',
-        #  '/t_dr_response', '/t_omnistore_sync', '/t_push', '/ixt_trigger', '/rs_resp',
-        #  '/t_region_hint', '/t_trace', '/t_tn', '/sr_res', '/t_sp', '/ls_resp', '/t_rtc_multi']
         subscribe_topics = [
+            "/t_assist_rp",
+            "/t_rtc",
+            "/webrtc_response",
+            "/t_rtc_log",
             RealtimeTopic.MESSAGE_SYNC,
+            "/pp",
+            "/webrtc",
+            "/quick_promotion_refresh",
+            "/t_omnistore_sync_low_pri",
+            "/get_media_resp",
+            "/t_dr_response",
+            "/t_omnistore_sync",
+            "/t_push",
+            "/ixt_trigger",
+            "/rs_resp",
             RealtimeTopic.REGION_HINT,
-            RealtimeTopic.SEND_MESSAGE_RESP,
-            RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+            "/t_trace",
             RealtimeTopic.TYPING_NOTIFICATION,
+            "/sr_res",
+            "/ls_resp",
+            "/t_rtc_multi",
+            # RealtimeTopic.SEND_MESSAGE_RESP,
+            # RealtimeTopic.MARK_THREAD_READ_RESPONSE,
         ]
 
         if self.enable_web_presence:
@@ -183,23 +198,32 @@ class AndroidMQTT:
                 make_user_available_in_foreground=True,
                 device_id=self.state.device.uuid,
                 is_initially_foreground=True,
-                network_type=1,
-                network_subtype=0,
+                network_type=1 if self.state.device.connection_type == "WIFI" else 0,
+                network_subtype=0 if self.state.device.connection_type == "WIFI" else 13,
                 client_mqtt_session_id=int(time.time() * 1000) & 0xFFFFFFFF,
                 subscribe_topics=topic_ids,
                 client_type="",
                 app_id=int(self.state.application.client_id),
-                region_preference=self.state.session.region_hint or "ODN",
+                region_preference=self.state.session.region_hint,
                 device_secret="",
                 client_stack=4,
-                yet_another_unknown=7,
+                network_type_info=7 if self.state.device.connection_type == "WIFI" else 4,
             ),
             password=self.state.session.access_token,
             app_specific_info={
                 "ls_sv": str(self.state.application.version_id),
-                "ls_fdid": self.state.device.uuid,
+                "ls_fdid": self.state.device.fdid,
             },
+            combined_publishes=[],
+            php_override=PHPOverride(),
         )
+        # TODO figure out how to make these
+        connect_token_hash = ""
+        if connect_token_hash:
+            cfg.password = ""
+            cfg.client_info.device_id = ""
+            cfg.client_info.user_agent = self.state.minimal_user_agent_meta
+            cfg.client_info.connect_token_hash = connect_token_hash
         return zlib.compress(cfg.to_thrift(), level=9)
 
     # endregion
@@ -278,10 +302,10 @@ class AndroidMQTT:
                 "entity_fbid": self.state.session.uid,
                 "sync_api_version": 10,
                 "queue_params": {
-                    "client_delta_sync_bitmask": "C9X+fGJvq9GABX+yzYA",
-                    "graphql_query_hashes": {"xma_query_id": "4476811655735303"},
+                    "client_delta_sync_bitmask": "CAvV/nxib6vRgAV/ss2A",
+                    "graphql_query_hashes": {"xma_query_id": "0"},
                     "graphql_query_params": {
-                        "4476811655735303": {
+                        "0": {
                             "xma_id": "<ID>",
                             "small_preview_width": 716,
                             "small_preview_height": 358,
@@ -291,10 +315,11 @@ class AndroidMQTT:
                             "full_screen_height": 4096,
                             "blur": 0,
                             "nt_context": {
-                                "styles_id": "989dd0cc9c9aacc459340a79141aca8c",
+                                "styles_id": NTContext().styles_id,
                                 "pixel_ratio": 3,
                             },
                             "use_oss_id": True,
+                            "client_doc_id": "222672581515007895135860332111",
                         }
                     },
                 },
@@ -519,11 +544,11 @@ class AndroidMQTT:
             chat_id=f"tfbid_{target}" if is_group else str(target),
             message=message,
             offline_threading_id=offline_threading_id,
-            sender_id=self.state.session.uid,
+            sender_fbid=self.state.session.uid,
             reply_to=reply_to,
             media_ids=[str(i) for i in media_ids] if media_ids else None,
-            flags={"is_in_chatheads": "false", "trigger": "2:thread_list:thread"},
-            tid2=self.generate_offline_threading_id(),
+            client_tags={"is_in_chatheads": "false", "trigger": "2:thread_list:thread"},
+            msg_attempt_id=self.generate_offline_threading_id(),
         )
         if mentions:
             req.extra_metadata = {
@@ -563,13 +588,14 @@ class AndroidMQTT:
             req.user_id = target
         await self.opened_thread(target)
         self.log.trace("Mark read request: %s", req)
-        resp = await self.request(
-            RealtimeTopic.MARK_THREAD_READ,
-            RealtimeTopic.MARK_THREAD_READ_RESPONSE,
-            req,
-            prefix=b"\x00",
-        )
-        self.log.trace("Mark read response: %s", repr(resp.payload))
+        # resp = await self.request(
+        #     RealtimeTopic.MARK_THREAD_READ,
+        #     RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+        #     req,
+        #     prefix=b"\x00",
+        # )
+        # self.log.trace("Mark read response: %s", repr(resp.payload))
+        await self.publish(RealtimeTopic.MARK_THREAD_READ, req, prefix=b"\x00")
 
     async def set_typing(self, target: int, typing: bool = True) -> None:
         req = SetTypingRequest(

@@ -206,3 +206,25 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         async with self.get(url) as resp:
             json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)
+
+    async def cdn_rmd(self, prev_token: str, reason: str = "TIMER_EXPIRED") -> str:
+        headers = {
+            **self._headers,
+            "content-type": "application/x-www-form-urlencoded",
+            "x-fb-friendly-name": "rmd-mapfetcher",
+            "x-fb-request-analytics-tags": "rmd",
+            "accept-encoding": "x-fb-dz;d=1, gzip, deflate",
+        }
+        query = {
+            "net_iface": self.state.device.net_iface,
+            "reason": reason,
+            "prev_token": prev_token,
+        }
+        resp = await self.http.post(
+            url=(self.graph_url / "v3.2" / "cdn_rmd").with_query(query),
+            headers=headers,
+        )
+        await self._decompress_zstd(resp)
+        self.log.trace(f"cdn_rmd response: {await resp.text()}")
+        json_data = await self._handle_response(resp)
+        return json_data["token"]

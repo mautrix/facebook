@@ -8,6 +8,7 @@ from .queries import (
     MessageReactionMutation,
     MessageUndoSend,
     MoreMessagesQuery,
+    NTContext,
     ReactionAction,
     SearchEntitiesNamedQuery,
     SubsequentMediaQuery,

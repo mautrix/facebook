@@ -131,6 +131,14 @@ class Config(BaseBridgeConfig):
             if isinstance(value, list) and len(value) != 2:
                 raise ValueError(f"{key} must only be a list of two items")
 
+        copy("facebook.device_seed")
+        if base["facebook.device_seed"] == "generate":
+            base["facebook.device_seed"] = self._new_token()
+        copy("facebook.default_region_hint")
+        copy("facebook.connection_type")
+        copy("facebook.carrier")
+        copy("facebook.hni")
+
     def _get_permissions(self, key: str) -> tuple[bool, bool, bool, str]:
         level = self["bridge.permissions"].get(key, "")
         admin = level == "admin"

@@ -23,9 +23,13 @@ from mautrix.types import Serializable, SerializableAttrs, SerializableEnum
 
 from ..common import ThreadFolder
 
+_analytics_tags_2 = ["nav_attribution_id=null", "visitation_id=null", "GraphServices"]
+
 
 class GraphQLQuery(ABC, Serializable):
     caller_class: ClassVar[str] = "graphservice"
+    analytics_tags: ClassVar[List[str]] = ["GraphServices"]
+    include_client_country_code: ClassVar[bool] = False
     doc_id: ClassVar[int]
 
 
@@ -35,15 +39,15 @@ class GraphQLMutation(GraphQLQuery, ABC):
 
 @dataclass
 class NTContext(SerializableAttrs):
-    styles_id: str = "989dd0cc9c9aacc459340a79141aca8c"
+    styles_id: str = "632609037bc0e06f1115e7af19c2feae"
     using_white_navbar: bool = True
     pixel_ratio: int = 3
-    bloks_version: str = "d422eb53f4f2e6b7a1ba2f29278d512554f9c2b2dfc0c1935e1da91427dbd3aa"
+    bloks_version: str = "b1ddbd8ab663f5139265edaa2524450988475f61c5fcd3b06eb7fa9fb1033586"
 
 
 @dataclass
 class ThreadQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4491485477625742
+    doc_id: ClassVar[int] = 5123202644403703
 
     thread_ids: List[str]
     msg_count: int = 20
@@ -69,7 +73,7 @@ class ThreadQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class ThreadListQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4462910183829186
+    doc_id: ClassVar[int] = 4669664453079908
 
     msg_count: int = 20
     thread_count: int = 20
@@ -78,6 +82,8 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs):
     fetch_users_separately: str = "false"
     filter_to_groups: str = "false"
     include_booking_requests: bool = True
+    include_user_message_capabilities: bool = True
+    slim_thread_list: bool = True
 
     nt_context: NTContext = attr.ib(factory=lambda: NTContext())
     folder_tag: Optional[List[ThreadFolder]] = None
@@ -93,7 +99,7 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class MoreMessagesQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4328279000625922
+    doc_id: ClassVar[int] = 5045216125512296
 
     before_time_ms: str
     thread_id: str
@@ -129,8 +135,9 @@ class ThreadNameMutation(GraphQLMutation, SerializableAttrs):
 
 @dataclass
 class FetchStickersWithPreviewsQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4628171213877041
+    doc_id: ClassVar[int] = 4028336233932975
     caller_class: ClassVar[str] = "NewMessageHandlerHelper"
+    include_client_country_code: ClassVar[bool] = True
 
     sticker_ids: List[str]
     preview_size: int = 165
@@ -144,6 +151,7 @@ class FetchStickersWithPreviewsQuery(GraphQLQuery, SerializableAttrs):
 @dataclass
 class MessageUndoSend(GraphQLMutation, SerializableAttrs):
     doc_id: ClassVar[int] = 1015037405287590
+    analytics_tags: ClassVar[List[str]] = _analytics_tags_2
 
     message_id: str
     client_mutation_id: str
@@ -157,7 +165,8 @@ class ReactionAction(SerializableEnum):
 
 @dataclass
 class MessageReactionMutation(GraphQLMutation, SerializableAttrs):
-    doc_id: ClassVar[int] = 1415891828475683
+    doc_id: ClassVar[int] = 4581961245172668
+    analytics_tags: ClassVar[List[str]] = _analytics_tags_2
 
     message_id: str
     client_mutation_id: str
@@ -209,7 +218,7 @@ class FileAttachmentUrlQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 3414226858659179
+    doc_id: ClassVar[int] = 4883329948399448
 
     search_query: str
     session_id: Optional[str] = None
@@ -225,7 +234,18 @@ class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs):
     entity_types: List[str] = ["user", "group_thread", "page", "game", "matched_message_thread"]
     include_pages: bool = True
     include_games: bool = True
+    group_participants: List[str] = attr.ib(factory=lambda: [])
 
     profile_pic_large_size: int = 880
     profile_pic_medium_size: int = 220
     profile_pic_small_size: int = 138
+
+
+@dataclass
+class UpdateThreadCopresence(GraphQLMutation, SerializableAttrs):
+    doc_id: ClassVar[int] = 3020568468070941
+    analytics_tags: ClassVar[List[str]] = _analytics_tags_2
+
+    thread_key: str
+    presence_state: str = "IN_THREAD"
+    capabilities: int = 1

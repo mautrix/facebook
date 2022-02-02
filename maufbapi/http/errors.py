@@ -19,7 +19,7 @@ from typing import Any
 
 
 class ResponseError(Exception):
-    def __init__(self, data: dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any], other_error_count: int = 0) -> None:
         self.data = data
         user_message = data.get("error_user_msg")
         if user_message:
@@ -29,7 +29,15 @@ class ResponseError(Exception):
             code = data["code"]
             subcode = data.get("subcode")
             code_str = f"{code}.{subcode}" if subcode else str(code)
+            if other_error_count > 0:
+                message += f" (and {other_error_count} other errors)"
             super().__init__(f"{code_str}: {message}")
+
+
+class GraphQLError(ResponseError):
+    def __init__(self, first: dict[str, Any], rest: list[dict[str, Any]]) -> None:
+        super().__init__(first, other_error_count=len(rest))
+        self.others = rest
 
 
 class OAuthException(ResponseError):

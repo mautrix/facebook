@@ -1332,16 +1332,16 @@ class Portal(DBPortal, BasePortal):
                 width=attachment.image_info.original_width,
                 height=attachment.image_info.original_height,
             )
-            if attachment.image_info.alt_previews:
-                url = list(attachment.image_info.alt_previews.values())[0]
+            if attachment.image_info.animated_uri_map:
+                url = list(attachment.image_info.animated_uri_map.values())[0]
                 # Override the mime type or detect from file
                 attachment.mime_type = {
                     "webp": "image/webp",
                     "gif": "image/gif",
                     "png": "image/png",
-                }.get(attachment.image_info.alt_preview_type, None)
+                }.get(attachment.image_info.animated_image_type, None)
             else:
-                url = list(attachment.image_info.previews.values())[0]
+                url = list(attachment.image_info.uri_map.values())[0]
             # TODO find out if we need to use get_image_url in some cases even with MQTT
             # url = await source.client.get_image_url(msg_id, attachment.media_id)
         elif attachment.media_id:
@@ -1634,8 +1634,8 @@ class Portal(DBPortal, BasePortal):
             return
         self._dedup.appendleft(message_id)
         photo_url = await source.client.get_image_url(message_id, new_photo.media_id)
-        if not photo_url and new_photo.image_info.previews:
-            photo_url = list(new_photo.image_info.previews.values())[-1]
+        if not photo_url and new_photo.image_info.uri_map:
+            photo_url = list(new_photo.image_info.uri_map.values())[-1]
         photo_id = self.get_photo_id(photo_url)
         if self.photo_id == photo_id:
             return

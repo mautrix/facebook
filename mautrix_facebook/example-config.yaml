@@ -277,6 +277,13 @@ bridge:
             m.video: '<b>$sender_displayname</b> sent a video'
             m.location: '<b>$sender_displayname</b> sent a location'
 
+facebook:
+    device_seed: generate
+    default_region_hint: ODN
+    connection_type: WIFI
+    carrier: Verizon
+    hni: 311390
+
 # Python logging configuration.
 #
 # See section 16.7.2 of the Python documentation for more info:
