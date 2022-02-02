@@ -207,7 +207,8 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)
 
-    async def cdn_rmd(self, prev_token: str, reason: str = "TIMER_EXPIRED") -> str:
+    async def cdn_rmd(self, prev_token: str = "", reason: str = "TIMER_EXPIRED") -> str:
+        # reasons: TIMER_EXPIRED, APP_START, APP_RESUME
         headers = {
             **self._headers,
             "content-type": "application/x-www-form-urlencoded",
@@ -218,8 +219,9 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         query = {
             "net_iface": self.state.device.net_iface,
             "reason": reason,
-            "prev_token": prev_token,
         }
+        if prev_token:
+            query["prev_token"] = prev_token
         resp = await self.http.post(
             url=(self.graph_url / "v3.2" / "cdn_rmd").with_query(query),
             headers=headers,
