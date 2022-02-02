@@ -286,6 +286,7 @@ class User(DBUser, BaseUser):
                 ProxyConnectionError,
                 ClientConnectionError,
                 ConnectionError,
+                asyncio.TimeoutError,
             ) as e:
                 attempt += 1
                 wait = min(attempt * 10, 60)
