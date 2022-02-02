@@ -620,8 +620,8 @@ class AndroidMQTT:
         )
         prefix = (
             b"\x04\x00\x00\x00\x80\xff\xff\xff"
-            + random.randbytes(3)
-            + b"\x00\x04\x00\x00\x00"
+            + random.randbytes(2)
+            + b"\x04\x00\x04\x00\x00\x00"
             + bytes([len(json_payload)])
             + b"\x00\x00\x00"
         )
