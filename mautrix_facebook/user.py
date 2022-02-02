@@ -762,6 +762,7 @@ class User(DBUser, BaseUser):
     async def on_logged_in(self, state: AndroidState) -> None:
         self.log.debug(f"Successfully logged in as {state.session.uid}")
         self.fbid = state.session.uid
+        await self.push_bridge_state(BridgeStateEvent.CONNECTING)
         self.state = state
         self.client = AndroidAPI(state, log=self.log.getChild("api"))
         await self.save()
