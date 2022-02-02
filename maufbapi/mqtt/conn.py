@@ -603,30 +603,4 @@ class AndroidMQTT:
         )
         await self.publish(RealtimeTopic.SET_TYPING, req, prefix=b"\x00")
 
-    async def set_online(self, online: bool = True) -> None:
-        json_payload = json.dumps(
-            {
-                "label": "1",
-                "payload": json.dumps(
-                    {
-                        "app_state": 1 if online else 0,
-                        "request_id": "android_request_id",
-                    },
-                    separators=(",", ":"),
-                ),
-                "version": str(self.state.application.version_id),
-            },
-            separators=(",", ":"),
-        )
-        prefix = (
-            b"\x04\x00\x00\x00\x80\xff\xff\xff"
-            + random.randbytes(2)
-            + b"\x04\x00\x04\x00\x00\x00"
-            + bytes([len(json_payload)])
-            + b"\x00\x00\x00"
-        )
-        suffix = bytes.fromhex("00000a000c00040006000800")
-        payload = prefix + json_payload.encode("utf-8") + suffix
-        await self.publish("/ls_req", payload)
-
     # endregion
