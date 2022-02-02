@@ -56,3 +56,17 @@ async def search(evt: CommandEvent) -> None:
         await evt.reply(f"Search results:\n\n{results}")
     else:
         await evt.reply("No results :(")
+
+
+@command_handler(
+    needs_auth=True,
+    management_only=False,
+    help_section=SECTION_MISC,
+    help_text="Set online status on Facebook",
+    help_args="<online/offline>",
+)
+async def status(evt: CommandEvent) -> None:
+    if len(evt.args) == 0 or evt.args[0].lower() not in ("online", "offline"):
+        await evt.reply("Usage: $cmdprefix+sp status <online/offline>")
+        return
+    await evt.sender.mqtt.set_online(evt.args[0].lower() == "online")
