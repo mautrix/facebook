@@ -26,12 +26,12 @@ class ResponseError(Exception):
             super().__init__(user_message)
         else:
             message = data["message"]
-            code = data["code"]
+            code = data.get("code", "")
             subcode = data.get("subcode")
             code_str = f"{code}.{subcode}" if subcode else str(code)
             if other_error_count > 0:
                 message += f" (and {other_error_count} other errors)"
-            super().__init__(f"{code_str}: {message}")
+            super().__init__(f"{code_str}: {message}" if code_str else message)
 
 
 class GraphQLError(ResponseError):
