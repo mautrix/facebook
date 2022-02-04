@@ -254,7 +254,7 @@ class BaseAndroidAPI:
         error = body.get("error", None)
         errors = body.get("errors", [])
         if error:
-            self.log.debug("Got error object in response data: %s", error)
+            self.log.trace("Got error object in response data: %s", error)
             error_class = (
                 error_code_map.get(error["code"])
                 or error_class_map.get(error["type"])
@@ -262,7 +262,7 @@ class BaseAndroidAPI:
             )
             raise error_class(error)
         elif errors:
-            self.log.debug("Got list of errors in response data: %s", errors)
+            self.log.trace("Got list of errors in response data: %s", errors)
             try:
                 raise GraphQLError(errors[0], errors[1:])
             except KeyError as e:
