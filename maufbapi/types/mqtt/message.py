@@ -92,7 +92,7 @@ class MessageMetadata(ThriftObject):
     # microseconds: int32?
     # index 15: undefined
     ig_item_id_blob: IGItemIDBlob = field(index=16, default=None)
-    cid: ConversationID
+    cid: ConversationID = None
 
     # data: struct(map) = field(index=1001)
     # folder_id: struct(system_folder_id: ??, user_folder_id: ??)
