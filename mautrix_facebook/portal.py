@@ -52,7 +52,7 @@ from mautrix.types import (
     UserID,
     VideoInfo,
 )
-from mautrix.util import ffmpeg, magic
+from mautrix.util import ffmpeg, magic, variation_selector
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
 
@@ -903,7 +903,7 @@ class Portal(DBPortal, BasePortal):
         if not sender or is_relay:
             return
         # Facebook doesn't use variation selectors, Matrix does
-        reaction = reaction.rstrip("\ufe0f")
+        reaction = variation_selector.remove(reaction)
 
         async with self.require_send_lock(sender.fbid):
             message = await DBMessage.get_by_mxid(reacting_to, self.mxid)
@@ -1694,14 +1694,18 @@ class Portal(DBPortal, BasePortal):
     async def handle_facebook_reaction_add(
         self, source: u.User, sender: p.Puppet, message_id: str, reaction: str
     ) -> None:
-        dedup_id = f"react_{message_id}_{sender}_{reaction}"
+        dedup_id = f"react_{message_id}_{sender.fbid}_{reaction}"
         async with self.optional_send_lock(sender.fbid):
             if dedup_id in self._dedup:
+                self.log.debug(f"Ignoring duplicate reaction from {sender.fbid} to {message_id}")
                 return
             self._dedup.appendleft(dedup_id)
 
         existing = await DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
         if existing and existing.reaction == reaction:
+            self.log.debug(
+                f"Ignoring duplicate reaction from {sender.fbid} to {message_id} (db check)"
+            )
             return
 
         if not await self._bridge_own_message_pm(source, sender, f"reaction to {message_id}"):
@@ -1711,15 +1715,11 @@ class Portal(DBPortal, BasePortal):
 
         message = await DBMessage.get_by_fbid(message_id, self.fb_receiver)
         if not message:
-            self.log.debug(f"Ignoring reaction to unknown message {message_id}")
+            self.log.debug(f"Ignoring reaction from {sender.fbid} to unknown message {message_id}")
             return
 
-        matrix_reaction = reaction
-        # TODO there are probably other emojis that need variation selectors
-        if reaction in ("\u2764", "\U0001f44d", "\U0001f44e"):
-            matrix_reaction += "\ufe0f"
-        mxid = await intent.react(message.mx_room, message.mxid, matrix_reaction)
-        self.log.debug(f"Reacted to {message.mxid}, got {mxid}")
+        mxid = await intent.react(message.mx_room, message.mxid, variation_selector.add(reaction))
+        self.log.debug(f"{sender.fbid} reacted to {message.mxid} ({message_id}) -> {mxid}")
 
         await self._upsert_reaction(existing, intent, mxid, message, sender, reaction)
 
