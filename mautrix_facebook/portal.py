@@ -456,6 +456,8 @@ class Portal(DBPortal, BasePortal):
 
     async def _sync_read_receipts(self, receipts: list[graphql.ReadReceipt]) -> None:
         for receipt in receipts:
+            if not receipt.actor:
+                continue
             message = await DBMessage.get_closest_before(
                 self.fbid, self.fb_receiver, receipt.timestamp
             )
