@@ -718,14 +718,18 @@ class User(DBUser, BaseUser):
                 )
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
-            refresh = self.config["bridge.on_reconnection_fail.refresh"]
-            next_action = "Refreshing session..." if refresh else "Not retrying!"
+            action = self.config["bridge.on_reconnection_fail.action"]
+            action_name = "Not retrying!"
+            if action == "reconnect":
+                action_name = "Retrying..."
+            elif action == "refresh":
+                action_name = "Refreshing session..."
             event = (
                 "Disconnected from" if isinstance(e, MQTTNotLoggedIn) else "Failed to connect to"
             )
-            message = f"{event} Facebook Messenger: {e}. {next_action}"
+            message = f"{event} Facebook Messenger: {e}. {action_name}"
             self.log.warning(message)
-            if not refresh:
+            if action not in ("reconnect", "refresh"):
                 await self.send_bridge_notice(
                     message,
                     important=True,
@@ -734,14 +738,17 @@ class User(DBUser, BaseUser):
                 )
             elif self.temp_disconnect_notices:
                 await self.send_bridge_notice(message)
-            if refresh:
+            if action in ("reconnect", "refresh"):
                 wait_for = self.config["bridge.on_reconnection_fail.wait_for"]
                 if wait_for:
                     await asyncio.sleep(get_interval(wait_for))
                 # Ensure a minimum of 120s between reconnection attempts, even if wait is disabled
                 await asyncio.sleep(self._prev_reconnect_fail_refresh + 120 - time.monotonic())
                 self._prev_reconnect_fail_refresh = time.monotonic()
-                asyncio.create_task(self.refresh())
+                if action == "refresh":
+                    asyncio.create_task(self.refresh())
+                else:
+                    asyncio.create_task(self.reconnect())
             else:
                 self._disconnect_listener_after_error()
         except Exception:

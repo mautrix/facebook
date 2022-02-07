@@ -226,9 +226,8 @@ bridge:
     # Disable bridge notices entirely
     disable_bridge_notices: false
     on_reconnection_fail:
-        # Whether or not the bridge should try to "refresh" the connection if a normal reconnection
-        # attempt fails.
-        refresh: false
+        # What to do if a reconnection attempt fails? Options: reconnect, refresh, null
+        action: reconnect
         # Seconds to wait before attempting to refresh the connection, set a list of two items to
         # to randomize the interval (min, max).
         wait_for: 0

@@ -110,12 +110,17 @@ class Config(BaseBridgeConfig):
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")
         if "bridge.refresh_on_reconnection_fail" in self:
-            base["bridge.on_reconnection_fail.refresh"] = self[
-                "bridge.refresh_on_reconnection_fail"
-            ]
+            base["bridge.on_reconnection_fail.action"] = (
+                "refresh" if self["bridge.refresh_on_reconnection_fail"] else None
+            )
             base["bridge.on_reconnection_fail.wait_for"] = 0
+        elif "bridge.on_reconnection_fail.refresh" in self:
+            base["bridge.on_reconnection_fail.action"] = (
+                "refresh" if self["bridge.on_reconnection_fail.refresh"] else None
+            )
+            copy("bridge.on_reconnection_fail.wait_for")
         else:
-            copy("bridge.on_reconnection_fail.refresh")
+            copy("bridge.on_reconnection_fail.action")
             copy("bridge.on_reconnection_fail.wait_for")
         copy("bridge.resend_bridge_info")
         copy("bridge.mute_bridging")
