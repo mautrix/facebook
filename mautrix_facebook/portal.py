@@ -663,12 +663,12 @@ class Portal(DBPortal, BasePortal):
             except Exception:
                 self.log.exception(f"Failed to send delivery receipt for {event_id}")
 
-    async def _send_bridge_error(self, msg: str) -> None:
+    async def _send_bridge_error(self, msg: str, thing: str = "message") -> None:
         await self._send_message(
             self.main_intent,
             TextMessageEventContent(
                 msgtype=MessageType.NOTICE,
-                body=f"\u26a0 Your message may not have been bridged: {msg}",
+                body=f"\u26a0 Your {thing} may not have been bridged: {msg}",
             ),
         )
 
@@ -865,7 +865,7 @@ class Portal(DBPortal, BasePortal):
                 error=e,
             )
             if not isinstance(e, NotImplementedError):
-                await self._send_bridge_error(str(e))
+                await self._send_bridge_error(str(e), thing="redaction")
         else:
             await self._send_delivery_receipt(redaction_event_id)
             sender.send_remote_checkpoint(
@@ -881,6 +881,8 @@ class Portal(DBPortal, BasePortal):
             raise Exception("not logged in")
         message = await DBMessage.get_by_mxid(event_id, self.mxid)
         if message:
+            if not message.fbid:
+                raise NotImplementedError("Tried to redact message whose fbid is unknown")
             try:
                 await message.delete()
                 await sender.client.unsend(message.fbid)
