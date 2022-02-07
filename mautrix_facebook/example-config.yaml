@@ -217,6 +217,8 @@ bridge:
     # and missed message backfilling when reconnecting.
     # Set to 0 to always re-sync, or -1 to never re-sync automatically.
     resync_max_disconnected_time: 5
+    # Should the bridge do a resync on startup?
+    sync_on_startup: true
     # Whether or not temporary disconnections should send notices to the notice room.
     # If this is false, disconnections will never send messages and connections will only send
     # messages if it was disconnected for more than resync_max_disconnected_time seconds.

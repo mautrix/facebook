@@ -77,6 +77,7 @@ class AndroidMQTT:
     state: AndroidState
     seq_id: int | None
     seq_id_update_callback: Callable[[int], None] | None
+    connect_token_hash: bytes | None
     region_hint_callback: Callable[[str], None] | None
     enable_web_presence: bool
     _opened_thread: int | None
@@ -93,9 +94,11 @@ class AndroidMQTT:
         state: AndroidState,
         loop: asyncio.AbstractEventLoop | None = None,
         log: TraceLogger | None = None,
+        connect_token_hash: bytes | None = None,
     ) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
+        self.connect_token_hash = connect_token_hash
         self.region_hint_callback = None
         self.enable_web_presence = False
         self._opened_thread = None
@@ -218,12 +221,11 @@ class AndroidMQTT:
             php_override=PHPOverride(),
         )
         # TODO figure out how to make these
-        connect_token_hash = ""
-        if connect_token_hash:
+        if self.connect_token_hash:
             cfg.password = ""
             cfg.client_info.device_id = ""
             cfg.client_info.user_agent = self.state.minimal_user_agent_meta
-            cfg.client_info.connect_token_hash = connect_token_hash
+            cfg.client_info.connect_token_hash = self.connect_token_hash
         return zlib.compress(cfg.to_thrift(), level=9)
 
     # endregion
@@ -246,6 +248,7 @@ class AndroidMQTT:
         if rc != 0:
             if rc == paho.mqtt.client.MQTT_ERR_INVAL:
                 self.log.error("MQTT connection error, regenerating client ID")
+                self.connect_token_hash = None
                 self._client.set_client_id(self._form_client_id())
             else:
                 err = paho.mqtt.client.connack_string(rc)
@@ -275,6 +278,9 @@ class AndroidMQTT:
                 "version": str(self.state.application.version_id),
             },
         )
+        if self.connect_token_hash is not None:
+            # No need to create a queue if connecting with a connect token hash
+            return
         await self.publish(
             RealtimeTopic.SYNC_CREATE_QUEUE,
             {

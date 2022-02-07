@@ -121,6 +121,7 @@ class User(DBUser, BaseUser):
     _is_refreshing: bool
     _logged_in_info: graphql.LoggedInUser | None
     _logged_in_info_time: float
+    _last_seq_id_save: float
 
     def __init__(
         self,
@@ -128,8 +129,17 @@ class User(DBUser, BaseUser):
         fbid: int | None = None,
         state: AndroidState | None = None,
         notice_room: RoomID | None = None,
+        seq_id: int | None = None,
+        connect_token_hash: bytes | None = None,
     ) -> None:
-        super().__init__(mxid=mxid, fbid=fbid, state=state, notice_room=notice_room)
+        super().__init__(
+            mxid=mxid,
+            fbid=fbid,
+            state=state,
+            notice_room=notice_room,
+            seq_id=seq_id,
+            connect_token_hash=connect_token_hash,
+        )
         BaseUser.__init__(self)
         self.notice_room = notice_room
         self._notice_room_lock = asyncio.Lock()
@@ -152,11 +162,11 @@ class User(DBUser, BaseUser):
         self._is_refreshing = False
         self._logged_in_info = None
         self._logged_in_info_time = 0
+        self._last_seq_id_save = 0
 
         self.client = None
         self.mqtt = None
         self.listen_task = None
-        self.seq_id = None
 
     @classmethod
     def init_cls(cls, bridge: "MessengerBridge") -> AsyncIterable[Awaitable[bool]]:
@@ -309,7 +319,7 @@ class User(DBUser, BaseUser):
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listen()
-            asyncio.create_task(self.post_login())
+            asyncio.create_task(self.post_login(is_startup=not _override))
             return True
         return False
 
@@ -438,7 +448,7 @@ class User(DBUser, BaseUser):
         await self.save()
         return ok
 
-    async def post_login(self) -> None:
+    async def post_login(self, is_startup: bool) -> None:
         self.log.info("Running post-login actions")
         self._add_to_cache()
 
@@ -451,8 +461,10 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
 
-        if await self.sync_threads():
-            self.start_listen()
+        if self.config["bridge.sync_on_startup"] or not is_startup or not self.seq_id:
+            if not await self.sync_threads():
+                return
+        self.start_listen()
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
@@ -496,6 +508,8 @@ class User(DBUser, BaseUser):
         self.seq_id = int(resp.sync_sequence_id)
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
+        self._last_seq_id_save = time.monotonic()
+        await self.save_seq_id()
         if sync_count <= 0:
             return
         await self.push_bridge_state(BridgeStateEvent.BACKFILLING)
@@ -645,6 +659,9 @@ class User(DBUser, BaseUser):
 
     def _update_seq_id(self, seq_id: int) -> None:
         self.seq_id = seq_id
+        if self._last_seq_id_save + 120 > time.monotonic():
+            self._last_seq_id_save = time.monotonic()
+            asyncio.create_task(self.save_seq_id())
 
     def _update_region_hint(self, region_hint: str) -> None:
         self.log.debug(f"Got region hint {region_hint}")
@@ -655,7 +672,11 @@ class User(DBUser, BaseUser):
     async def _try_listen(self) -> None:
         try:
             if not self.mqtt:
-                self.mqtt = AndroidMQTT(self.state, log=self.log.getChild("mqtt"))
+                self.mqtt = AndroidMQTT(
+                    self.state,
+                    log=self.log.getChild("mqtt"),
+                    connect_token_hash=self.connect_token_hash,
+                )
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint
                 self.mqtt.enable_web_presence = self.config["bridge.presence_from_facebook"]
@@ -773,7 +794,7 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
-        asyncio.create_task(self.post_login())
+        asyncio.create_task(self.post_login(is_startup=True))
 
     @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: mqtt_t.Message | mqtt_t.ExtendedMessage) -> None:
