@@ -100,6 +100,7 @@ class MessageMetadata(ThriftObject):
 
 
 class ImageSource(ExtensibleEnum):
+    UNKNOWN = 0
     FILE = 1
     QUICKCAM_FRONT = 2
     QUICKCAM_BACK = 3
@@ -116,7 +117,7 @@ class ImageInfo(ThriftObject):
         default=None,
         value_type=RecursiveType(TType.BINARY, python_type=str),
     )
-    image_source: ImageSource = field(TType.I32)
+    image_source: ImageSource = field(TType.I32, default=ImageSource.UNKNOWN)
     raw_image_uri: str = None
     raw_image_uri_format: str = None
     animated_uri_map: Dict[int, str] = field(
@@ -134,6 +135,7 @@ class ImageInfo(ThriftObject):
 
 
 class VideoSource(ExtensibleEnum):
+    UNKNOWN = 0
     NON_QUICKCAM = 1
     QUICKCAM = 2
     SPEAKING_STICKER = 3
@@ -149,7 +151,7 @@ class VideoInfo(ThriftObject):
     duration_ms: int = field(TType.I32)
     thumbnail_url: str
     download_url: str
-    source: VideoSource = field(TType.I32, default=VideoSource.NON_QUICKCAM)
+    source: VideoSource = field(TType.I32, default=VideoSource.UNKNOWN)
     rotation: int = field(TType.I32, default=0)
     loop_count: int = field(TType.I32, default=0)
 
