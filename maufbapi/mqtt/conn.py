@@ -86,6 +86,8 @@ class AndroidMQTT:
     _response_waiter_locks: dict[RealtimeTopic, asyncio.Lock]
     _disconnect_error: Exception | None
     _event_handlers: dict[Type[T], list[Callable[[T], Awaitable[None]]]]
+    _outgoing_events: asyncio.Queue
+    _event_dispatcher_task: asyncio.Task | None
 
     # region Initialization
 
@@ -107,6 +109,8 @@ class AndroidMQTT:
         self._disconnect_error = None
         self._response_waiter_locks = defaultdict(lambda: asyncio.Lock())
         self._event_handlers = defaultdict(lambda: [])
+        self._event_dispatcher_task = None
+        self._outgoing_events = asyncio.Queue()
         self.log = log or logging.getLogger("mauigpapi.mqtt")
         self._loop = loop or asyncio.get_event_loop()
         self.state = state
@@ -358,7 +362,9 @@ class AndroidMQTT:
             asyncio.create_task(self._dispatch(parsed.error))
         for item in parsed.items:
             for event in item.get_parts():
-                asyncio.create_task(self._dispatch(event))
+                self._outgoing_events.put_nowait(event)
+        if parsed.items and not self._event_dispatcher_task:
+            self._event_dispatcher_task = asyncio.create_task(self._dispatcher_loop())
 
     def _on_typing_notification(self, payload: bytes) -> None:
         try:
@@ -437,6 +443,26 @@ class AndroidMQTT:
     def disconnect(self) -> None:
         self._client.disconnect()
 
+    async def _dispatcher_loop(self) -> None:
+        loop_id = f"{hex(id(self))}#{time.monotonic()}"
+        self.log.debug(f"Dispatcher loop {loop_id} starting")
+        try:
+            while True:
+                evt = await self._outgoing_events.get()
+                await asyncio.shield(self._dispatch(evt))
+        except asyncio.CancelledError:
+            tasks = self._outgoing_events
+            self._outgoing_events = asyncio.Queue()
+            if not tasks.empty():
+                self.log.debug(
+                    f"Dispatcher loop {loop_id} stopping after dispatching {tasks.qsize()} events"
+                )
+            while not tasks.empty():
+                await self._dispatch(tasks.get_nowait())
+            raise
+        finally:
+            self.log.debug(f"Dispatcher loop {loop_id} stopped")
+
     async def listen(self, seq_id: int, retry_limit: int = 5) -> None:
         self.seq_id = seq_id
 
@@ -485,6 +511,9 @@ class AndroidMQTT:
                 connection_retries += 1
             else:
                 connection_retries = 0
+        if self._event_dispatcher_task:
+            self._event_dispatcher_task.cancel()
+            self._event_dispatcher_task = None
         if self._disconnect_error:
             self.log.info("disconnect_error is set, raising and clearing variable")
             err = self._disconnect_error
