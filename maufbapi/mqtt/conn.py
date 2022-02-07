@@ -26,7 +26,7 @@ import time
 import urllib.request
 import zlib
 
-from paho.mqtt.client import MQTTMessage, WebsocketConnectionError, error_string
+from paho.mqtt.client import MQTT_ERR_NOMEM, MQTTMessage, WebsocketConnectionError, error_string
 from yarl import URL
 import paho.mqtt.client
 
@@ -255,7 +255,8 @@ class AndroidMQTT:
         asyncio.create_task(self._post_connect())
 
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
-        self.log.debug(f"MQTT disconnection code %d: %s", rc, error_string(rc))
+        err_str = "Generic error." if rc == MQTT_ERR_NOMEM else error_string(rc)
+        self.log.debug(f"MQTT disconnection code %d: %s", rc, err_str)
 
     async def _post_connect(self) -> None:
         self._opened_thread = None
