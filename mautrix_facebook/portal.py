@@ -220,7 +220,10 @@ class Portal(DBPortal, BasePortal):
     # region Chat info updating
 
     async def update_info(
-        self, source: u.User | None = None, info: graphql.Thread | None = None
+        self,
+        source: u.User | None = None,
+        info: graphql.Thread | None = None,
+        force_save: bool = False,
     ) -> graphql.Thread | None:
         if not info:
             self.log.debug("Called update_info with no info, fetching thread info...")
@@ -250,7 +253,7 @@ class Portal(DBPortal, BasePortal):
                 )
             )
         changed = await self._update_participants(source, info) or changed
-        if changed:
+        if changed or force_save:
             await self.update_bridge_info()
             await self.save()
         return info

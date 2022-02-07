@@ -120,7 +120,7 @@ class MatrixHandler(BaseMatrixHandler):
                 pass
         portal.mxid = room_id
         e2be_ok = await portal.check_dm_encryption()
-        await portal.save()
+        await portal.update_info(invited_by, force_save=True)
         if e2be_ok is True:
             evt_type, content = await self.e2ee.encrypt(
                 room_id,
