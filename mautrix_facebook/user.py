@@ -122,6 +122,7 @@ class User(DBUser, BaseUser):
     _logged_in_info: graphql.LoggedInUser | None
     _logged_in_info_time: float
     _last_seq_id_save: float
+    _seq_id_save_task: asyncio.Task | None
 
     def __init__(
         self,
@@ -163,6 +164,7 @@ class User(DBUser, BaseUser):
         self._logged_in_info = None
         self._logged_in_info_time = 0
         self._last_seq_id_save = 0
+        self._seq_id_save_task = None
 
         self.client = None
         self.mqtt = None
@@ -508,7 +510,6 @@ class User(DBUser, BaseUser):
         self.seq_id = int(resp.sync_sequence_id)
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
-        self._last_seq_id_save = time.monotonic()
         await self.save_seq_id()
         if sync_count <= 0:
             return
@@ -657,11 +658,22 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.debug("Error disconnecting listener after error", exc_info=True)
 
+    async def _save_seq_id_after_sleep(self) -> None:
+        await asyncio.sleep(120)
+        self._seq_id_save_task = None
+        self.log.trace("Saving sequence ID %s", self.seq_id)
+        try:
+            await self.save_seq_id()
+        except Exception:
+            self.log.exception("Error saving sequence ID")
+
     def _update_seq_id(self, seq_id: int) -> None:
         self.seq_id = seq_id
-        if self._last_seq_id_save + 120 > time.monotonic():
-            self._last_seq_id_save = time.monotonic()
-            asyncio.create_task(self.save_seq_id())
+        if not self._seq_id_save_task or self._seq_id_save_task.done():
+            self.log.trace("Starting seq id save task (%s)", seq_id)
+            self._seq_id_save_task = asyncio.create_task(self._save_seq_id_after_sleep())
+        else:
+            self.log.trace("Not starting seq id save task (%s)", seq_id)
 
     def _update_region_hint(self, region_hint: str) -> None:
         self.log.debug(f"Got region hint {region_hint}")
