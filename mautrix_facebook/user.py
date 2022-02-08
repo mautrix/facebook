@@ -24,7 +24,7 @@ import time
 from aiohttp import ClientConnectionError
 
 from maufbapi import AndroidAPI, AndroidMQTT, AndroidState
-from maufbapi.http import InvalidAccessToken, ResponseError
+from maufbapi.http import GraphQLError, InvalidAccessToken, ResponseError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn
 from maufbapi.types import graphql, mqtt as mqtt_t
 from mautrix.bridge import BaseUser, async_getter_lock
@@ -505,8 +505,24 @@ class User(DBUser, BaseUser):
     async def _sync_threads(self) -> None:
         sync_count = self.config["bridge.initial_chat_sync"]
         self.log.debug("Fetching threads...")
-        # TODO paginate with 20 threads per request
-        resp = await self.client.fetch_thread_list(thread_count=sync_count)
+        try:
+            # TODO paginate with 20 threads per request
+            resp = await self.client.fetch_thread_list(thread_count=sync_count)
+        except GraphQLError as e:
+            msg = e.data["message"]
+            legacy_tlq_doc_id = 4462910183829186
+            if (
+                graphql.ThreadListQuery.doc_id == legacy_tlq_doc_id
+                or "code" in e.data
+                or ("field_exception" not in msg and "field_abstract_type_mismatch" not in msg)
+            ):
+                raise
+            self.log.warning(f"Got error {e} while fetching thread list, retrying with old query")
+            graphql.ThreadListQuery.doc_id = legacy_tlq_doc_id
+            # graphql.MoreMessagesQuery.doc_id = 4328279000625922
+            # graphql.ThreadQuery.doc_id = 4491485477625742
+            resp = await self.client.fetch_thread_list(thread_count=sync_count)
+
         self.seq_id = int(resp.sync_sequence_id)
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
