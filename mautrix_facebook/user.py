@@ -177,7 +177,7 @@ class User(DBUser, BaseUser):
         cls.az = bridge.az
         cls.loop = bridge.loop
         cls.temp_disconnect_notices = bridge.config["bridge.temporary_disconnect_notices"]
-        return (user.load_session() async for user in cls.all_logged_in())
+        return (user.reload_session() async for user in cls.all_logged_in())
 
     @property
     def is_connected(self) -> bool | None:
@@ -272,7 +272,7 @@ class User(DBUser, BaseUser):
             self._logged_in_info_time = time.monotonic()
         return self._logged_in_info
 
-    async def load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
+    async def _load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
         if self._is_logged_in and not _override:
             return True
         elif not self.state:
@@ -363,11 +363,11 @@ class User(DBUser, BaseUser):
                 edit=event_id,
                 state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
             )
-        await self._reload_session(event_id)
+        await self.reload_session(event_id)
 
-    async def _reload_session(self, event_id: EventID | None, retries: int = 3) -> None:
+    async def reload_session(self, event_id: EventID | None = None, retries: int = 3) -> None:
         try:
-            await self.load_session(_override=True, _raise_errors=True)
+            await self._load_session(_override=True, _raise_errors=True)
         except InvalidAccessToken as e:
             await self.send_bridge_notice(
                 "Got authentication error from Messenger:\n\n"
@@ -384,7 +384,7 @@ class User(DBUser, BaseUser):
         except ResponseError as e:
             will_retry = retries > 0
             retry = "Retrying in 1 minute" if will_retry else "Not retrying"
-            notice = f"Failed to refresh Messenger session: unknown response error {e}. {retry}"
+            notice = f"Failed to connect to Messenger: unknown response error {e}. {retry}"
             if will_retry:
                 await self.send_bridge_notice(
                     notice,
@@ -392,7 +392,7 @@ class User(DBUser, BaseUser):
                     state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
                 )
                 await asyncio.sleep(60)
-                await self._reload_session(event_id, retries - 1)
+                await self.reload_session(event_id, retries - 1)
             else:
                 await self.send_bridge_notice(
                     notice,
@@ -403,8 +403,7 @@ class User(DBUser, BaseUser):
                 )
         except Exception:
             await self.send_bridge_notice(
-                "Failed to refresh Messenger session: unknown error "
-                "(see logs for more details)",
+                "Failed to connect to Messenger: unknown error (see logs for more details)",
                 edit=event_id,
                 state_event=BridgeStateEvent.UNKNOWN_ERROR,
                 error_code="fb-reconnection-error",
@@ -954,6 +953,6 @@ class User(DBUser, BaseUser):
     def on_connection_not_authorized(self) -> None:
         self.log.debug("Stopping listener and reloading session after MQTT not authorized error")
         self.stop_listen()
-        asyncio.create_task(self._reload_session(event_id=None))
+        asyncio.create_task(self.reload_session())
 
     # endregion
