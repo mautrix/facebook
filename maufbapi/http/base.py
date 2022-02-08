@@ -268,8 +268,7 @@ class BaseAndroidAPI:
                     raise GraphQLError(errors[0], errors[1:])
                 except KeyError as e:
                     raise Exception("Unknown response error") from e
-        else:
-            return body
+        return body
 
     def _handle_response_headers(self, resp: ClientResponse) -> None:
         # TODO if needed
