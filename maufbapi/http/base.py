@@ -262,11 +262,12 @@ class BaseAndroidAPI:
             )
             raise error_class(error)
         elif errors:
-            self.log.trace("Got list of errors in response data: %s", errors)
-            try:
-                raise GraphQLError(errors[0], errors[1:])
-            except KeyError as e:
-                raise Exception("Unknown response error") from e
+            self.log.warning("Got list of errors in response data: %s", errors)
+            if resp.status >= 400 or not body.get("data"):
+                try:
+                    raise GraphQLError(errors[0], errors[1:])
+                except KeyError as e:
+                    raise Exception("Unknown response error") from e
         else:
             return body
 
