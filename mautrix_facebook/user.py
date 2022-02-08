@@ -365,7 +365,7 @@ class User(DBUser, BaseUser):
             )
         await self._reload_session(event_id)
 
-    async def _reload_session(self, event_id: EventID, retries: int = 3) -> None:
+    async def _reload_session(self, event_id: EventID | None, retries: int = 3) -> None:
         try:
             await self.load_session(_override=True, _raise_errors=True)
         except InvalidAccessToken as e:
@@ -691,6 +691,7 @@ class User(DBUser, BaseUser):
                 )
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint
+                self.mqtt.connection_unauthorized_callback = self.on_connection_not_authorized
                 self.mqtt.enable_web_presence = self.config["bridge.presence_from_facebook"]
                 self.mqtt.add_event_handler(mqtt_t.Message, self.on_message)
                 self.mqtt.add_event_handler(mqtt_t.ExtendedMessage, self.on_message)
@@ -949,5 +950,10 @@ class User(DBUser, BaseUser):
         self.stop_listen()
         await self.sync_threads()
         self.start_listen()
+
+    def on_connection_not_authorized(self) -> None:
+        self.log.debug("Stopping listener and reloading session after MQTT not authorized error")
+        self.stop_listen()
+        asyncio.create_task(self._reload_session(event_id=None))
 
     # endregion

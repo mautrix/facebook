@@ -26,7 +26,13 @@ import time
 import urllib.request
 import zlib
 
-from paho.mqtt.client import MQTT_ERR_NOMEM, MQTTMessage, WebsocketConnectionError, error_string
+from paho.mqtt.client import (
+    CONNACK_REFUSED_NOT_AUTHORIZED,
+    MQTT_ERR_NOMEM,
+    MQTTMessage,
+    WebsocketConnectionError,
+    error_string,
+)
 from yarl import URL
 import paho.mqtt.client
 
@@ -79,6 +85,7 @@ class AndroidMQTT:
     seq_id_update_callback: Callable[[int], None] | None
     connect_token_hash: bytes | None
     region_hint_callback: Callable[[str], None] | None
+    connection_unauthorized_callback: Callable[[], None] | None
     enable_web_presence: bool
     _opened_thread: int | None
     _publish_waiters: dict[int, asyncio.Future]
@@ -102,6 +109,7 @@ class AndroidMQTT:
         self.seq_id_update_callback = None
         self.connect_token_hash = connect_token_hash
         self.region_hint_callback = None
+        self.connection_unauthorized_callback = None
         self.enable_web_presence = False
         self._opened_thread = None
         self._publish_waiters = {}
@@ -257,6 +265,8 @@ class AndroidMQTT:
             else:
                 err = paho.mqtt.client.connack_string(rc)
                 self.log.error("MQTT Connection Error: %s (%d)", err, rc)
+                if rc == CONNACK_REFUSED_NOT_AUTHORIZED and self.connection_unauthorized_callback:
+                    self.connection_unauthorized_callback()
             return
 
         asyncio.create_task(self._post_connect())
