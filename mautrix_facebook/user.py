@@ -177,7 +177,7 @@ class User(DBUser, BaseUser):
         cls.az = bridge.az
         cls.loop = bridge.loop
         cls.temp_disconnect_notices = bridge.config["bridge.temporary_disconnect_notices"]
-        return (user.reload_session() async for user in cls.all_logged_in())
+        return (user.reload_session(is_startup=True) async for user in cls.all_logged_in())
 
     @property
     def is_connected(self) -> bool | None:
@@ -272,8 +272,8 @@ class User(DBUser, BaseUser):
             self._logged_in_info_time = time.monotonic()
         return self._logged_in_info
 
-    async def _load_session(self, _override: bool = False, _raise_errors: bool = False) -> bool:
-        if self._is_logged_in and not _override:
+    async def _load_session(self, is_startup: bool) -> bool:
+        if self._is_logged_in and is_startup:
             return True
         elif not self.state:
             # If we have a user in the DB with no state, we can assume
@@ -309,9 +309,7 @@ class User(DBUser, BaseUser):
                 await asyncio.sleep(wait)
             except Exception:
                 self.log.exception("Failed to restore session")
-                if _raise_errors:
-                    raise
-                return False
+                raise
         if user_info:
             self.log.info("Loaded session successfully")
             self.client = client
@@ -321,7 +319,7 @@ class User(DBUser, BaseUser):
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listen()
-            asyncio.create_task(self.post_login(is_startup=not _override))
+            asyncio.create_task(self.post_login(is_startup=is_startup))
             return True
         return False
 
@@ -365,9 +363,11 @@ class User(DBUser, BaseUser):
             )
         await self.reload_session(event_id)
 
-    async def reload_session(self, event_id: EventID | None = None, retries: int = 3) -> None:
+    async def reload_session(
+        self, event_id: EventID | None = None, retries: int = 3, is_startup: bool = False
+    ) -> None:
         try:
-            await self._load_session(_override=True, _raise_errors=True)
+            await self._load_session(is_startup=is_startup)
         except InvalidAccessToken as e:
             await self.send_bridge_notice(
                 "Got authentication error from Messenger:\n\n"
