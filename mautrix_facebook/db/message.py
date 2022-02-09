@@ -21,7 +21,7 @@ from asyncpg import Record
 from attr import dataclass
 
 from mautrix.types import EventID, RoomID
-from mautrix.util.async_db import Database
+from mautrix.util.async_db import Database, Scheme
 
 fake_db = Database.create("") if TYPE_CHECKING else None
 
@@ -131,7 +131,7 @@ class Message:
             for index, mxid in enumerate(event_ids)
         ]
         async with cls.db.acquire() as conn, conn.transaction():
-            if cls.db.scheme == "postgres":
+            if cls.db.scheme == Scheme.POSTGRES:
                 await conn.copy_records_to_table("message", records=records, columns=columns)
             else:
                 await conn.executemany(cls._insert_query, records)
