@@ -286,30 +286,8 @@ class User(DBUser, BaseUser):
         self.state.device.connection_type = self.config["facebook.connection_type"]
         self.state.carrier.name = self.config["facebook.carrier"]
         self.state.carrier.hni = self.config["facebook.hni"]
-        attempt = 0
         client = AndroidAPI(self.state, log=self.log.getChild("api"))
-        while True:
-            try:
-                user_info = await client.fetch_logged_in_user()
-                break
-            except (
-                ProxyError,
-                ProxyTimeoutError,
-                ProxyConnectionError,
-                ClientConnectionError,
-                ConnectionError,
-                asyncio.TimeoutError,
-            ) as e:
-                attempt += 1
-                wait = min(attempt * 10, 60)
-                self.log.warning(
-                    f"{e.__class__.__name__} while trying to restore session, "
-                    f"retrying in {wait} seconds: {e}"
-                )
-                await asyncio.sleep(wait)
-            except Exception:
-                self.log.exception("Failed to restore session")
-                raise
+        user_info = await self.fetch_logged_in_user(client)
         if user_info:
             self.log.info("Loaded session successfully")
             self.client = client
@@ -322,6 +300,34 @@ class User(DBUser, BaseUser):
             asyncio.create_task(self.post_login(is_startup=is_startup))
             return True
         return False
+
+    async def fetch_logged_in_user(
+        self, client: AndroidAPI | None = None, action: str = "restore session"
+    ) -> None:
+        if not client:
+            client = self.client
+        attempt = 0
+        while True:
+            try:
+                return await client.fetch_logged_in_user()
+            except (
+                ProxyError,
+                ProxyTimeoutError,
+                ProxyConnectionError,
+                ClientConnectionError,
+                ConnectionError,
+                asyncio.TimeoutError,
+            ) as e:
+                attempt += 1
+                wait = min(attempt * 10, 60)
+                self.log.warning(
+                    f"{e.__class__.__name__} while trying to {action}, "
+                    f"retrying in {wait} seconds: {e}"
+                )
+                await asyncio.sleep(wait)
+            except Exception:
+                self.log.exception(f"Failed to {action}")
+                raise
 
     async def is_logged_in(self, _override: bool = False) -> bool:
         if not self.state or not self.client:
@@ -411,13 +417,16 @@ class User(DBUser, BaseUser):
         finally:
             self._is_refreshing = False
 
-    async def reconnect(self) -> None:
+    async def reconnect(self, fetch_user: bool = False) -> None:
         self._is_refreshing = True
         if self.mqtt:
             self.mqtt.disconnect()
         await self.listen_task
         self.listen_task = None
         self.mqtt = None
+        if fetch_user:
+            self.log.debug("Fetching current user after MQTT disconnection")
+            await self.fetch_logged_in_user(action="fetch current user after MQTT disconnection")
         self.start_listen()
         self._is_refreshing = False
 
@@ -743,12 +752,16 @@ class User(DBUser, BaseUser):
                 if wait_for:
                     await asyncio.sleep(get_interval(wait_for))
                 # Ensure a minimum of 120s between reconnection attempts, even if wait is disabled
-                await asyncio.sleep(self._prev_reconnect_fail_refresh + 120 - time.monotonic())
+                sleep_time = self._prev_reconnect_fail_refresh + 120 - time.monotonic()
+                if not wait_for:
+                    self.log.debug(f"Waiting {sleep_time:.3f} seconds before reconnecting")
+                    await asyncio.sleep(sleep_time)
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 if action == "refresh":
                     asyncio.create_task(self.refresh())
                 else:
-                    asyncio.create_task(self.reconnect())
+                    # If there was a recent reconnect, validate the token before trying again
+                    asyncio.create_task(self.reconnect(fetch_user=sleep_time > 0))
             else:
                 self._disconnect_listener_after_error()
         except Exception:
@@ -761,10 +774,6 @@ class User(DBUser, BaseUser):
                 error_code="fb-connection-error",
             )
             self._disconnect_listener_after_error()
-
-    # @async_time(METRIC_UNKNOWN_EVENT)
-    # async def on_unknown_event(self, evt: fbchat.UnknownEvent) -> None:
-    #     self.log.debug(f"Unknown event %s: %s", evt.source, evt.data)
 
     async def on_connect(self, evt: Connect) -> None:
         now = time.monotonic()
@@ -786,11 +795,6 @@ class User(DBUser, BaseUser):
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
         await self.push_bridge_state(BridgeStateEvent.TRANSIENT_DISCONNECT, message=evt.reason)
-
-    # @async_time(METRIC_RESYNC)
-    # async def on_resync(self, evt: fbchat.Resync) -> None:
-    #     self.log.info("sequence_id changed, resyncing threads...")
-    #     await self.sync_threads()
 
     def stop_listen(self) -> None:
         if self.mqtt:
