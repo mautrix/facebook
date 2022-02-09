@@ -33,7 +33,7 @@ RUN apk add --no-cache \
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
 WORKDIR /opt/mautrix-facebook
-RUN apk add --virtual .build-deps python3-dev libffi-dev build-base \
+RUN apk add --virtual .build-deps python3-dev libffi-dev build-base git \
  && pip3 install -r requirements.txt -r optional-requirements.txt 'git+https://github.com/mautrix/python.git@47e834937561bcbe4e10838c6d86964b094cfe7e#egg=mautrix' \
  && apk del .build-deps
 
