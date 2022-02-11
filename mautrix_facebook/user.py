@@ -760,8 +760,7 @@ class User(DBUser, BaseUser):
                 if action == "refresh":
                     asyncio.create_task(self.refresh())
                 else:
-                    # If there was a recent reconnect, validate the token before trying again
-                    asyncio.create_task(self.reconnect(fetch_user=sleep_time > 0))
+                    asyncio.create_task(self.reconnect(fetch_user=True))
             else:
                 self._disconnect_listener_after_error()
         except Exception:
