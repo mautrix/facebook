@@ -301,6 +301,20 @@ class User(DBUser, BaseUser):
             return True
         return False
 
+    async def _send_reset_notice(self, e: InvalidAccessToken, edit: EventID | None = None) -> None:
+        await self.send_bridge_notice(
+            "Got authentication error from Messenger:\n\n"
+            f"> {e!s}\n\n"
+            "If you changed your Facebook password or enabled two-factor authentication, this "
+            "is normal and you just need to log in again.",
+            edit=edit,
+            important=True,
+            state_event=BridgeStateEvent.BAD_CREDENTIALS,
+            error_code="fb-auth-error",
+            error_message=str(e),
+        )
+        await self.logout(remove_fbid=False)
+
     async def fetch_logged_in_user(
         self, client: AndroidAPI | None = None, action: str = "restore session"
     ) -> None:
@@ -310,6 +324,11 @@ class User(DBUser, BaseUser):
         while True:
             try:
                 return await client.fetch_logged_in_user()
+            except InvalidAccessToken as e:
+                if action != "restore session":
+                    await self._send_reset_notice(e)
+                else:
+                    raise
             except (
                 ProxyError,
                 ProxyTimeoutError,
@@ -375,18 +394,7 @@ class User(DBUser, BaseUser):
         try:
             await self._load_session(is_startup=is_startup)
         except InvalidAccessToken as e:
-            await self.send_bridge_notice(
-                "Got authentication error from Messenger:\n\n"
-                f"> {e!s}\n\n"
-                "If you changed your Facebook password or enabled two-factor authentication, this "
-                "is normal and you just need to log in again.",
-                edit=event_id,
-                important=True,
-                state_event=BridgeStateEvent.BAD_CREDENTIALS,
-                error_code="fb-auth-error",
-                error_message=str(e),
-            )
-            await self.logout(remove_fbid=False)
+            await self._send_reset_notice(e, edit=event_id)
         except ResponseError as e:
             will_retry = retries > 0
             retry = "Retrying in 1 minute" if will_retry else "Not retrying"
