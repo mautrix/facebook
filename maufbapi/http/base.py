@@ -250,7 +250,7 @@ class BaseAndroidAPI:
         self._handle_response_headers(resp)
         body = await resp.json()
         if isinstance(body, list) and batch_index is not None:
-            body = body[batch_index][1]
+            body = body[batch_index][1].get("body", {})
         error = body.get("error", None)
         errors = body.get("errors", [])
         if error:
