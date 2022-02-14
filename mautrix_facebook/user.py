@@ -327,8 +327,7 @@ class User(DBUser, BaseUser):
             except InvalidAccessToken as e:
                 if action != "restore session":
                     await self._send_reset_notice(e)
-                else:
-                    raise
+                raise
             except (
                 ProxyError,
                 ProxyTimeoutError,
