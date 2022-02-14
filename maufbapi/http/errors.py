@@ -27,7 +27,7 @@ class ResponseError(Exception):
         else:
             message = data["message"]
             code = data.get("code", "")
-            subcode = data.get("subcode")
+            subcode = data.get("subcode") or data.get("error_subcode")
             code_str = f"{code}.{subcode}" if subcode else str(code)
             if other_error_count > 0:
                 message += f" (and {other_error_count} other errors)"

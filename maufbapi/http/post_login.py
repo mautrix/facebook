@@ -62,7 +62,7 @@ class PostLoginAPI(BaseAndroidAPI):
             # The second batch will sometimes contain errors that the first one doesn't.
             await self._handle_response(resp, batch_index=1)
         try:
-            actual_data = resp_data["body"]["data"]["viewer"]["actor"]
+            actual_data = resp_data["data"]["viewer"]["actor"]
         except (IndexError, KeyError):
             self.log.warning(
                 "Didn't get expected data in fetch logged in user response: %s", resp_data
