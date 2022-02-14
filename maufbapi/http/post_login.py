@@ -58,6 +58,9 @@ class PostLoginAPI(BaseAndroidAPI):
         await self._decompress_zstd(resp)
         self.log.trace(f"Fetch logged in user response: {await resp.text()}")
         resp_data = await self._handle_response(resp, batch_index=2 if post_login else 0)
+        if not post_login:
+            # The second batch will sometimes contain errors that the first one doesn't.
+            await self._handle_response(resp, batch_index=1)
         try:
             actual_data = resp_data["body"]["data"]["viewer"]["actor"]
         except (IndexError, KeyError):
