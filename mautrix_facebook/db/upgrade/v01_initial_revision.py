@@ -30,7 +30,7 @@ def table_exists(scheme: Scheme, name: str) -> str:
     if scheme == Scheme.SQLITE:
         return f"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{name}')"
     elif scheme in (Scheme.POSTGRES, Scheme.COCKROACH):
-        return f"SELECT EXISTS(SELECT FROM information_schema.tables WHERE table_name='{name}')"
+        return f"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='{name}')"
     raise RuntimeError("unsupported database scheme")
 
 
