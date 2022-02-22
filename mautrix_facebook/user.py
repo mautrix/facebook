@@ -343,6 +343,20 @@ class User(DBUser, BaseUser):
                     f"retrying in {wait} seconds: {e}"
                 )
                 await asyncio.sleep(wait)
+            except ResponseError:
+                if action != "restore session":
+                    attempt += 1
+                    wait = min(attempt * 30, 300)
+                    self.log.warning(
+                        f"Unknown response error while trying to {action}, "
+                        f"retrying in {wait} seconds"
+                    )
+                    await self.push_bridge_state(
+                        BridgeStateEvent.UNKNOWN_ERROR, error="fb-reconnection-error"
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
             except Exception:
                 self.log.exception(f"Failed to {action}")
                 raise
