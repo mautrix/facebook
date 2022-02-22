@@ -1170,7 +1170,7 @@ class Portal(DBPortal, BasePortal):
         self, intent: IntentAPI, message: mqtt.Message | graphql.Message, timestamp: int
     ) -> EventID | None:
         text = message.montage_reply_data.snippet
-        if message.montage_reply_data.message_id:
+        if message.montage_reply_data.message_id and message.montage_reply_data.montage_thread_id:
             card_id_data = f"S:_ISC:{message.montage_reply_data.message_id}"
             story_url = (
                 URL("https://www.facebook.com/stories")
