@@ -1,3 +1,20 @@
+# unreleased
+
+* Added optional support for bridging presence from Facebook to Matrix
+  (thanks to [@JakuJ] in [#189]).
+* Added option to not resync chats on startup and instead ask the server to
+  just send missed messages.
+* Changed some fields to stop the user from showing up as online on Facebook
+  all the time.
+* Fixed calculating mention offsets (mentioning users in messages with
+  complicated unicode characters like emojis).
+  * This will break message rendering that involves mentions and emojis in the
+    Messenger web app, but it works everywhere else. The issue on web happens
+    even with messages sent from the official apps.
+
+[@JakuJ]: https://github.com/JakuJ
+[#189]: https://github.com/mautrix/facebook/pull/189
+
 # v0.3.3 (2022-01-29)
 
 * Added relay mode.
