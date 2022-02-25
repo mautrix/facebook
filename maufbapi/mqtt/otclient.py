@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import struct
 
-import paho.mqtt.client
+import paho.mqtt.client as pmc
 
 # from hyperframe.frame import SettingsFrame, HeadersFrame, DataFrame
 # import hpack
@@ -23,7 +23,7 @@ import paho.mqtt.client
 http2_header = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
 
-class MQTToTClient(paho.mqtt.client.Client):
+class MQTToTClient(pmc.Client):
     def set_client_id(self, client_id: bytes) -> None:
         self._client_id = client_id
 
@@ -39,7 +39,7 @@ class MQTToTClient(paho.mqtt.client.Client):
 
         connect_flags = 0x02
 
-        command = paho.mqtt.client.CONNECT
+        command = pmc.CONNECT
         packet = bytearray()
         packet.append(command)
 
@@ -73,7 +73,7 @@ class MQTToTClient(paho.mqtt.client.Client):
 
         self._keepalive = keepalive
         self._easy_log(
-            paho.mqtt.client.MQTT_LOG_DEBUG,
+            pmc.MQTT_LOG_DEBUG,
             "Sending CONNECT",
         )
         return self._packet_queue(command, packet, 0, 0)
@@ -81,6 +81,6 @@ class MQTToTClient(paho.mqtt.client.Client):
     def _packet_handle(self):
         cmd = self._in_packet["command"] & 0xF0
         # Facebook's MQTToT is based on MQTTv3.1, but paho.mqtt only allows DISCONNECT on MQTTv5
-        if cmd == paho.mqtt.client.DISCONNECT:
+        if cmd == pmc.DISCONNECT:
             return self._handle_disconnect()
         return super()._packet_handle()

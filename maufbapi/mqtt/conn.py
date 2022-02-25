@@ -26,15 +26,8 @@ import time
 import urllib.request
 import zlib
 
-from paho.mqtt.client import (
-    CONNACK_REFUSED_NOT_AUTHORIZED,
-    MQTT_ERR_NOMEM,
-    MQTTMessage,
-    WebsocketConnectionError,
-    error_string,
-)
 from yarl import URL
-import paho.mqtt.client
+import paho.mqtt.client as pmc
 
 from mautrix.util.logging import TraceLogger
 
@@ -126,7 +119,7 @@ class AndroidMQTT:
         self._client = MQTToTClient(
             client_id=self._form_client_id(),
             clean_session=True,
-            protocol=paho.mqtt.client.MQTTv31,
+            protocol=pmc.MQTTv31,
             transport="tcp",
         )
         try:
@@ -261,21 +254,24 @@ class AndroidMQTT:
         self, client: MQTToTClient, _: Any, flags: dict[str, Any], rc: int
     ) -> None:
         if rc != 0:
-            if rc == paho.mqtt.client.MQTT_ERR_INVAL:
+            if rc == pmc.MQTT_ERR_INVAL:
                 self.log.error("MQTT connection error, regenerating client ID")
                 self.connect_token_hash = None
                 self._client.set_client_id(self._form_client_id())
             else:
-                err = paho.mqtt.client.connack_string(rc)
+                err = pmc.connack_string(rc)
                 self.log.error("MQTT Connection Error: %s (%d)", err, rc)
-                if rc == CONNACK_REFUSED_NOT_AUTHORIZED and self.connection_unauthorized_callback:
+                if (
+                    rc == pmc.CONNACK_REFUSED_NOT_AUTHORIZED
+                    and self.connection_unauthorized_callback
+                ):
                     self.connection_unauthorized_callback()
             return
 
         asyncio.create_task(self._post_connect())
 
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
-        err_str = "Generic error." if rc == MQTT_ERR_NOMEM else error_string(rc)
+        err_str = "Generic error." if rc == pmc.MQTT_ERR_NOMEM else pmc.error_string(rc)
         self.log.debug(f"MQTT disconnection code %d: %s", rc, err_str)
 
     @property
@@ -415,7 +411,7 @@ class AndroidMQTT:
         if self.region_hint_callback:
             self.region_hint_callback(rhp.region_hint.code)
 
-    def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
+    def _on_message_handler(self, client: MQTToTClient, _: Any, message: pmc.MQTTMessage) -> None:
         try:
             is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
@@ -457,7 +453,7 @@ class AndroidMQTT:
         try:
             self.log.trace("Trying to reconnect to MQTT")
             self._client.reconnect()
-        except (SocketError, OSError, WebsocketConnectionError) as e:
+        except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
             raise MQTTNotLoggedIn("MQTT reconnection failed") from e
 
     def add_event_handler(
@@ -515,20 +511,20 @@ class AndroidMQTT:
 
             # If disconnect() has been called
             # Beware, internal API, may have to change this to something more stable!
-            if self._client._state == paho.mqtt.client.mqtt_cs_disconnecting:
+            if self._client._state == pmc.mqtt_cs_disconnecting:
                 break  # Stop listening
 
-            if rc != paho.mqtt.client.MQTT_ERR_SUCCESS:
+            if rc != pmc.MQTT_ERR_SUCCESS:
                 # If known/expected error
-                if rc == paho.mqtt.client.MQTT_ERR_CONN_LOST:
+                if rc == pmc.MQTT_ERR_CONN_LOST:
                     await self._dispatch(Disconnect(reason="Connection lost, retrying"))
-                elif rc == paho.mqtt.client.MQTT_ERR_NOMEM:
+                elif rc == pmc.MQTT_ERR_NOMEM:
                     # This error is wrongly classified
                     # See https://github.com/eclipse/paho.mqtt.python/issues/340
                     await self._dispatch(Disconnect(reason="Connection lost, retrying"))
-                elif rc == paho.mqtt.client.MQTT_ERR_CONN_REFUSED:
+                elif rc == pmc.MQTT_ERR_CONN_REFUSED:
                     raise MQTTNotLoggedIn("MQTT connection refused")
-                elif rc == paho.mqtt.client.MQTT_ERR_NO_CONN:
+                elif rc == pmc.MQTT_ERR_NO_CONN:
                     if connection_retries > retry_limit:
                         raise MQTTNotConnected(f"Connection failed {connection_retries} times")
                     sleep = connection_retries * 2
@@ -536,7 +532,7 @@ class AndroidMQTT:
                     await self._dispatch(Disconnect(reason=msg))
                     await asyncio.sleep(sleep)
                 else:
-                    err = paho.mqtt.client.error_string(rc)
+                    err = pmc.error_string(rc)
                     self.log.error("MQTT Error: %s", err)
                     await self._dispatch(Disconnect(reason=f"MQTT Error: {err}, retrying"))
 
@@ -585,7 +581,7 @@ class AndroidMQTT:
         response: RealtimeTopic,
         payload: str | bytes | dict | ThriftObject,
         prefix: bytes = b"",
-    ) -> MQTTMessage:
+    ) -> pmc.MQTTMessage:
         async with self._response_waiter_locks[response]:
             fut = asyncio.Future()
             self._response_waiters[response] = fut
