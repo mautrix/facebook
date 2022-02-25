@@ -470,6 +470,8 @@ class User(DBUser, BaseUser):
         self.is_connected = None
         self.client = None
         self.mqtt = None
+        self.seq_id = None
+        self.connect_token_hash = None
 
         if self.fbid and remove_fbid:
             await UserPortal.delete_all(self.fbid)
