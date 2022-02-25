@@ -36,6 +36,7 @@ from .mqtt import (
     RealtimeClientInfo,
     RealtimeConfig,
     RegionHintPayload,
+    ResumeQueueRequest,
     SendMessageRequest,
     SendMessageResponse,
     SetTypingRequest,

@@ -119,3 +119,21 @@ class SetTypingRequest(ThriftObject):
     typing_status: int = field(TType.I32)  # state
     # attribution: struct(extension_type: str, generic_attribution_type: str, in_thread_app_id: int64, page_id: int64)
     # thread_key: struct(thread_id: str, thread_type: enum(CANONICAL=0, GROUP=1))
+
+
+@autospec
+@dataclass(kw_only=True)
+class ResumeQueueRequest(ThriftObject):
+    sync_token: str = None
+    last_seq_id: int = field(TType.I64)
+    max_deltas_able_to_process: int = field(TType.I32, default=None)
+    delta_batch_size: int = field(TType.I32, default=None)
+    encoding: str = None
+    queue_type: str = None
+    sync_api_version: int = field(TType.I64)
+    device_id: str = None
+    device_params: str = None
+    queue_params: str
+    entity_fbid: int = field(TType.I64, default=None)
+    sync_token_long: int = field(TType.I64, index=12, default=1)
+    trace_id: str = None

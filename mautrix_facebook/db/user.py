@@ -50,24 +50,23 @@ class User:
         state = data.pop("state", None)
         return cls(**data, state=AndroidState.parse_json(state) if state else None)
 
+    _columns = "mxid, fbid, state, notice_room, seq_id, connect_token_hash"
+
     @classmethod
     async def all_logged_in(cls) -> list[User]:
-        q = """
-            SELECT mxid, fbid, state, notice_room, seq_id FROM "user"
-            WHERE fbid<>0
-        """
+        q = f'SELECT {cls._columns} FROM "user" WHERE fbid<>0'
         rows = await cls.db.fetch(q)
         return [cls._from_row(row) for row in rows]
 
     @classmethod
     async def get_by_fbid(cls, fbid: int) -> User | None:
-        q = 'SELECT mxid, fbid, state, notice_room, seq_id FROM "user" WHERE fbid=$1'
+        q = f'SELECT {cls._columns} FROM "user" WHERE fbid=$1'
         row = await cls.db.fetchrow(q, fbid)
         return cls._from_row(row)
 
     @classmethod
     async def get_by_mxid(cls, mxid: UserID) -> User | None:
-        q = 'SELECT mxid, fbid, state, notice_room, seq_id FROM "user" WHERE mxid=$1'
+        q = f'SELECT {cls._columns} FROM "user" WHERE mxid=$1'
         row = await cls.db.fetchrow(q, mxid)
         return cls._from_row(row)
 

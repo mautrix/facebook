@@ -48,6 +48,7 @@ from ..types import (
     RealtimeClientInfo,
     RealtimeConfig,
     RegionHintPayload,
+    ResumeQueueRequest,
     SendMessageRequest,
     SendMessageResponse,
     SetTypingRequest,
@@ -232,12 +233,14 @@ class AndroidMQTT:
             combined_publishes=[],
             php_override=PHPOverride(),
         )
-        # TODO figure out how to make these
         if self.connect_token_hash:
+            self.log.trace("Using connect_token_hash to connect %s", self.connect_token_hash)
             cfg.password = ""
             cfg.client_info.device_id = ""
             cfg.client_info.user_agent = self.state.minimal_user_agent_meta
             cfg.client_info.connect_token_hash = self.connect_token_hash
+        else:
+            self.log.trace("Making fresh connection")
         return zlib.compress(cfg.to_thrift(), level=9)
 
     # endregion
@@ -275,6 +278,69 @@ class AndroidMQTT:
         err_str = "Generic error." if rc == MQTT_ERR_NOMEM else error_string(rc)
         self.log.debug(f"MQTT disconnection code %d: %s", rc, err_str)
 
+    @property
+    def _sync_queue_params(self) -> dict[str, Any]:
+        return {
+            "client_delta_sync_bitmask": "CAvV/nxib6vRgAV/ss2A",
+            "graphql_query_hashes": {"xma_query_id": "0"},
+            "graphql_query_params": {
+                "0": {
+                    "xma_id": "<ID>",
+                    "small_preview_width": 716,
+                    "small_preview_height": 358,
+                    "large_preview_width": 1500,
+                    "large_preview_height": 750,
+                    "full_screen_width": 4096,
+                    "full_screen_height": 4096,
+                    "blur": 0,
+                    "nt_context": {
+                        "styles_id": NTContext().styles_id,
+                        "pixel_ratio": 3,
+                    },
+                    "use_oss_id": True,
+                    "client_doc_id": "222672581515007895135860332111",
+                }
+            },
+        }
+
+    @property
+    def _sync_create_queue_data(self) -> dict[str, Any]:
+        return {
+            "initial_titan_sequence_id": self.seq_id,
+            "delta_batch_size": 125,
+            "device_params": {
+                "image_sizes": {
+                    "0": "4096x4096",
+                    "4": "358x358",
+                    "1": "750x750",
+                    "2": "481x481",
+                    "3": "358x358",
+                },
+                "animated_image_format": "WEBP,GIF",
+                "animated_image_sizes": {
+                    "0": "4096x4096",
+                    "4": "358x358",
+                    "1": "750x750",
+                    "2": "481x481",
+                    "3": "358x358",
+                },
+                "thread_theme_background_sizes": {"0": "2048x2048"},
+                "thread_theme_icon_sizes": {"1": "138x138", "3": "66x66"},
+                "thread_theme_reaction_sizes": {"1": "83x83", "3": "39x39"},
+            },
+            "entity_fbid": self.state.session.uid,
+            "sync_api_version": 10,
+            "queue_params": self._sync_queue_params,
+        }
+
+    @property
+    def _sync_resume_queue_data(self) -> ResumeQueueRequest:
+        return ResumeQueueRequest(
+            last_seq_id=self.seq_id,
+            sync_api_version=10,
+            queue_params=json.dumps(self._sync_queue_params, separators=(",", ":")),
+        )
+
     async def _post_connect(self) -> None:
         self._opened_thread = None
         self.log.debug("Re-creating sync queue after reconnect")
@@ -293,59 +359,11 @@ class AndroidMQTT:
             },
         )
         if self.connect_token_hash is not None:
-            # No need to create a queue if connecting with a connect token hash
-            return
-        await self.publish(
-            RealtimeTopic.SYNC_CREATE_QUEUE,
-            {
-                "initial_titan_sequence_id": self.seq_id,
-                "delta_batch_size": 125,
-                "device_params": {
-                    "image_sizes": {
-                        "0": "4096x4096",
-                        "4": "358x358",
-                        "1": "750x750",
-                        "2": "481x481",
-                        "3": "358x358",
-                    },
-                    "animated_image_format": "WEBP,GIF",
-                    "animated_image_sizes": {
-                        "0": "4096x4096",
-                        "4": "358x358",
-                        "1": "750x750",
-                        "2": "481x481",
-                        "3": "358x358",
-                    },
-                    "thread_theme_background_sizes": {"0": "2048x2048"},
-                    "thread_theme_icon_sizes": {"1": "138x138", "3": "66x66"},
-                    "thread_theme_reaction_sizes": {"1": "83x83", "3": "39x39"},
-                },
-                "entity_fbid": self.state.session.uid,
-                "sync_api_version": 10,
-                "queue_params": {
-                    "client_delta_sync_bitmask": "CAvV/nxib6vRgAV/ss2A",
-                    "graphql_query_hashes": {"xma_query_id": "0"},
-                    "graphql_query_params": {
-                        "0": {
-                            "xma_id": "<ID>",
-                            "small_preview_width": 716,
-                            "small_preview_height": 358,
-                            "large_preview_width": 1500,
-                            "large_preview_height": 750,
-                            "full_screen_width": 4096,
-                            "full_screen_height": 4096,
-                            "blur": 0,
-                            "nt_context": {
-                                "styles_id": NTContext().styles_id,
-                                "pixel_ratio": 3,
-                            },
-                            "use_oss_id": True,
-                            "client_doc_id": "222672581515007895135860332111",
-                        }
-                    },
-                },
-            },
-        )
+            await self.publish(
+                RealtimeTopic.SYNC_RESUME_QUEUE, self._sync_resume_queue_data, prefix=b"\x00"
+            )
+        else:
+            await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, self._sync_create_queue_data)
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
@@ -402,7 +420,12 @@ class AndroidMQTT:
             is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
                 message.payload = zlib.decompress(message.payload)
-            topic_str, *rest = message.topic.split("#", 1)
+            if "#" in message.topic:
+                topic_str, *rest = message.topic.split("#", 1)
+            elif "/" in message.topic:
+                topic_str, *rest = message.topic.split("/", 1)
+            else:
+                topic_str, rest = message.topic, []
             if len(rest) > 0:
                 self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
             topic = RealtimeTopic.decode(topic_str)
