@@ -850,9 +850,9 @@ class User(DBUser, BaseUser):
             reply_to = None
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-        # if not puppet.name:
-        #     await puppet.update_info(self)
         await portal.backfill_lock.wait(evt.metadata.id)
+        if not puppet.name:
+            portal.schedule_resync(self, puppet)
         await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
 
     @async_time(METRIC_TITLE_CHANGE)
