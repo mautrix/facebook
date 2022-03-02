@@ -517,6 +517,7 @@ class MessageSyncEvent(ThriftObject):
 class MessageSyncError(ExtensibleEnum):
     QUEUE_OVERFLOW = "ERROR_QUEUE_OVERFLOW"
     QUEUE_UNDERFLOW = "ERROR_QUEUE_UNDERFLOW"
+    QUEUE_NOT_FOUND = "ERROR_QUEUE_NOT_FOUND"
 
 
 @autospec

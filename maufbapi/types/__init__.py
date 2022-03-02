@@ -30,6 +30,7 @@ from .login import LoginResponse, MobileConfig, PasswordKeyResponse
 from .media import UploadErrorData, UploadResponse
 from .mqtt import (
     MarkReadRequest,
+    MessageSyncError,
     MessageSyncPayload,
     OpenedThreadRequest,
     PHPOverride,

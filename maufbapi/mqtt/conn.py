@@ -35,6 +35,7 @@ from ..state import AndroidState
 from ..thrift import ThriftObject
 from ..types import (
     MarkReadRequest,
+    MessageSyncError,
     MessageSyncPayload,
     NTContext,
     PHPOverride,
@@ -161,7 +162,7 @@ class AndroidMQTT:
         self._client.on_socket_register_write = self._on_socket_register_write
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
-    def _form_client_id(self) -> bytes:
+    def _form_client_id(self, force_password: bool = False) -> bytes:
         subscribe_topics = [
             "/t_assist_rp",
             "/t_rtc",
@@ -228,7 +229,8 @@ class AndroidMQTT:
         )
         if self.connect_token_hash:
             self.log.trace("Using connect_token_hash to connect %s", self.connect_token_hash)
-            cfg.password = ""
+            if not force_password:
+                cfg.password = ""
             cfg.client_info.device_id = ""
             cfg.client_info.user_agent = self.state.minimal_user_agent_meta
             cfg.client_info.connect_token_hash = self.connect_token_hash
@@ -256,8 +258,8 @@ class AndroidMQTT:
         if rc != 0:
             if rc == pmc.MQTT_ERR_INVAL:
                 self.log.error("MQTT connection error, regenerating client ID")
-                self.connect_token_hash = None
-                self._client.set_client_id(self._form_client_id())
+                # self.connect_token_hash = None
+                self._client.set_client_id(self._form_client_id(force_password=True))
             else:
                 err = pmc.connack_string(rc)
                 self.log.error("MQTT Connection Error: %s (%d)", err, rc)

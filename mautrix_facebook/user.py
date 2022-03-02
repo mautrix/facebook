@@ -970,10 +970,14 @@ class User(DBUser, BaseUser):
             self.log.trace("Unhandled thread change: %s", evt)
 
     async def on_message_sync_error(self, evt: mqtt_t.MessageSyncError) -> None:
-        self.log.error(f"Message sync error: {evt.value}, resyncing...")
-        await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
         self.stop_listen()
-        await self.sync_threads()
+        if evt == mqtt_t.MessageSyncError.QUEUE_NOT_FOUND:
+            self.log.debug("Resetting connect_token_hash due to QUEUE_NOT_FOUND error")
+            self.connect_token_hash = None
+        else:
+            self.log.error(f"Message sync error: {evt.value}, resyncing...")
+            await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
+            await self.sync_threads()
         self.start_listen()
 
     def on_connection_not_authorized(self) -> None:
