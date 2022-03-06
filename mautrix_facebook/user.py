@@ -343,6 +343,20 @@ class User(DBUser, BaseUser):
                     f"retrying in {wait} seconds: {e}"
                 )
                 await asyncio.sleep(wait)
+            except ResponseError:
+                if action != "restore session":
+                    attempt += 1
+                    wait = min(attempt * 30, 300)
+                    self.log.warning(
+                        f"Unknown response error while trying to {action}, "
+                        f"retrying in {wait} seconds"
+                    )
+                    await self.push_bridge_state(
+                        BridgeStateEvent.UNKNOWN_ERROR, error="fb-reconnection-error"
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
             except Exception:
                 self.log.exception(f"Failed to {action}")
                 raise
@@ -456,6 +470,8 @@ class User(DBUser, BaseUser):
         self.is_connected = None
         self.client = None
         self.mqtt = None
+        self.seq_id = None
+        self.connect_token_hash = None
 
         if self.fbid and remove_fbid:
             await UserPortal.delete_all(self.fbid)
@@ -834,9 +850,9 @@ class User(DBUser, BaseUser):
             reply_to = None
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-        # if not puppet.name:
-        #     await puppet.update_info(self)
         await portal.backfill_lock.wait(evt.metadata.id)
+        if not puppet.name:
+            portal.schedule_resync(self, puppet)
         await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
 
     @async_time(METRIC_TITLE_CHANGE)
@@ -954,10 +970,14 @@ class User(DBUser, BaseUser):
             self.log.trace("Unhandled thread change: %s", evt)
 
     async def on_message_sync_error(self, evt: mqtt_t.MessageSyncError) -> None:
-        self.log.error(f"Message sync error: {evt.value}, resyncing...")
-        await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
         self.stop_listen()
-        await self.sync_threads()
+        if evt == mqtt_t.MessageSyncError.QUEUE_NOT_FOUND:
+            self.log.debug("Resetting connect_token_hash due to QUEUE_NOT_FOUND error")
+            self.connect_token_hash = None
+        else:
+            self.log.error(f"Message sync error: {evt.value}, resyncing...")
+            await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
+            await self.sync_threads()
         self.start_listen()
 
     def on_connection_not_authorized(self) -> None:

@@ -26,15 +26,8 @@ import time
 import urllib.request
 import zlib
 
-from paho.mqtt.client import (
-    CONNACK_REFUSED_NOT_AUTHORIZED,
-    MQTT_ERR_NOMEM,
-    MQTTMessage,
-    WebsocketConnectionError,
-    error_string,
-)
 from yarl import URL
-import paho.mqtt.client
+import paho.mqtt.client as pmc
 
 from mautrix.util.logging import TraceLogger
 
@@ -42,12 +35,14 @@ from ..state import AndroidState
 from ..thrift import ThriftObject
 from ..types import (
     MarkReadRequest,
+    MessageSyncError,
     MessageSyncPayload,
     NTContext,
     PHPOverride,
     RealtimeClientInfo,
     RealtimeConfig,
     RegionHintPayload,
+    ResumeQueueRequest,
     SendMessageRequest,
     SendMessageResponse,
     SetTypingRequest,
@@ -125,7 +120,7 @@ class AndroidMQTT:
         self._client = MQTToTClient(
             client_id=self._form_client_id(),
             clean_session=True,
-            protocol=paho.mqtt.client.MQTTv31,
+            protocol=pmc.MQTTv31,
             transport="tcp",
         )
         try:
@@ -167,7 +162,7 @@ class AndroidMQTT:
         self._client.on_socket_register_write = self._on_socket_register_write
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
-    def _form_client_id(self) -> bytes:
+    def _form_client_id(self, force_password: bool = False) -> bytes:
         subscribe_topics = [
             "/t_assist_rp",
             "/t_rtc",
@@ -232,12 +227,15 @@ class AndroidMQTT:
             combined_publishes=[],
             php_override=PHPOverride(),
         )
-        # TODO figure out how to make these
         if self.connect_token_hash:
-            cfg.password = ""
+            self.log.trace("Using connect_token_hash to connect %s", self.connect_token_hash)
+            if not force_password:
+                cfg.password = ""
             cfg.client_info.device_id = ""
             cfg.client_info.user_agent = self.state.minimal_user_agent_meta
             cfg.client_info.connect_token_hash = self.connect_token_hash
+        else:
+            self.log.trace("Making fresh connection")
         return zlib.compress(cfg.to_thrift(), level=9)
 
     # endregion
@@ -258,22 +256,88 @@ class AndroidMQTT:
         self, client: MQTToTClient, _: Any, flags: dict[str, Any], rc: int
     ) -> None:
         if rc != 0:
-            if rc == paho.mqtt.client.MQTT_ERR_INVAL:
+            if rc == pmc.MQTT_ERR_INVAL:
                 self.log.error("MQTT connection error, regenerating client ID")
-                self.connect_token_hash = None
-                self._client.set_client_id(self._form_client_id())
+                # self.connect_token_hash = None
+                self._client.set_client_id(self._form_client_id(force_password=True))
             else:
-                err = paho.mqtt.client.connack_string(rc)
+                err = pmc.connack_string(rc)
                 self.log.error("MQTT Connection Error: %s (%d)", err, rc)
-                if rc == CONNACK_REFUSED_NOT_AUTHORIZED and self.connection_unauthorized_callback:
+                if (
+                    rc == pmc.CONNACK_REFUSED_NOT_AUTHORIZED
+                    and self.connection_unauthorized_callback
+                ):
                     self.connection_unauthorized_callback()
             return
 
         asyncio.create_task(self._post_connect())
 
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
-        err_str = "Generic error." if rc == MQTT_ERR_NOMEM else error_string(rc)
+        err_str = "Generic error." if rc == pmc.MQTT_ERR_NOMEM else pmc.error_string(rc)
         self.log.debug(f"MQTT disconnection code %d: %s", rc, err_str)
+
+    @property
+    def _sync_queue_params(self) -> dict[str, Any]:
+        return {
+            "client_delta_sync_bitmask": "CAvV/nxib6vRgAV/ss2A",
+            "graphql_query_hashes": {"xma_query_id": "0"},
+            "graphql_query_params": {
+                "0": {
+                    "xma_id": "<ID>",
+                    "small_preview_width": 716,
+                    "small_preview_height": 358,
+                    "large_preview_width": 1500,
+                    "large_preview_height": 750,
+                    "full_screen_width": 4096,
+                    "full_screen_height": 4096,
+                    "blur": 0,
+                    "nt_context": {
+                        "styles_id": NTContext().styles_id,
+                        "pixel_ratio": 3,
+                    },
+                    "use_oss_id": True,
+                    "client_doc_id": "222672581515007895135860332111",
+                }
+            },
+        }
+
+    @property
+    def _sync_create_queue_data(self) -> dict[str, Any]:
+        return {
+            "initial_titan_sequence_id": self.seq_id,
+            "delta_batch_size": 125,
+            "device_params": {
+                "image_sizes": {
+                    "0": "4096x4096",
+                    "4": "358x358",
+                    "1": "750x750",
+                    "2": "481x481",
+                    "3": "358x358",
+                },
+                "animated_image_format": "WEBP,GIF",
+                "animated_image_sizes": {
+                    "0": "4096x4096",
+                    "4": "358x358",
+                    "1": "750x750",
+                    "2": "481x481",
+                    "3": "358x358",
+                },
+                "thread_theme_background_sizes": {"0": "2048x2048"},
+                "thread_theme_icon_sizes": {"1": "138x138", "3": "66x66"},
+                "thread_theme_reaction_sizes": {"1": "83x83", "3": "39x39"},
+            },
+            "entity_fbid": self.state.session.uid,
+            "sync_api_version": 10,
+            "queue_params": self._sync_queue_params,
+        }
+
+    @property
+    def _sync_resume_queue_data(self) -> ResumeQueueRequest:
+        return ResumeQueueRequest(
+            last_seq_id=self.seq_id,
+            sync_api_version=10,
+            queue_params=json.dumps(self._sync_queue_params, separators=(",", ":")),
+        )
 
     async def _post_connect(self) -> None:
         self._opened_thread = None
@@ -293,59 +357,11 @@ class AndroidMQTT:
             },
         )
         if self.connect_token_hash is not None:
-            # No need to create a queue if connecting with a connect token hash
-            return
-        await self.publish(
-            RealtimeTopic.SYNC_CREATE_QUEUE,
-            {
-                "initial_titan_sequence_id": self.seq_id,
-                "delta_batch_size": 125,
-                "device_params": {
-                    "image_sizes": {
-                        "0": "4096x4096",
-                        "4": "358x358",
-                        "1": "750x750",
-                        "2": "481x481",
-                        "3": "358x358",
-                    },
-                    "animated_image_format": "WEBP,GIF",
-                    "animated_image_sizes": {
-                        "0": "4096x4096",
-                        "4": "358x358",
-                        "1": "750x750",
-                        "2": "481x481",
-                        "3": "358x358",
-                    },
-                    "thread_theme_background_sizes": {"0": "2048x2048"},
-                    "thread_theme_icon_sizes": {"1": "138x138", "3": "66x66"},
-                    "thread_theme_reaction_sizes": {"1": "83x83", "3": "39x39"},
-                },
-                "entity_fbid": self.state.session.uid,
-                "sync_api_version": 10,
-                "queue_params": {
-                    "client_delta_sync_bitmask": "CAvV/nxib6vRgAV/ss2A",
-                    "graphql_query_hashes": {"xma_query_id": "0"},
-                    "graphql_query_params": {
-                        "0": {
-                            "xma_id": "<ID>",
-                            "small_preview_width": 716,
-                            "small_preview_height": 358,
-                            "large_preview_width": 1500,
-                            "large_preview_height": 750,
-                            "full_screen_width": 4096,
-                            "full_screen_height": 4096,
-                            "blur": 0,
-                            "nt_context": {
-                                "styles_id": NTContext().styles_id,
-                                "pixel_ratio": 3,
-                            },
-                            "use_oss_id": True,
-                            "client_doc_id": "222672581515007895135860332111",
-                        }
-                    },
-                },
-            },
-        )
+            await self.publish(
+                RealtimeTopic.SYNC_RESUME_QUEUE, self._sync_resume_queue_data, prefix=b"\x00"
+            )
+        else:
+            await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, self._sync_create_queue_data)
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
@@ -397,12 +413,17 @@ class AndroidMQTT:
         if self.region_hint_callback:
             self.region_hint_callback(rhp.region_hint.code)
 
-    def _on_message_handler(self, client: MQTToTClient, _: Any, message: MQTTMessage) -> None:
+    def _on_message_handler(self, client: MQTToTClient, _: Any, message: pmc.MQTTMessage) -> None:
         try:
             is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
                 message.payload = zlib.decompress(message.payload)
-            topic_str, *rest = message.topic.split("#", 1)
+            if "#" in message.topic:
+                topic_str, *rest = message.topic.split("#", 1)
+            elif "/" in message.topic:
+                topic_str, *rest = message.topic.split("/", 1)
+            else:
+                topic_str, rest = message.topic, []
             if len(rest) > 0:
                 self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
             topic = RealtimeTopic.decode(topic_str)
@@ -434,7 +455,7 @@ class AndroidMQTT:
         try:
             self.log.trace("Trying to reconnect to MQTT")
             self._client.reconnect()
-        except (SocketError, OSError, WebsocketConnectionError) as e:
+        except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
             raise MQTTNotLoggedIn("MQTT reconnection failed") from e
 
     def add_event_handler(
@@ -492,20 +513,20 @@ class AndroidMQTT:
 
             # If disconnect() has been called
             # Beware, internal API, may have to change this to something more stable!
-            if self._client._state == paho.mqtt.client.mqtt_cs_disconnecting:
+            if self._client._state == pmc.mqtt_cs_disconnecting:
                 break  # Stop listening
 
-            if rc != paho.mqtt.client.MQTT_ERR_SUCCESS:
+            if rc != pmc.MQTT_ERR_SUCCESS:
                 # If known/expected error
-                if rc == paho.mqtt.client.MQTT_ERR_CONN_LOST:
+                if rc == pmc.MQTT_ERR_CONN_LOST:
                     await self._dispatch(Disconnect(reason="Connection lost, retrying"))
-                elif rc == paho.mqtt.client.MQTT_ERR_NOMEM:
+                elif rc == pmc.MQTT_ERR_NOMEM:
                     # This error is wrongly classified
                     # See https://github.com/eclipse/paho.mqtt.python/issues/340
                     await self._dispatch(Disconnect(reason="Connection lost, retrying"))
-                elif rc == paho.mqtt.client.MQTT_ERR_CONN_REFUSED:
+                elif rc == pmc.MQTT_ERR_CONN_REFUSED:
                     raise MQTTNotLoggedIn("MQTT connection refused")
-                elif rc == paho.mqtt.client.MQTT_ERR_NO_CONN:
+                elif rc == pmc.MQTT_ERR_NO_CONN:
                     if connection_retries > retry_limit:
                         raise MQTTNotConnected(f"Connection failed {connection_retries} times")
                     sleep = connection_retries * 2
@@ -513,7 +534,7 @@ class AndroidMQTT:
                     await self._dispatch(Disconnect(reason=msg))
                     await asyncio.sleep(sleep)
                 else:
-                    err = paho.mqtt.client.error_string(rc)
+                    err = pmc.error_string(rc)
                     self.log.error("MQTT Error: %s", err)
                     await self._dispatch(Disconnect(reason=f"MQTT Error: {err}, retrying"))
 
@@ -562,7 +583,7 @@ class AndroidMQTT:
         response: RealtimeTopic,
         payload: str | bytes | dict | ThriftObject,
         prefix: bytes = b"",
-    ) -> MQTTMessage:
+    ) -> pmc.MQTTMessage:
         async with self._response_waiter_locks[response]:
             fut = asyncio.Future()
             self._response_waiters[response] = fut

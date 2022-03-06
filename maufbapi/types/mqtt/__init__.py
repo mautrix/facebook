@@ -34,4 +34,10 @@ from .message import (
     UnsendMessage,
     VideoInfo,
 )
-from .requests import MarkReadRequest, OpenedThreadRequest, SendMessageRequest, SetTypingRequest
+from .requests import (
+    MarkReadRequest,
+    OpenedThreadRequest,
+    ResumeQueueRequest,
+    SendMessageRequest,
+    SetTypingRequest,
+)

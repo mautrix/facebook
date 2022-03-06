@@ -13,12 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from asyncpg import Connection
+from mautrix.util.async_db import Connection
 
 from . import upgrade_table
 
 
 @upgrade_table.register(description="Store seq_id for users to reconnect without syncing")
-async def upgrade_v6(conn: Connection, scheme: str) -> None:
+async def upgrade_v6(conn: Connection) -> None:
     await conn.execute('ALTER TABLE "user" ADD COLUMN seq_id BIGINT')
     await conn.execute('ALTER TABLE "user" ADD COLUMN connect_token_hash bytea')

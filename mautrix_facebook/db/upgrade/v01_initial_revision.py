@@ -13,12 +13,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from asyncpg import (
-    Connection,
-    DuplicateObjectError,
-    ForeignKeyViolationError,
-    UndefinedObjectError,
-)
+from __future__ import annotations
+
+from asyncpg import DuplicateObjectError, ForeignKeyViolationError, UndefinedObjectError
+
+from mautrix.util.async_db import Connection, Scheme
 
 from . import upgrade_table
 
@@ -26,17 +25,17 @@ legacy_version_query = "SELECT version_num FROM alembic_version"
 last_legacy_version = "f91274813e8c"
 
 
-def table_exists(scheme: str, name: str) -> str:
-    if scheme == "sqlite":
+def table_exists(scheme: Scheme, name: str) -> str:
+    if scheme == Scheme.SQLITE:
         return f"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{name}')"
-    elif scheme == "postgres":
-        return f"SELECT EXISTS(SELECT FROM information_schema.tables WHERE table_name='{name}')"
+    elif scheme in (Scheme.POSTGRES, Scheme.COCKROACH):
+        return f"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='{name}')"
     raise RuntimeError("unsupported database scheme")
 
 
 @upgrade_table.register(description="Initial asyncpg revision", transaction=False)
-async def upgrade_v1(conn: Connection, scheme: str) -> None:
-    if scheme != "sqlite":
+async def upgrade_v1(conn: Connection, scheme: Scheme) -> None:
+    if scheme in (Scheme.POSTGRES, Scheme.COCKROACH):
         try:
             async with conn.transaction():
                 await conn.execute(
@@ -64,7 +63,8 @@ async def upgrade_v1(conn: Connection, scheme: str) -> None:
         async with conn.transaction():
             await migrate_legacy_data(conn)
     else:
-        await create_v1_tables(conn)
+        async with conn.transaction():
+            await create_v1_tables(conn)
 
 
 async def create_v1_tables(conn: Connection) -> None:

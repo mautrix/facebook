@@ -28,6 +28,7 @@ _reverse_topic_map: dict[str, str] = {value: key for key, value in topic_map.ite
 
 class RealtimeTopic(Enum):
     SYNC_CREATE_QUEUE = "/messenger_sync_create_queue"
+    SYNC_RESUME_QUEUE = "/t_ms_gd"
     MESSAGE_SYNC = "/t_ms"
     SEND_MESSAGE = "/t_sm"
     SEND_MESSAGE_RESP = "/t_sm_rp"

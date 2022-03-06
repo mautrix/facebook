@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Pattern, cast
 from collections import deque
 from html import escape
 from io import BytesIO
@@ -111,6 +111,9 @@ class Portal(DBPortal, BasePortal):
     _typing: set[UserID]
     backfill_lock: SimpleLock
     _backfill_leave: set[IntentAPI] | None
+    _sleeping_to_resync: bool
+    _scheduled_resync: asyncio.Task | None
+    _resync_targets: dict[int, p.Puppet]
 
     def __init__(
         self,
@@ -147,6 +150,9 @@ class Portal(DBPortal, BasePortal):
         self._oti_dedup = {}
         self._send_locks = {}
         self._typing = set()
+        self._sleeping_to_resync = False
+        self._scheduled_resync = None
+        self._resync_targets = {}
 
         self.backfill_lock = SimpleLock(
             "Waiting for backfilling to finish before handling %s", log=self.log
@@ -218,6 +224,36 @@ class Portal(DBPortal, BasePortal):
 
     # endregion
     # region Chat info updating
+
+    def schedule_resync(self, source: u.User, target: p.Puppet) -> None:
+        self._resync_targets[target.fbid] = target
+        if (
+            self._sleeping_to_resync
+            and self._scheduled_resync
+            and not self._scheduled_resync.done()
+        ):
+            return
+        self._sleeping_to_resync = True
+        self.log.debug(f"Scheduling resync through {source.mxid}/{source.fbid}")
+        self._scheduled_resync = asyncio.create_task(self._sleep_and_resync(source, 10))
+
+    async def _sleep_and_resync(self, source: u.User, sleep: int) -> None:
+        await asyncio.sleep(sleep)
+        targets = self._resync_targets
+        self._sleeping_to_resync = False
+        self._resync_targets = {}
+        for puppet in targets.values():
+            if not puppet.name or not puppet.name_set:
+                break
+        else:
+            self.log.debug(
+                f"Cancelled resync through {source.mxid}/{source.fbid}, all puppets have names"
+            )
+            return
+        self.log.debug(f"Resyncing chat through {source.mxid}/{source.fbid} after sleeping")
+        await self.update_info(source)
+        self._scheduled_resync = None
+        self.log.debug(f"Completed scheduled resync through {source.mxid}/{source.fbid}")
 
     async def update_info(
         self,
@@ -1170,7 +1206,7 @@ class Portal(DBPortal, BasePortal):
         self, intent: IntentAPI, message: mqtt.Message | graphql.Message, timestamp: int
     ) -> EventID | None:
         text = message.montage_reply_data.snippet
-        if message.montage_reply_data.message_id:
+        if message.montage_reply_data.message_id and message.montage_reply_data.montage_thread_id:
             card_id_data = f"S:_ISC:{message.montage_reply_data.message_id}"
             story_url = (
                 URL("https://www.facebook.com/stories")
@@ -1780,6 +1816,8 @@ class Portal(DBPortal, BasePortal):
         for user in users:
             await sender_intent.invite_user(self.mxid, user.mxid)
             await user.intent_for(self).join_room_by_id(self.mxid)
+            if not user.name:
+                self.schedule_resync(source, user)
 
     async def handle_facebook_leave(
         self, source: u.User, sender: p.Puppet, removed: p.Puppet

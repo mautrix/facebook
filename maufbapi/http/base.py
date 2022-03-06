@@ -30,6 +30,7 @@ import urllib.request
 from aiohttp import ClientResponse, ClientSession
 from aiohttp.client import _RequestContextManager
 from yarl import URL
+import aiohttp
 import zstandard as zstd
 
 from mautrix.types import JSON
@@ -37,7 +38,7 @@ from mautrix.util.logging import TraceLogger
 
 from ..state import AndroidState
 from ..types import GraphQLMutation, GraphQLQuery
-from .errors import GraphQLError, ResponseError, error_class_map, error_code_map
+from .errors import GraphQLError, ResponseError, ResponseTypeError, error_class_map, error_code_map
 
 try:
     from aiohttp_socks import ProxyConnector
@@ -248,7 +249,10 @@ class BaseAndroidAPI:
     async def _handle_response(self, resp: ClientResponse, batch_index: int | None = None) -> JSON:
         await self._decompress_zstd(resp)
         self._handle_response_headers(resp)
-        body = await resp.json()
+        try:
+            body = await resp.json()
+        except (json.JSONDecodeError, aiohttp.ContentTypeError) as e:
+            raise ResponseTypeError(resp.status, await resp.text()) from e
         if isinstance(body, list) and batch_index is not None:
             body = body[batch_index][1].get("body", {})
         error = body.get("error", None)

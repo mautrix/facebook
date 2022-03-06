@@ -38,9 +38,9 @@ class AndroidApplication(SerializableAttrs):
 
     @classmethod
     def deserialize(cls, data) -> "AndroidApplication":
-        data.pop("build")
-        data.pop("version_id")
-        data.pop("version")
+        data.pop("build", None)
+        data.pop("version_id", None)
+        data.pop("version", None)
         return super().deserialize(data)
 
     @property
@@ -71,10 +71,8 @@ class AndroidDevice(SerializableAttrs):
 
     @classmethod
     def deserialize(cls, data) -> "AndroidDevice":
-        data.pop("software")
-        data.pop("user_agent")
-        if "device_group" not in data:
-            data["device_group"] = str(random.randint(7000, 7999))
+        data.pop("software", None)
+        data.pop("user_agent", None)
         if "fdid" not in data:
             data["fdid"] = data["uuid"]
         return super().deserialize(data)

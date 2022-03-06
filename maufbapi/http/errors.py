@@ -34,6 +34,11 @@ class ResponseError(Exception):
             super().__init__(f"{code_str}: {message}" if code_str else message)
 
 
+class ResponseTypeError(ResponseError):
+    def __init__(self, status: int, body: str) -> None:
+        Exception.__init__(self, f"Got non-JSON response with status {status}: {body}")
+
+
 class GraphQLError(ResponseError):
     def __init__(self, first: dict[str, Any], rest: list[dict[str, Any]]) -> None:
         super().__init__(first, other_error_count=len(rest))
