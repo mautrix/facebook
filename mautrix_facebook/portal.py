@@ -1922,6 +1922,12 @@ class Portal(DBPortal, BasePortal):
             self.log.debug("Didn't get any messages from server")
             return
         self.log.debug("Got %d messages from server", len(messages))
+
+        # If we got more messages than the limit, trim the list.
+        if len(messages) > limit:
+            messages = messages[-limit:]
+            self.log.debug(f"Trimmed message list down to {limit} messages.")
+
         self._backfill_leave = set()
         async with NotificationDisabler(self.mxid, source):
             for message in messages:
