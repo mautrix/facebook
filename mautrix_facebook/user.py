@@ -495,9 +495,9 @@ class User(DBUser, BaseUser):
             self.log.exception("Failed to automatically enable custom puppet")
 
         if self.config["bridge.sync_on_startup"] or not is_startup or not self.seq_id:
-            if not await self.sync_threads():
-                return
-        self.start_listen()
+            await self.sync_threads(start_listen=True)
+        else:
+            self.start_listen()
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
@@ -507,17 +507,19 @@ class User(DBUser, BaseUser):
         }
 
     @async_time(METRIC_SYNC_THREADS)
-    async def sync_threads(self) -> bool:
+    async def sync_threads(self, start_listen: bool = False) -> bool:
         if (
             self._prev_thread_sync + 10 > time.monotonic()
             and self.mqtt
             and self.mqtt.seq_id is not None
         ):
             self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
+            if start_listen:
+                self.start_listen()
             return True
         self._prev_thread_sync = time.monotonic()
         try:
-            await self._sync_threads()
+            await self._sync_threads(start_listen=start_listen)
             return True
         except InvalidAccessToken as e:
             await self.send_bridge_notice(
@@ -533,7 +535,7 @@ class User(DBUser, BaseUser):
             await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
         return False
 
-    async def _sync_threads(self) -> None:
+    async def _sync_threads(self, start_listen: bool) -> None:
         sync_count = self.config["bridge.initial_chat_sync"]
         self.log.debug("Fetching threads...")
         # TODO paginate with 20 threads per request
@@ -542,6 +544,8 @@ class User(DBUser, BaseUser):
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
         await self.save_seq_id()
+        if start_listen:
+            self.start_listen()
         if sync_count <= 0:
             return
         await self.push_bridge_state(BridgeStateEvent.BACKFILLING)
@@ -555,7 +559,6 @@ class User(DBUser, BaseUser):
 
     async def _sync_thread(self, thread: graphql.Thread) -> None:
         self.log.debug(f"Syncing thread {thread.thread_key.id}")
-        is_direct = bool(thread.thread_key.other_user_id)
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
 
         was_created = False
@@ -974,11 +977,11 @@ class User(DBUser, BaseUser):
         if evt == mqtt_t.MessageSyncError.QUEUE_NOT_FOUND:
             self.log.debug("Resetting connect_token_hash due to QUEUE_NOT_FOUND error")
             self.connect_token_hash = None
+            self.start_listen()
         else:
             self.log.error(f"Message sync error: {evt.value}, resyncing...")
             await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
-            await self.sync_threads()
-        self.start_listen()
+            await self.sync_threads(start_listen=True)
 
     def on_connection_not_authorized(self) -> None:
         self.log.debug("Stopping listener and reloading session after MQTT not authorized error")

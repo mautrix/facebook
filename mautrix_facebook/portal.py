@@ -433,20 +433,29 @@ class Portal(DBPortal, BasePortal):
                 self.mxid, EventType.ROOM_MEMBER, content, state_key=intent.mxid
             )
 
-    async def _update_participants(self, source: u.User, info: graphql.Thread) -> bool:
+    async def _update_participant(
+        self, source: u.User, participant: graphql.ParticipantNode, nick_map: dict[int, str]
+    ) -> bool:
+        self.log.trace("Syncing participant %s", participant.id)
+        puppet = await p.Puppet.get_by_fbid(int(participant.id))
+        await puppet.update_info(source, participant.messaging_actor)
         changed = False
+        if self.is_direct and self.fbid == puppet.fbid and self.encrypted:
+            changed = await self._update_name(puppet.name) or changed
+            changed = await self._update_photo_from_puppet(puppet) or changed
+        if self.mxid:
+            if puppet.fbid != self.fb_receiver or puppet.is_real_user:
+                await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
+            if puppet.fbid in nick_map:
+                await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
+        return changed
+
+    async def _update_participants(self, source: u.User, info: graphql.Thread) -> bool:
         nick_map = info.customization_info.nickname_map if info.customization_info else {}
-        for participant in info.all_participants.nodes:
-            puppet = await p.Puppet.get_by_fbid(int(participant.id))
-            await puppet.update_info(source, participant.messaging_actor)
-            if self.is_direct and self.fbid == puppet.fbid and self.encrypted:
-                changed = await self._update_name(puppet.name) or changed
-                changed = await self._update_photo_from_puppet(puppet) or changed
-            if self.mxid:
-                if puppet.fbid != self.fb_receiver or puppet.is_real_user:
-                    await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
-                if puppet.fbid in nick_map:
-                    await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
+        sync_tasks = [
+            self._update_participant(source, pcp, nick_map) for pcp in info.all_participants.nodes
+        ]
+        changed = any(await asyncio.gather(*sync_tasks))
         return changed
 
     # endregion
@@ -1920,6 +1929,12 @@ class Portal(DBPortal, BasePortal):
             self.log.debug("Didn't get any messages from server")
             return
         self.log.debug("Got %d messages from server", len(messages))
+
+        # If we got more messages than the limit, trim the list.
+        if len(messages) > limit:
+            messages = messages[-limit:]
+            self.log.debug(f"Trimmed message list down to {limit} messages.")
+
         self._backfill_leave = set()
         async with NotificationDisabler(self.mxid, source):
             for message in messages:
