@@ -442,7 +442,8 @@ class User(DBUser, BaseUser):
         self._is_refreshing = True
         if self.mqtt:
             self.mqtt.disconnect()
-        await self.listen_task
+        if self.listen_task:
+            await self.listen_task
         self.listen_task = None
         self.mqtt = None
         if fetch_user:
