@@ -47,7 +47,7 @@ from mautrix.util.simple_lock import SimpleLock
 from . import portal as po, puppet as pu
 from .commands import enter_2fa_code
 from .config import Config
-from .db import User as DBUser, UserPortal
+from .db import ThreadType, User as DBUser, UserPortal
 from .presence import PresenceUpdater
 from .util.interval import get_interval
 
@@ -680,6 +680,13 @@ class User(DBUser, BaseUser):
         if not self.fbid:
             return None
         return await pu.Puppet.get_by_fbid(self.fbid)
+
+    async def get_portal_with(self, puppet: pu.Puppet, create: bool = True) -> po.Portal | None:
+        if not self.fbid:
+            return None
+        return await po.Portal.get_by_fbid(
+            puppet.fbid, fb_receiver=self.fbid, create=create, fb_type=ThreadType.USER
+        )
 
     # region Facebook event handling
 

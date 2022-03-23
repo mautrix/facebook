@@ -177,9 +177,14 @@ class Portal(DBPortal, BasePortal):
     async def delete(self) -> None:
         if self.mxid:
             await DBMessage.delete_all_by_room(self.mxid)
+            self.by_mxid.pop(self.mxid, None)
         self.by_fbid.pop(self.fbid_full, None)
-        self.by_mxid.pop(self.mxid, None)
-        await super().delete()
+        self.mxid = None
+        self.name_set = False
+        self.avatar_set = False
+        self.relay_user_id = None
+        self.encrypted = False
+        await super().save()
 
     # endregion
     # region Properties
@@ -221,6 +226,11 @@ class Portal(DBPortal, BasePortal):
         if not self._main_intent:
             raise ValueError("Portal must be postinit()ed before main_intent can be used")
         return self._main_intent
+
+    async def get_dm_puppet(self) -> p.Puppet | None:
+        if not self.is_direct:
+            return None
+        return await p.Puppet.get_by_fbid(self.fbid)
 
     # endregion
     # region Chat info updating
@@ -414,6 +424,15 @@ class Portal(DBPortal, BasePortal):
                 self.avatar_set = False
         return True
 
+    async def update_info_from_puppet(self, puppet: p.Puppet | None = None) -> bool:
+        if not self.is_direct:
+            return False
+        if not puppet:
+            puppet = await self.get_dm_puppet()
+        changed = await self._update_name(puppet.name)
+        changed = await self._update_photo_from_puppet(puppet) or changed
+        return changed
+
     async def sync_per_room_nick(self, puppet: p.Puppet, name: str) -> None:
         intent = puppet.intent_for(self)
         content = MemberStateEventContent(
@@ -441,8 +460,7 @@ class Portal(DBPortal, BasePortal):
         await puppet.update_info(source, participant.messaging_actor)
         changed = False
         if self.is_direct and self.fbid == puppet.fbid and self.encrypted:
-            changed = await self._update_name(puppet.name) or changed
-            changed = await self._update_photo_from_puppet(puppet) or changed
+            changed = await self.update_info_from_puppet(puppet) or changed
         if self.mxid:
             if puppet.fbid != self.fb_receiver or puppet.is_real_user:
                 await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
@@ -1019,16 +1037,6 @@ class Portal(DBPortal, BasePortal):
             self._set_typing(self._typing - users, typing=False),
         )
         self._typing = users
-
-    async def enable_dm_encryption(self) -> bool:
-        ok = await super().enable_dm_encryption()
-        if ok:
-            try:
-                puppet = await p.Puppet.get_by_fbid(self.fbid)
-                await self.main_intent.set_room_name(self.mxid, puppet.name)
-            except Exception:
-                self.log.warning(f"Failed to set room name", exc_info=True)
-        return ok
 
     # endregion
     # region Facebook event handling
@@ -1954,9 +1962,7 @@ class Portal(DBPortal, BasePortal):
         if self.mxid:
             self.by_mxid[self.mxid] = self
         self._main_intent = (
-            (await p.Puppet.get_by_fbid(self.fbid)).default_mxid_intent
-            if self.is_direct
-            else self.az.intent
+            (await self.get_dm_puppet()).default_mxid_intent if self.is_direct else self.az.intent
         )
 
     @classmethod
