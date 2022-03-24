@@ -207,6 +207,22 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)
 
+    async def logout(self) -> bool:
+        headers = {
+            **self._headers,
+            "x-fb-friendly-name": "logout",
+        }
+        req: dict[str, str] = {
+            **self._params,
+            "fb_api_req_friendly_name": "logout",
+            "fb_api_caller_class": "AuthOperations",
+        }
+        resp = await self.http.post(
+            url=self.b_graph_url / "auth" / "expire_session", headers=headers, data=req
+        )
+        resp.raise_for_status()
+        return await resp.text() == "true"
+
     async def cdn_rmd(self, prev_token: str = "", reason: str = "TIMER_EXPIRED") -> str:
         # reasons: TIMER_EXPIRED, APP_START, APP_RESUME
         headers = {

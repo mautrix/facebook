@@ -313,7 +313,7 @@ class User(DBUser, BaseUser):
             error_code="fb-auth-error",
             error_message=str(e),
         )
-        await self.logout(remove_fbid=False)
+        await self.logout(remove_fbid=False, from_auth_error=True)
 
     async def fetch_logged_in_user(
         self, client: AndroidAPI | None = None, action: str = "restore session"
@@ -451,17 +451,14 @@ class User(DBUser, BaseUser):
         self.start_listen()
         self._is_refreshing = False
 
-    async def logout(self, remove_fbid: bool = True) -> bool:
+    async def logout(self, remove_fbid: bool = True, from_auth_error: bool = False) -> bool:
         ok = True
         self.stop_listen()
-        if self.state:
-            # TODO is there even a logout API for messenger mobile?
-            pass
-            # try:
-            #     await self.session.logout()
-            # except fbchat.FacebookError:
-            #     self.log.exception("Error while logging out")
-            #     ok = False
+        if self.state and self.client and not from_auth_error:
+            try:
+                ok = await self.client.logout()
+            except Exception:
+                self.log.warning("Error while sending logout request", exc_info=True)
         if remove_fbid:
             await self.push_bridge_state(BridgeStateEvent.LOGGED_OUT)
         self._track_metric(METRIC_LOGGED_IN, False)
@@ -529,7 +526,7 @@ class User(DBUser, BaseUser):
                 error_code="fb-auth-error",
                 error_message=str(e),
             )
-            await self.logout(remove_fbid=False)
+            await self.logout(remove_fbid=False, from_auth_error=True)
         except Exception as e:
             self.log.exception("Failed to sync threads")
             await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
