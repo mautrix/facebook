@@ -196,8 +196,8 @@ class Puppet(DBPuppet, BasePuppet):
             return True
         return False
 
-    @staticmethod
     async def reupload_avatar(
+        self,
         source: u.User | None,
         intent: IntentAPI,
         url: str,
@@ -216,7 +216,9 @@ class Puppet(DBPuppet, BasePuppet):
             async with source.client.get(url) as resp:
                 data = await resp.read()
         mime = magic.mimetype(data)
-        return await intent.upload_media(data, mime_type=mime)
+        return await intent.upload_media(
+            data, mime_type=mime, async_upload=self.config["homeserver.async_media"]
+        )
 
     async def _update_photo(self, source: u.User, photo: Picture) -> bool:
         photo_id = p.Portal.get_photo_id(photo)
