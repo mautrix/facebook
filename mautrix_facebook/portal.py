@@ -352,7 +352,12 @@ class Portal(DBPortal, BasePortal):
             data, decryption_info = encrypt_attachment(data)
             upload_mime_type = "application/octet-stream"
             filename = None
-        url = await intent.upload_media(data, mime_type=upload_mime_type, filename=filename)
+        url = await intent.upload_media(
+            data,
+            mime_type=upload_mime_type,
+            filename=filename,
+            async_upload=cls.config["homeserver.async_media"],
+        )
         if decryption_info:
             decryption_info.url = url
         return url, info, decryption_info
