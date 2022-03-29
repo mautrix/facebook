@@ -122,9 +122,9 @@ class Message:
         event_ids: list[EventID],
         timestamp: int,
         mx_room: RoomID,
-    ) -> None:
+    ) -> list[Message]:
         if not event_ids:
-            return
+            return []
         columns = [col.strip('"') for col in cls.columns.split(", ")]
         records = [
             (mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
@@ -135,6 +135,7 @@ class Message:
                 await conn.copy_records_to_table("message", records=records, columns=columns)
             else:
                 await conn.executemany(cls._insert_query, records)
+        return [Message(*record) for record in records]
 
     async def insert(self) -> None:
         q = self._insert_query

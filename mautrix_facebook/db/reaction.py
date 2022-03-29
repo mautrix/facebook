@@ -44,6 +44,16 @@ class Reaction:
         return cls(**row)
 
     @classmethod
+    async def get_by_message_fbid(cls, fb_msgid: str, fb_receiver: int) -> dict[int, Reaction]:
+        q = (
+            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
+            "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2"
+        )
+        rows = await cls.db.fetch(q, fb_msgid, fb_receiver)
+        row_gen = (cls._from_row(row) for row in rows)
+        return {react.fb_sender: react for react in row_gen}
+
+    @classmethod
     async def get_by_fbid(cls, fb_msgid: str, fb_receiver: int, fb_sender: int) -> Reaction | None:
         q = (
             "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "

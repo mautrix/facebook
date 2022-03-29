@@ -343,26 +343,136 @@ class ExtendedAddMember(ThriftObject):
 
 @autospec
 @dataclass
-class MessageSyncInnerEvent(ThriftObject):
+class MessageSyncClientEvent(ThriftObject):
+    # 1: deltaAdminAddedToGroupThread
+    # 2: deltaAdminRemovedFromGroupThread
+    # 3: deltaJoinableMode
+    # 4: deltaApprovalMode
+    # 5: deltaApprovalQueue
+    # 6: deltaRtcCallData
+    # 7: deltaGroupThreadDescription
+    # 8: liveLocationData
+    # 9: deltaPaymentPinProtectionStatusData
     reaction: Reaction = field(index=10, default=None)
-    extended_add_member: ExtendedAddMember = field(index=42, default=None)
-    extended_message: ExtendedMessage = field(index=55, default=None)
-    unsend_message: UnsendMessage = field(index=67, default=None)
+    # 11: deltaRoomDiscoverableMode
+    # 12: deltaThreadSnapshot
+    # 13: deltaMediaUpdatesData
+    # 14: deltaMuteThreadReactions
+    # 15: deltaMuteThreadMentions
+    # 16: deltaOmniMDirectives
+    # 17: deltaMontageParticipantsUpdate
+    # 18: deltaVideoRoomMode
+    # 19: deltaRoomAssociatedObjectUpdate
+    # 20: deltaPlatformUpdatesData
+    # 21: deltaInboxUnitUpdate
+    # 22: deltaReadReceipt
+    # 23: deltaMontageMessageReactions
+    # 24: deltaNewMontageMessage
+    # 25: deltaMontageMessageDelete
+    # 26: deltaMontageThreadDelete
+    # 27: deltaMontageThreadForcedFetch
+    # 28: deltaMontageReadReceipt
+    # 29: deltaMontageMarkRead
+    # 30: deltaUpdatePrivateGroupJoinableLink
+    # 31: deltaActivityTabUpdatesData
+    # 32: deltaAdContext
+    # 33: deltaThreadStreak
+    # 34: deltaChangeViewerStatus
+    # 35: deltaUpdateGroupEventRSVPStatus
+    # 36: deltaPageThreadFollowUpData
+    # 37: deltaMontageDirectOpen
+    # 38: deltaMontageDirectExpire
+    # 39: deltaThreadActivityNotification
+    # 40: deltaMontageDirectKeep
+    # 41: deltaMuteThreadGames
+    # 42: deltaPageThreadSubtitleUpdate
+    # ??? extended_add_member: ExtendedAddMember = field(index=42, default=None)
+    # 43: deltaUpdateNotifiedChatsReadTimestamp
+    # 44: deltaPeopleTabUpdatesData
+    # 45: deltaUpdateEmojiStatus
+    # 46: deltaUpdateFirstUnopenedMontageDirect
+    # 47: deltaUpdateGroupsSyncStatus
+    # 48: deltaUpdateGroupsSyncMetadata
+    # 49: deltaGroupApprovalMuteSetting
+    # 50: deltaPendingFolderCountChange
+    # 51: deltaOmniMDirectivesV2
+    # 52: deltaParticipantsSubscribeMetadata
+    # 53: deltaAdminModelStatusUpdate
+    # 54: deltaMessengerCYMKData
+    extended_message: ExtendedMessage = field(index=55, default=None)  # deltaMessageReply
+    # 56: deltaUpdateVideoChatLink
+    # 57: deltaUpdateThreadTheme
+    # 58: deltaUpdatePinnedThread
+    # 59: deltaRTCSignalingMessage
+    # 60: deltaPageThreadAssignedAdminUpdate
+    # 61: deltaPromoteGroupThreadAdmin
+    # 62: deltaMessageTranslation
+    # 63: deltaMessagingFolderSettingUpdate
+    # 64: deltaThreadConnectivityStatusUpdate
+    # 65: deltaMessengerThreadActivityBannerUpdate
+    # 66: deltaLivingRoomStatusUpdate
+    unsend_message: UnsendMessage = field(index=67, default=None)  # deltaRecallMessageData
+    # 68: deltaMentorshipUpdate
+    # 69: deltaPageUnSubscribeStatus
+    # 70: deltaRTCMultiwayMessage
+    # 71: deltaMessengerRelationshipEventEligibilityUpdate
+    # 72: deltaSchoolChatShouldShowInviteScreenUpdate
+    # 73: deltaMessengerAdsConversionUpdate
+    # 74: deltaUpdateSavedMessage
+    # 75: deltaTweensAnswerWouldYouRather
+    # 76: deltaMessageVoiceTranscription
+    # 77: deltaPageBlurredImageStatus
+    # 78: deltaHideMessageForMessengerKidsData
+    # 79: deltaWorkChatSuggestions
+    # 80: deltaUpdatePinnedMessage
+    # 81: deltaGlobalMute
+    # 82: deltaSwitchAccountBadgingUpdated
+    # 83: deltaUpdateThreadDisappearingMode
+    # 84: deltaPolicyViolation
+    # 85: deltaMessengerBusinessSuggestedReplyUpdate
+    # 86: deltaMuteCallsFromThread
+    # 87: deltaNewRavenMessage
+    # 88: deltaRavenAction
+    # 89: deltaNewFriendBumpSeen
+    # 90: deltaUpdateThreadEmoji
+    # 91: deltaGlobalNotificationSettingControl
+    # 92: deltaGlobalNewFriendBumpSetting
+    # 93: deltaMessagingReachabilitySettingUpdate
+    # 94: deltaGlobalReplyReminderSetting
+    # 95: deltaMessagePowerUp
+    # 96: deltaRtcRoomData
+    # 97: deltaBiiMSavedRepliesData
+    # 98: deltaGlobalMessageReminderSetting
+    # 99: deltaUpdateThreadSnippet
+    # 100: deltaUpdateMagicWords
+    # 101: deltaSecondaryLanguageBody
+    # 102: deltaSoundBite
+    # 103: deltaGroupThreadNotifSettings
+    # 104: deltaMessengerGroupThreadWarning
+    # 105: deltaLastMissedCallData
+    # 106: deltaAcceptGroupThread
+    # 107: deltaBiiMPageMessageNotification
+    # 109: deltaParticipantSpecialThreadRole
+    # 110: deltaUpdatePinnedMessagesV2
+    # 111: deltaIsAllUnreadMessageMissedCallXma
+    # 112: deltaThreadCutoverData
+    # 113: deltaInboxPageMessageNotification
+    # 115: deltaRemoveMessage
 
 
 @autospec
 @dataclass
-class MessageSyncInnerPayload(ThriftObject):
-    items: List[MessageSyncInnerEvent]
+class MessageSyncClientPayload(ThriftObject):
+    items: List[MessageSyncClientEvent]
 
 
 @autospec
 @dataclass(kw_only=True)
-class BinaryData(ThriftObject):
+class MessageSyncClientWrapper(ThriftObject):
     data: bytes
 
-    def parse(self) -> MessageSyncInnerPayload:
-        return MessageSyncInnerPayload.from_thrift(self.data)
+    def parse(self) -> MessageSyncClientPayload:
+        return MessageSyncClientPayload.from_thrift(self.data)
 
 
 @autospec
@@ -474,22 +584,76 @@ class DeliveryReceipt(ThriftObject):
 
 @autospec
 @dataclass(kw_only=True)
+class ForcedFetch(ThriftObject):
+    thread: ThreadKey
+    # index 2: ???
+    # index 3: unknown bool (False)
+
+
+@autospec
+@dataclass(kw_only=True)
 class MessageSyncEvent(ThriftObject):
     # 1: no_op: struct (no fields)
     message: Message = field(index=2, default=None)
-    own_read_receipt: OwnReadReceipt = field(index=4, default=None)
-    # 5: mark_unread?
-    # 6: message_delete?
-    # 7: thread_delete?
-    add_member: AddMember = field(index=8, default=None)
-    remove_member: RemoveMember = field(index=9, default=None)
+    # 3: new_group_thread
+    own_read_receipt: OwnReadReceipt = field(index=4, default=None)  # deltaMarkRead
+    # 5: mark_unread
+    # 6: message_delete
+    # 7: thread_delete
+    add_member: AddMember = field(index=8, default=None)  # deltaParticipantsAddedToGroupThread
+    remove_member: RemoveMember = field(index=9, default=None)  # deltaParticipantLeftGroupThread
     name_change: NameChange = field(index=10, default=None)
     avatar_change: AvatarChange = field(index=11, default=None)
-    # 12: mute_settings?
-    thread_change: ThreadChange = field(index=17, default=None)
-    read_receipt: ReadReceipt = field(index=19, default=None)
+    # 12: mute_settings
+    # 13: thread_action
+    # 14: thread_folder
+    # 15: rtc_event_log
+    # 16: video_call
+    thread_change: ThreadChange = field(index=17, default=None)  # deltaAdminTextMessage
+    forced_fetch: ForcedFetch = field(index=18, default=None)
+    read_receipt: ReadReceipt = field(index=19, default=None)  # deltaReadReceipt
+    # 20: broadcast_message
+    # 21: mark_folder_seen
+    # 22: sent_message
+    # 23: pinned_groups
+    # 24: page_admin_reply
     delivery_receipt: DeliveryReceipt = field(index=25, default=None)
-    binary: BinaryData = field(index=42, default=None)
+    # 26: p2p_payment_message
+    # 27: folder_count
+    # 28: pages_manager_event
+    # 29: notification_settings
+    # 30: replace_message
+    # 31: zero_rating
+    # 32: montage_message
+    # 33: genie_message
+    # 34: generic_map_mutation
+    # 35: admin_added
+    # 36: admin_removed
+    # 37: rtc_call_data
+    # 38: joinable_mode
+    # 39: approval_mode
+    # 40: approval_queue
+    # 41: amend_message
+    client_payload: MessageSyncClientWrapper = field(index=42, default=None)
+    # 43: non_persisted_payload
+    # 44: group_history
+    # 45: group_subscribe_metadata_sync
+    # 46: create_new_user
+    # 47: recall_message
+    # 48: mutate_message_tags
+    # 49: set_thread_metadata
+    # 50: thread_history_delete
+    # 51: new_raven_message
+    # 52: demote_interop_thread
+    # 53: ig_mark_thread_unread
+    # 54: all_participants_removed
+    # 55: create_reaction
+    # 56: delete_reaction
+    # 57: add_poll_vote
+    # 58: raven_action
+    # 59: create_one_on_one_thread
+    # 1001: change_mailbox_status
+    # 1002: global_message_delete
 
     def get_parts(self) -> List[Any]:
         parts = [
@@ -500,16 +664,16 @@ class MessageSyncEvent(ThriftObject):
             self.name_change,
             self.avatar_change,
             self.thread_change,
+            self.forced_fetch,
             self.read_receipt,
             self.delivery_receipt,
         ]
-        if self.binary:
-            for inner_item in self.binary.parse().items:
+        if self.client_payload:
+            for inner_item in self.client_payload.parse().items:
                 parts += [
                     inner_item.reaction,
                     inner_item.extended_message,
                     inner_item.unsend_message,
-                    inner_item.extended_add_member,
                 ]
         return [part for part in parts if part is not None]
 

@@ -1139,11 +1139,23 @@ class Portal(DBPortal, BasePortal):
             msg_id = message.message_id
             oti = int(message.offline_threading_id)
             timestamp = message.timestamp
+
+            def backfill_reactions(dbm: DBMessage | None):
+                asyncio.create_task(
+                    self._try_handle_graphql_reactions(
+                        source, dbm or msg_id, message.message_reactions
+                    )
+                )
+
         elif isinstance(message, mqtt.Message):
             self.log.trace("Facebook MQTT event content: %s", message)
             msg_id = message.metadata.id
             oti = message.metadata.offline_threading_id
             timestamp = message.metadata.timestamp
+
+            def backfill_reactions(_):
+                pass
+
         else:
             raise ValueError(f"Invalid message class {type(message).__name__}")
 
@@ -1158,9 +1170,11 @@ class Portal(DBPortal, BasePortal):
             dbm.fbid = msg_id
             dbm.timestamp = timestamp
             await dbm.update()
+            backfill_reactions(dbm)
             return
         elif msg_id in self._dedup:
             self.log.trace("Not handling message %s, found ID in dedup queue", msg_id)
+            backfill_reactions(None)
             return
 
         self._dedup.appendleft(msg_id)
@@ -1178,6 +1192,7 @@ class Portal(DBPortal, BasePortal):
                 await dbm.update()
             else:
                 self.log.debug(f"Not handling message {msg_id}, found duplicate in database")
+            backfill_reactions(dbm)
             return
 
         self.log.debug(f"Handling Facebook event {msg_id} (/{oti})")
@@ -1212,7 +1227,7 @@ class Portal(DBPortal, BasePortal):
             return
         event_ids = [event_id for event_id in event_ids if event_id]
         self.log.debug(f"Handled Messenger message {msg_id} -> {event_ids}")
-        await DBMessage.bulk_create(
+        created_msgs = await DBMessage.bulk_create(
             fbid=msg_id,
             oti=oti,
             fb_chat=self.fbid,
@@ -1223,6 +1238,10 @@ class Portal(DBPortal, BasePortal):
             event_ids=event_ids,
         )
         await self._send_delivery_receipt(event_ids[-1])
+        if isinstance(message, graphql.Message) and message.message_reactions:
+            await self._handle_graphql_reactions(
+                source, created_msgs[0], message.message_reactions, timestamp
+            )
 
     async def _handle_facebook_story_reply(
         self, intent: IntentAPI, message: mqtt.Message | graphql.Message, timestamp: int
@@ -1438,6 +1457,75 @@ class Portal(DBPortal, BasePortal):
             content["org.matrix.msc3245.voice"] = {}
             content.body += ".ogg"
         return content
+
+    async def _try_handle_graphql_reactions(
+        self,
+        source: u.User,
+        msg: str | DBMessage,
+        reactions: list[graphql.Reaction],
+        timestamp: int | None = None,
+    ) -> None:
+        try:
+            await self._handle_graphql_reactions(source, msg, reactions, timestamp)
+        except Exception:
+            msg_id = msg.fbid if isinstance(msg, DBMessage) else msg
+            self.log.exception(f"Error backfilling reactions to {msg_id}")
+
+    async def _handle_graphql_reactions(
+        self,
+        source: u.User,
+        msg: str | DBMessage,
+        reactions: list[graphql.Reaction],
+        timestamp: int | None = None,
+    ) -> None:
+        if isinstance(msg, DBMessage):
+            message_id = msg.fbid
+            target_message = msg
+        else:
+            message_id = msg
+            target_message = None
+        bridged_reactions = await DBReaction.get_by_message_fbid(message_id, self.fb_receiver)
+        latest_reactions: dict[int, graphql.Reaction] = {
+            int(react.user.id): react for react in reactions
+        }
+        self.log.trace(
+            f"Syncing reactions of {message_id} (database has {len(bridged_reactions)}, data "
+            f"from GraphQL has {len(latest_reactions)})"
+        )
+        tasks: list[asyncio.Task] = []
+        for sender, reaction in latest_reactions.items():
+            try:
+                existing = bridged_reactions[sender]
+            except KeyError:
+                task = self.handle_facebook_reaction_add(
+                    source,
+                    sender,
+                    message_id,
+                    reaction.reaction,
+                    target_message=target_message,
+                    # Timestamp is only used for new reactions, because it's only important when
+                    # backfilling messages (which obviously won't have already bridged reactions).
+                    timestamp=timestamp,
+                )
+                tasks.append(asyncio.create_task(task))
+            else:
+                if existing.reaction != reaction.reaction:
+                    task = self.handle_facebook_reaction_add(
+                        source,
+                        sender,
+                        message_id,
+                        reaction.reaction,
+                        existing=existing,
+                        target_message=target_message,
+                    )
+                    tasks.append(asyncio.create_task(task))
+        for sender, existing in bridged_reactions.items():
+            if sender not in latest_reactions:
+                task = self.handle_facebook_reaction_remove(source, sender, existing)
+                tasks.append(asyncio.create_task(task))
+        if len(tasks) > 0:
+            await asyncio.gather(*tasks)
+            self.log.debug(f"Updated {len(tasks)} reactions of {message_id}")
 
     async def _handle_graphql_message(
         self, source: u.User, intent: IntentAPI, message: graphql.Message
@@ -1757,8 +1845,17 @@ class Portal(DBPortal, BasePortal):
         await self.update_bridge_info()
 
     async def handle_facebook_reaction_add(
-        self, source: u.User, sender: p.Puppet, message_id: str, reaction: str
+        self,
+        source: u.User,
+        sender: p.Puppet | int,
+        message_id: str,
+        reaction: str,
+        existing: DBReaction | None = None,
+        target_message: DBMessage | None = None,
+        timestamp: int | None = None,
     ) -> None:
+        if isinstance(sender, int):
+            sender = await p.Puppet.get_by_fbid(sender)
         dedup_id = f"react_{message_id}_{sender.fbid}_{reaction}"
         async with self.optional_send_lock(sender.fbid):
             if dedup_id in self._dedup:
@@ -1766,27 +1863,34 @@ class Portal(DBPortal, BasePortal):
                 return
             self._dedup.appendleft(dedup_id)
 
-        existing = await DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
-        if existing and existing.reaction == reaction:
-            self.log.debug(
-                f"Ignoring duplicate reaction from {sender.fbid} to {message_id} (db check)"
-            )
-            return
+        if not existing:
+            existing = await DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
+            if existing and existing.reaction == reaction:
+                self.log.debug(
+                    f"Ignoring duplicate reaction from {sender.fbid} to {message_id} (db check)"
+                )
+                return
 
         if not await self._bridge_own_message_pm(source, sender, f"reaction to {message_id}"):
             return
 
         intent = sender.intent_for(self)
 
-        message = await DBMessage.get_by_fbid(message_id, self.fb_receiver)
-        if not message:
+        if not target_message:
+            target_message = await DBMessage.get_by_fbid(message_id, self.fb_receiver)
+        if not target_message:
             self.log.debug(f"Ignoring reaction from {sender.fbid} to unknown message {message_id}")
             return
 
-        mxid = await intent.react(message.mx_room, message.mxid, variation_selector.add(reaction))
-        self.log.debug(f"{sender.fbid} reacted to {message.mxid} ({message_id}) -> {mxid}")
+        mxid = await intent.react(
+            room_id=target_message.mx_room,
+            event_id=target_message.mxid,
+            key=variation_selector.add(reaction),
+            timestamp=timestamp,
+        )
+        self.log.debug(f"{sender.fbid} reacted to {target_message.mxid} ({message_id}) -> {mxid}")
 
-        await self._upsert_reaction(existing, intent, mxid, message, sender, reaction)
+        await self._upsert_reaction(existing, intent, mxid, target_message, sender, reaction)
 
     async def _upsert_reaction(
         self,
@@ -1819,16 +1923,25 @@ class Portal(DBPortal, BasePortal):
             ).insert()
 
     async def handle_facebook_reaction_remove(
-        self, source: u.User, sender: p.Puppet, message_id: str
+        self, source: u.User, sender: p.Puppet | int, target: str | DBReaction
     ) -> None:
         if not self.mxid:
             return
-        reaction = await DBReaction.get_by_fbid(message_id, self.fb_receiver, sender.fbid)
+        if isinstance(sender, int):
+            sender = await p.Puppet.get_by_fbid(sender)
+        if isinstance(target, DBReaction):
+            reaction = target
+        else:
+            reaction = await DBReaction.get_by_fbid(target, self.fb_receiver, sender.fbid)
         if reaction:
             try:
                 await sender.intent_for(self).redact(reaction.mx_room, reaction.mxid)
             except MForbidden:
                 await self.main_intent.redact(reaction.mx_room, reaction.mxid)
+            try:
+                self._dedup.remove(f"react_{reaction.fb_msgid}_{sender.fbid}_{reaction.reaction}")
+            except ValueError:
+                pass
             await reaction.delete()
 
     async def handle_facebook_join(
@@ -1959,6 +2072,17 @@ class Portal(DBPortal, BasePortal):
             self.log.trace("Leaving room with %s post-backfill", intent.mxid)
             await intent.leave_room(self.mxid)
         self.log.info("Backfilled %d messages through %s", len(messages), source.mxid)
+
+    async def handle_forced_fetch(self, source: u.User, messages: list[graphql.Message]) -> None:
+        most_recent = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
+        for message in messages:
+            puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
+            if message.timestamp > most_recent.timestamp:
+                await self.handle_facebook_message(source, puppet, message)
+            else:
+                await self._try_handle_graphql_reactions(
+                    source, message.message_id, message.message_reactions
+                )
 
     # region Database getters
 

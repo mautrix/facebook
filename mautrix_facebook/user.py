@@ -47,7 +47,7 @@ from mautrix.util.simple_lock import SimpleLock
 from . import portal as po, puppet as pu
 from .commands import enter_2fa_code
 from .config import Config
-from .db import ThreadType, User as DBUser, UserPortal
+from .db import Message as DBMessage, ThreadType, User as DBUser, UserPortal
 from .presence import PresenceUpdater
 from .util.interval import get_interval
 
@@ -59,6 +59,7 @@ METRIC_MEMBER_REMOVED = Summary("bridge_on_member_removed", "calls to on_member_
 METRIC_TYPING = Summary("bridge_on_typing", "calls to on_typing")
 METRIC_PRESENCE = Summary("bridge_on_presence", "calls to on_presence")
 METRIC_REACTION = Summary("bridge_on_reaction", "calls to on_reaction")
+METRIC_FORCED_FETCH = Summary("bridge_on_forced_fetch", "calls to on_forced_fetch")
 METRIC_MESSAGE_UNSENT = Summary("bridge_on_unsent", "calls to on_unsent")
 METRIC_MESSAGE_SEEN = Summary("bridge_on_message_seen", "calls to on_message_seen")
 METRIC_TITLE_CHANGE = Summary("bridge_on_title_change", "calls to on_title_change")
@@ -745,6 +746,7 @@ class User(DBUser, BaseUser):
                 self.mqtt.add_event_handler(mqtt_t.ThreadChange, self.on_thread_change)
                 self.mqtt.add_event_handler(mqtt_t.MessageSyncError, self.on_message_sync_error)
                 self.mqtt.add_event_handler(mqtt_t.TypingNotification, self.on_typing)
+                self.mqtt.add_event_handler(mqtt_t.ForcedFetch, self.on_forced_fetch)
                 self.mqtt.add_event_handler(Connect, self.on_connect)
                 self.mqtt.add_event_handler(Disconnect, self.on_disconnect)
             await self.mqtt.listen(self.seq_id)
@@ -916,6 +918,28 @@ class User(DBUser, BaseUser):
             await portal.handle_facebook_reaction_remove(self, puppet, evt.message_id)
         else:
             await portal.handle_facebook_reaction_add(self, puppet, evt.message_id, evt.reaction)
+
+    async def on_forced_fetch(self, evt: mqtt_t.ForcedFetch) -> None:
+        asyncio.create_task(self._try_on_forced_fetch(evt))
+
+    async def _try_on_forced_fetch(self, evt: mqtt_t.ForcedFetch) -> None:
+        try:
+            await self._on_forced_fetch(evt)
+        except Exception:
+            self.log.exception("Error in ForcedFetch handler")
+
+    @async_time(METRIC_FORCED_FETCH)
+    async def _on_forced_fetch(self, evt: mqtt_t.ForcedFetch) -> None:
+        portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
+        if not portal or not portal.mxid:
+            return
+        infos = await self.client.fetch_thread_info(portal.fbid)
+        if len(infos) == 0 or infos[0].thread_key.id != portal.fbid:
+            self.log.warning(f"Didn't get data when fetching thread {portal.fbid} for forced sync")
+            return
+        thread_info = infos[0]
+        await portal.update_info(self, thread_info)
+        await portal.handle_forced_fetch(self, thread_info.messages.nodes)
 
     @async_time(METRIC_PRESENCE)
     async def on_presence(self, evt: mqtt_t.Presence) -> None:
