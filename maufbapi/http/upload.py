@@ -19,6 +19,7 @@ import base64
 import hashlib
 import json
 import time
+import unicodedata
 
 from ..types import UploadResponse
 from .base import BaseAndroidAPI
@@ -38,6 +39,10 @@ class UploadAPI(BaseAndroidAPI):
         caption: str | None = None,
         duration: int | None = None,
     ) -> UploadResponse:
+        # Convert file name to ASCII with some basic accent removal
+        ascii_file_name = (
+            unicodedata.normalize("NFKD", file_name).encode("ascii", "ignore").decode("ascii")
+        )
         headers = {
             **self._headers,
             "accept-encoding": "x-fb-dz;d=1, gzip, deflate",
@@ -46,7 +51,7 @@ class UploadAPI(BaseAndroidAPI):
             "attempt_id": str(offline_threading_id),
             "offset": "0",
             "x-entity-length": str(len(data)),
-            "x-entity-name": file_name,
+            "x-entity-name": ascii_file_name,
             "x-entity-type": mimetype,
             "content-type": "application/octet-stream",
             "client_tags": json.dumps(
