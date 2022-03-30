@@ -1,19 +1,25 @@
-# unreleased
+# v0.4.0 (unreleased)
 
+* Dropped Python 3.7 support.
 * Added optional support for bridging presence from Facebook to Matrix
   (thanks to [@JakuJ] in [#189]).
 * Added option to not resync chats on startup and instead ask the server to
   just send missed messages.
+* Added option to use [MSC2246] async media uploads.
 * Changed some fields to stop the user from showing up as online on Facebook
   all the time.
+* Changed incoming message handling to preserve order from Facebook to Matrix.
 * Fixed calculating mention offsets (mentioning users in messages with
   complicated unicode characters like emojis).
   * This will break message rendering that involves mentions and emojis in the
     Messenger web app, but it works everywhere else. The issue on web happens
     even with messages sent from the official apps.
+* Fixed bridging reactions from Facebook in certain cases.
+* Fixed bridging files from Matrix with non-ascii names.
 
 [@JakuJ]: https://github.com/JakuJ
 [#189]: https://github.com/mautrix/facebook/pull/189
+[MSC2246]: https://github.com/matrix-org/matrix-spec-proposals/pull/2246
 
 # v0.3.3 (2022-01-29)
 
