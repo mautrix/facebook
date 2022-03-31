@@ -440,6 +440,16 @@ class Message(MinimalMessage, SerializableAttrs):
     def unsent_timestamp(self) -> Optional[int]:
         return int(self.unsent_timestamp_precise) if self.unsent_timestamp_precise else None
 
+    @property
+    def is_likely_bridgeable(self) -> bool:
+        return bool(
+            (self.message and self.message.text)
+            or self.sticker
+            or self.blob_attachments
+            or (self.extensible_attachment and self.extensible_attachment.story_attachment)
+            or (self.montage_reply_data and self.montage_reply_data.snippet)
+        )
+
 
 @dataclass
 class PageInfo(SerializableAttrs):

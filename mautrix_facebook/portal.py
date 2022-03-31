@@ -2060,7 +2060,12 @@ class Portal(DBPortal, BasePortal):
 
         # If we got more messages than the limit, trim the list.
         if len(messages) > limit:
-            messages = messages[-limit:]
+            filtered_messages = []
+            for message in reversed(messages):
+                filtered_messages.append(message)
+                if len(filtered_messages) >= limit and message.is_likely_bridgeable:
+                    break
+            messages = list(reversed(filtered_messages))
             self.log.debug(f"Trimmed message list down to {limit} messages.")
 
         self._backfill_leave = set()
