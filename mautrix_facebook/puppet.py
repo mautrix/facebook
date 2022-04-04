@@ -196,8 +196,9 @@ class Puppet(DBPuppet, BasePuppet):
             return True
         return False
 
+    @classmethod
     async def reupload_avatar(
-        self,
+        cls,
         source: u.User | None,
         intent: IntentAPI,
         url: str,
@@ -217,7 +218,7 @@ class Puppet(DBPuppet, BasePuppet):
                 data = await resp.read()
         mime = magic.mimetype(data)
         return await intent.upload_media(
-            data, mime_type=mime, async_upload=self.config["homeserver.async_media"]
+            data, mime_type=mime, async_upload=cls.config["homeserver.async_media"]
         )
 
     async def _update_photo(self, source: u.User, photo: Picture) -> bool:
