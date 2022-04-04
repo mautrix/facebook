@@ -422,6 +422,8 @@ class AndroidMQTT:
                 topic_str, *rest = message.topic.split("#", 1)
             elif "/" in message.topic:
                 topic_str, *rest = message.topic.split("/", 1)
+            elif "|" in message.topic:
+                topic_str, *rest = message.topic.split("|", 1)
             else:
                 topic_str, rest = message.topic, []
             if len(rest) > 0:

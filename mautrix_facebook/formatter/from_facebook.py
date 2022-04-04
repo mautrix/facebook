@@ -135,6 +135,8 @@ async def facebook_to_matrix(msg: graphql.MessageText | mqtt.Message) -> TextMes
     text = utf16_surrogate.add(text)
     mention_user_ids = []
     for m in reversed(mentions):
+        if isinstance(m, mqtt.Mention) and m.type != mqtt.MentionType.PERSON:
+            continue
         original = text[m.offset : m.offset + m.length]
         if len(original) > 0 and original[0] == "@":
             original = original[1:]

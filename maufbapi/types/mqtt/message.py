@@ -241,6 +241,7 @@ class Presence(SerializableAttrs):
 
 class MentionType(SerializableEnum):
     PERSON = "p"
+    THREAD = "t"
 
 
 @dataclass
