@@ -1,4 +1,4 @@
-# v0.4.0 (unreleased)
+# v0.4.0 (2022-04-06)
 
 * Dropped Python 3.7 support.
 * Added optional support for bridging presence from Facebook to Matrix
