@@ -2085,11 +2085,9 @@ class Portal(DBPortal, BasePortal):
     # endregion
 
     async def backfill(self, source: u.User, is_initial: bool, thread: graphql.Thread) -> None:
-        limit = (
-            self.config["bridge.backfill.initial_limit"]
-            if is_initial
-            else self.config["bridge.backfill.missed_limit"]
-        )
+        if not is_initial:
+            return
+        limit = self.config["bridge.backfill.max_initial_conversations"]
         if limit == 0:
             return
         elif limit < 0:

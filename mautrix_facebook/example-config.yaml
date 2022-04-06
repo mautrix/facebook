@@ -125,9 +125,6 @@ bridge:
     # The prefix for commands. Only required in non-management rooms.
     command_prefix: "!fb"
 
-    # Number of chats to sync (and create portals for) on startup/login.
-    # Set 0 to disable automatic syncing.
-    initial_chat_sync: 20
     # Whether or not the Facebook users of logged in Matrix users should be
     # invited to private chats when the user sends a message from another client.
     invite_own_puppet_to_pm: false
@@ -172,20 +169,64 @@ bridge:
     federate_rooms: true
     # Settings for backfilling messages from Facebook.
     backfill:
+        # Whether to enable backfilling at all.
+        enable: true
         # Whether or not the Facebook users of logged in Matrix users should be
         # invited to private chats when backfilling history from Facebook. This is
         # usually needed to prevent rate limits and to allow timestamp massaging.
         invite_own_puppet: true
-        # Maximum number of messages to backfill initially.
-        # Set to 0 to disable backfilling when creating portal.
-        initial_limit: 0
-        # Maximum number of messages to backfill if messages were missed while
-        # the bridge was disconnected.
-        # Set to 0 to disable backfilling missed messages.
-        missed_limit: 1000
+        # The maximum number of initial conversations that should be synced.
+        # Other conversations will be backfilled on demand when the start PM
+        # provisioning endpoint is used or when a message comes in from that
+        # chat.
+        max_initial_conversations: 20
+        # The maximum number of conversations that should be synced when the
+        # bridge gets restarted.
+        max_incremental_conversations: 20
         # If using double puppeting, should notifications be disabled
         # while the initial backfill is in progress?
         disable_notifications: false
+        # Settings for immediate backfills. These backfills should generally be
+        # small and their main purpose is to populate each of the initial chats
+        # (as configured by max_initial_conversations) with a few messages so
+        # that you can continue conversations without loosing context.
+        immediate:
+            # The number of concurrent backfill workers to create for immediate
+            # backfills. Note that using more than one worker could cause the
+            # room list to jump around since there are no guarantees about the
+            # order in which the backfills will complete.
+            worker_count: 1
+            # The maximum number of events to backfill initially.
+            max_events: 20
+        # Settings for deferred backfills. The purpose of these backfills are
+        # to fill in the rest of the chat history that was not covered by the
+        # immediate backfills. These backfills generally should happen at a
+        # slower pace so as not to overload the homeserver.
+        # Each deferred backfill config should define a "stage" of backfill
+        # (i.e. the last week of messages). The fields are as follows:
+        # - start_days_ago: the number of days ago to start backfilling from.
+        #   To indicate the start of time, use -1. For example, for a week ago,
+        #   use 7.
+        # - max_batch_events: the number of events to send per batch.
+        # - batch_delay: the number of seconds to wait before backfilling each
+        #   batch.
+        deferred:
+            # Last Week
+            - start_days_ago: 7
+              max_batch_events: 20
+              batch_delay: 5
+            # Last Month
+            - start_days_ago: 30
+              max_batch_events: 50
+              batch_delay: 10
+            # Last 3 months
+            - start_days_ago: 90
+              max_batch_events: 100
+              batch_delay: 10
+            # The start of time
+            - start_days_ago: -1
+              max_batch_events: 500
+              batch_delay: 10
     periodic_reconnect:
         # Interval in seconds in which to automatically reconnect all users.
         # This can be used to automatically mitigate the bug where Facebook stops sending messages.
