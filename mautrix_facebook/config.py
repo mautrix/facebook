@@ -63,7 +63,6 @@ class Config(BaseBridgeConfig):
         copy("bridge.displayname_preference")
         copy("bridge.command_prefix")
 
-        copy("bridge.initial_chat_sync")
         copy("bridge.invite_own_puppet_to_pm")
         copy("bridge.sync_with_custom_puppets")
         copy("bridge.sync_direct_chat_list")
@@ -82,10 +81,19 @@ class Config(BaseBridgeConfig):
         copy("bridge.message_status_events")
         copy("bridge.federate_rooms")
         copy("bridge.allow_invites")
+        copy("bridge.backfill.enable")
         copy("bridge.backfill.invite_own_puppet")
-        copy("bridge.backfill.initial_limit")
-        copy("bridge.backfill.missed_limit")
+        if "bridge.initial_chat_sync" in self:
+            initial_chat_sync = self["bridge.initial_chat_sync"]
+            base["bridge.backfill.max_initial_conversations"] = initial_chat_sync
+            base["bridge.backfill.max_incremental_conversations"] = initial_chat_sync
+        else:
+            copy("bridge.backfill.max_initial_conversations")
+            copy("bridge.backfill.max_incremental_conversations")
         copy("bridge.backfill.disable_notifications")
+        copy("bridge.backfill.immediate.worker_count")
+        copy("bridge.backfill.immediate.max_events")
+        copy("bridge.backfill.deferred")
         if "bridge.periodic_reconnect_interval" in self:
             base["bridge.periodic_reconnect.interval"] = self["bridge.periodic_reconnect_interval"]
             base["bridge.periodic_reconnect.mode"] = self["bridge.periodic_reconnect_mode"]
