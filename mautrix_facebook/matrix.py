@@ -127,6 +127,7 @@ class MatrixHandler(BaseMatrixHandler):
         user_id: UserID,
         event_id: EventID,
         content: ReactionEventContent,
+        timestamp: int,
     ) -> None:
         if content.relates_to.rel_type != RelationType.ANNOTATION:
             cls.log.debug(
@@ -143,7 +144,7 @@ class MatrixHandler(BaseMatrixHandler):
             return
 
         await portal.handle_matrix_reaction(
-            user, event_id, content.relates_to.event_id, content.relates_to.key
+            user, event_id, content.relates_to.event_id, content.relates_to.key, timestamp
         )
 
     @staticmethod
@@ -185,4 +186,6 @@ class MatrixHandler(BaseMatrixHandler):
             await self.handle_redaction(evt.room_id, evt.sender, evt.redacts, evt.event_id)
         elif evt.type == EventType.REACTION:
             evt: ReactionEvent
-            await self.handle_reaction(evt.room_id, evt.sender, evt.event_id, evt.content)
+            await self.handle_reaction(
+                evt.room_id, evt.sender, evt.event_id, evt.content, evt.timestamp
+            )

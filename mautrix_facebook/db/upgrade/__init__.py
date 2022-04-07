@@ -9,4 +9,5 @@ from . import (
     v04_relay_mode,
     v05_remove_communities,
     v06_store_user_seq_id,
+    v07_store_reaction_timestamp,
 )

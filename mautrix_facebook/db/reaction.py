@@ -36,6 +36,7 @@ class Reaction:
     fb_receiver: int
     fb_sender: int
     reaction: str
+    mx_timestamp: int | None
 
     @classmethod
     def _from_row(cls, row: Record | None) -> Reaction | None:
@@ -46,7 +47,7 @@ class Reaction:
     @classmethod
     async def get_by_message_fbid(cls, fb_msgid: str, fb_receiver: int) -> dict[int, Reaction]:
         q = (
-            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
+            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction, mx_timestamp "
             "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2"
         )
         rows = await cls.db.fetch(q, fb_msgid, fb_receiver)
@@ -54,9 +55,19 @@ class Reaction:
         return {react.fb_sender: react for react in row_gen}
 
     @classmethod
+    async def get_last_for_message(cls, fb_msgid: str, fb_receiver: int) -> Reaction | None:
+        q = (
+            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction, mx_timestamp "
+            "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2 AND mx_timestamp IS NOT NULL "
+            "ORDER BY mx_timestamp DESC LIMIT 1"
+        )
+        row = await cls.db.fetchrow(q, fb_msgid, fb_receiver)
+        return cls._from_row(row)
+
+    @classmethod
     async def get_by_fbid(cls, fb_msgid: str, fb_receiver: int, fb_sender: int) -> Reaction | None:
         q = (
-            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
+            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction, mx_timestamp "
             "FROM reaction WHERE fb_msgid=$1 AND fb_receiver=$2 AND fb_sender=$3"
         )
         row = await cls.db.fetchrow(q, fb_msgid, fb_receiver, fb_sender)
@@ -65,11 +76,15 @@ class Reaction:
     @classmethod
     async def get_by_mxid(cls, mxid: EventID, mx_room: RoomID) -> Reaction | None:
         q = (
-            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction "
+            "SELECT mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction, mx_timestamp "
             "FROM reaction WHERE mxid=$1 AND mx_room=$2"
         )
         row = await cls.db.fetchrow(q, mxid, mx_room)
         return cls._from_row(row)
+
+    @classmethod
+    async def delete_all_by_room(cls, room_id: RoomID) -> None:
+        await cls.db.execute("DELETE FROM reaction WHERE mx_room=$1", room_id)
 
     @property
     def _values(self):
@@ -80,12 +95,13 @@ class Reaction:
             self.fb_receiver,
             self.fb_sender,
             self.reaction,
+            self.mx_timestamp,
         )
 
     async def insert(self) -> None:
         q = (
-            "INSERT INTO reaction (mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction) "
-            "VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO reaction (mxid, mx_room, fb_msgid, fb_receiver, fb_sender, reaction, mx_timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
         await self.db.execute(q, *self._values)
 
@@ -95,7 +111,7 @@ class Reaction:
 
     async def save(self) -> None:
         q = (
-            "UPDATE reaction SET mxid=$1, mx_room=$2, reaction=$6 "
+            "UPDATE reaction SET mxid=$1, mx_room=$2, reaction=$6, mx_timestamp=$7 "
             "WHERE fb_msgid=$3 AND fb_receiver=$4 AND fb_sender=$5"
         )
         await self.db.execute(q, *self._values)

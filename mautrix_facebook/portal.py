@@ -177,6 +177,7 @@ class Portal(DBPortal, BasePortal):
     async def delete(self) -> None:
         if self.mxid:
             await DBMessage.delete_all_by_room(self.mxid)
+            await DBReaction.delete_all_by_room(self.mxid)
             self.by_mxid.pop(self.mxid, None)
         self.by_fbid.pop(self.fbid_full, None)
         self.mxid = None
@@ -523,9 +524,11 @@ class Portal(DBPortal, BasePortal):
             portal=self.fbid,
             portal_receiver=self.fb_receiver,
         ).upsert()
-        await self._sync_read_receipts(info.read_receipts.nodes)
+        await self._sync_read_receipts(info.read_receipts.nodes, reactions=False)
 
-    async def _sync_read_receipts(self, receipts: list[graphql.ReadReceipt]) -> None:
+    async def _sync_read_receipts(
+        self, receipts: list[graphql.ReadReceipt], reactions: bool
+    ) -> None:
         for receipt in receipts:
             if not receipt.actor:
                 continue
@@ -537,6 +540,15 @@ class Portal(DBPortal, BasePortal):
             puppet = await p.Puppet.get_by_fbid(receipt.actor.id, create=False)
             if not puppet:
                 continue
+            msgid_text = message.mxid
+            if reactions:
+                reaction = await DBReaction.get_last_for_message(message.fbid, message.fb_receiver)
+                if reaction:
+                    msgid_text = f"{message.mxid} -> last reaction {reaction.mxid}"
+                    message = reaction
+            self.log.debug(
+                "%s has read messages up to %d -> %s", puppet.mxid, receipt.timestamp, msgid_text
+            )
             try:
                 await puppet.intent_for(self).mark_read(message.mx_room, message.mxid)
             except Exception:
@@ -702,7 +714,7 @@ class Portal(DBPortal, BasePortal):
             except Exception:
                 self.log.exception("Failed to backfill new portal")
 
-            await self._sync_read_receipts(info.read_receipts.nodes)
+            await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
 
         return self.mxid
 
@@ -972,7 +984,12 @@ class Portal(DBPortal, BasePortal):
         raise NotImplementedError("Only message and reaction redactions are supported")
 
     async def handle_matrix_reaction(
-        self, sender: u.User, event_id: EventID, reacting_to: EventID, reaction: str
+        self,
+        sender: u.User,
+        event_id: EventID,
+        reacting_to: EventID,
+        reaction: str,
+        timestamp: int,
     ) -> None:
         sender, is_relay = await self.get_relay_sender(sender, f"reaction {event_id}")
         if not sender or is_relay:
@@ -1016,7 +1033,7 @@ class Portal(DBPortal, BasePortal):
                 )
                 await self._send_delivery_receipt(event_id)
                 await self._upsert_reaction(
-                    existing, self.main_intent, event_id, message, sender, reaction
+                    existing, self.main_intent, event_id, message, sender, reaction, timestamp
                 )
 
     async def handle_matrix_leave(self, user: u.User) -> None:
@@ -1493,6 +1510,7 @@ class Portal(DBPortal, BasePortal):
             f"from GraphQL has {len(latest_reactions)})"
         )
         tasks: list[asyncio.Task] = []
+        deduplicated_timestamp = (timestamp + 1) if timestamp else int(time.time() * 1000)
         for sender, reaction in latest_reactions.items():
             try:
                 existing = bridged_reactions[sender]
@@ -1505,8 +1523,9 @@ class Portal(DBPortal, BasePortal):
                     target_message=target_message,
                     # Timestamp is only used for new reactions, because it's only important when
                     # backfilling messages (which obviously won't have already bridged reactions).
-                    timestamp=timestamp,
+                    timestamp=deduplicated_timestamp,
                 )
+                deduplicated_timestamp += 1
                 tasks.append(asyncio.create_task(task))
             else:
                 if existing.reaction != reaction.reaction:
@@ -1882,6 +1901,7 @@ class Portal(DBPortal, BasePortal):
             self.log.debug(f"Ignoring reaction from {sender.fbid} to unknown message {message_id}")
             return
 
+        timestamp = timestamp or int(time.time() * 1000)
         mxid = await intent.react(
             room_id=target_message.mx_room,
             event_id=target_message.mxid,
@@ -1890,7 +1910,9 @@ class Portal(DBPortal, BasePortal):
         )
         self.log.debug(f"{sender.fbid} reacted to {target_message.mxid} ({message_id}) -> {mxid}")
 
-        await self._upsert_reaction(existing, intent, mxid, target_message, sender, reaction)
+        await self._upsert_reaction(
+            existing, intent, mxid, target_message, sender, reaction, timestamp
+        )
 
     async def _upsert_reaction(
         self,
@@ -1900,6 +1922,7 @@ class Portal(DBPortal, BasePortal):
         message: DBMessage,
         sender: u.User | p.Puppet,
         reaction: str,
+        mx_timestamp: int,
     ) -> None:
         if existing:
             self.log.debug(
@@ -1910,6 +1933,7 @@ class Portal(DBPortal, BasePortal):
             existing.reaction = reaction
             existing.mxid = mxid
             existing.mx_room = message.mx_room
+            existing.mx_timestamp = mx_timestamp
             await existing.save()
         else:
             self.log.debug(f"_upsert_reaction inserting {mxid} (message: {message.mxid})")
@@ -1920,6 +1944,7 @@ class Portal(DBPortal, BasePortal):
                 fb_receiver=self.fb_receiver,
                 fb_sender=sender.fbid,
                 reaction=reaction,
+                mx_timestamp=mx_timestamp,
             ).insert()
 
     async def handle_facebook_reaction_remove(
