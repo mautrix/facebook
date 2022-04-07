@@ -357,7 +357,7 @@ class StoryMediaAttachment(SerializableAttrs):
 class StoryAttachment(SerializableAttrs):
     title: str
     url: Optional[str] = None
-    # TODO enum? share, message_location, attached_story, photo, games_app, messenger_native_templates, unavailable, fallback
+    # TODO enum? share, message_location, attached_story, photo, games_app, messenger_native_templates, unavailable, fallback, marketplace_generic_xma
     style_list: List[str] = attr.ib(factory=lambda: [])
     title_with_entities: Optional[ExtensibleText] = None
     description: Optional[ExtensibleText] = None
@@ -375,6 +375,12 @@ class StoryAttachment(SerializableAttrs):
         elif url.scheme == "fbrpc" and url.host == "facebook" and url.path == "/nativethirdparty":
             url = URL(url.query["target_url"])
         return url
+
+    @property
+    def is_likely_bridgeable(self) -> bool:
+        return bool(
+            (self.target and self.target.typename == AttachmentType.EXTERNAL_URL) or self.media
+        )
 
 
 @dataclass
@@ -446,7 +452,11 @@ class Message(MinimalMessage, SerializableAttrs):
             (self.message and self.message.text)
             or self.sticker
             or self.blob_attachments
-            or (self.extensible_attachment and self.extensible_attachment.story_attachment)
+            or (
+                self.extensible_attachment
+                and self.extensible_attachment.story_attachment
+                and self.extensible_attachment.story_attachment.is_likely_bridgeable
+            )
             or (self.montage_reply_data and self.montage_reply_data.snippet)
         )
 
