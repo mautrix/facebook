@@ -89,14 +89,15 @@ async def matrix_to_facebook(
 ) -> SendParams:
     mentions = []
     reply_to = None
-    if content.relates_to.rel_type == RelationType.REPLY:
-        message = await DBMessage.get_by_mxid(content.relates_to.event_id, room_id)
+    reply_to_mxid = content.get_reply_to()
+    if reply_to_mxid:
+        message = await DBMessage.get_by_mxid(reply_to_mxid, room_id)
         if message:
             content.trim_reply_fallback()
             reply_to = message.fbid
         else:
             log.warning(
-                f"Couldn't find reply target {content.relates_to.event_id}"
+                f"Couldn't find reply target {reply_to_mxid}"
                 " to bridge text message reply metadata to Facebook"
             )
     if content.get("format", None) == Format.HTML and content["formatted_body"]:
