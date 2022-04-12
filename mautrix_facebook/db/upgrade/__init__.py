@@ -11,4 +11,5 @@ from . import (
     v06_store_user_seq_id,
     v07_store_reaction_timestamp,
     v08_backfill_queue,
+    v09_portal_infinite_backfill,
 )
