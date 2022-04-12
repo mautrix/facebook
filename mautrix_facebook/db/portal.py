@@ -23,7 +23,7 @@ from attr import dataclass
 
 from maufbapi.types.graphql import ThreadKey as GraphQLThreadKey
 from maufbapi.types.mqtt import ThreadKey as MQTTThreadKey
-from mautrix.types import ContentURI, RoomID, UserID
+from mautrix.types import BatchID, ContentURI, EventID, RoomID, UserID
 from mautrix.util.async_db import Database
 
 fake_db = Database.create("") if TYPE_CHECKING else None
@@ -60,6 +60,8 @@ class Portal:
     name_set: bool
     avatar_set: bool
     relay_user_id: UserID | None
+    first_event_id: EventID | None
+    next_batch_id: BatchID | None
 
     @classmethod
     def _from_row(cls, row: Record | None) -> Portal | None:
