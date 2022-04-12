@@ -855,13 +855,14 @@ class Portal(DBPortal, BasePortal):
         mime = message.info.mimetype or magic.mimetype(data)
         dbm = await self._make_dbm(sender, event_id)
         reply_to = None
-        if message.relates_to.rel_type == RelationType.REPLY:
-            reply_to_msg = await DBMessage.get_by_mxid(message.relates_to.event_id, self.mxid)
+        reply_to_mxid = message.get_reply_to()
+        if reply_to_mxid:
+            reply_to_msg = await DBMessage.get_by_mxid(reply_to_mxid, self.mxid)
             if reply_to_msg:
                 reply_to = reply_to_msg.fbid
             else:
                 self.log.warning(
-                    f"Couldn't find reply target {message.relates_to.event_id}"
+                    f"Couldn't find reply target {reply_to_mxid}"
                     " to bridge media message reply metadata to Facebook"
                 )
         filename = message.body
