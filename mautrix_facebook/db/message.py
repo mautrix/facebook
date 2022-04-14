@@ -83,6 +83,20 @@ class Message:
         return cls._from_row(row)
 
     @classmethod
+    async def get_first_in_chat(cls, fb_chat: int, fb_receiver: int) -> Message | None:
+        q = f"""
+        SELECT {cls.columns}
+        FROM message
+        WHERE fb_chat=$1
+            AND fb_receiver=$2
+            AND fbid IS NOT NULL
+        ORDER BY timestamp ASC
+        LIMIT 1
+        """
+        row = await cls.db.fetchrow(q, fb_chat, fb_receiver)
+        return cls._from_row(row)
+
+    @classmethod
     async def get_most_recent(cls, fb_chat: int, fb_receiver: int) -> Message | None:
         q = (
             f"SELECT {cls.columns} "
