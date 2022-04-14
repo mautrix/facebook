@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import time
 import urllib.request
 import zlib
@@ -60,6 +61,7 @@ except ImportError:
 
 T = TypeVar("T")
 no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
+fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 
 
 # TODO add some custom stuff in these?
@@ -418,16 +420,13 @@ class AndroidMQTT:
             is_compressed = message.payload.startswith(b"x\xda")
             if is_compressed:
                 message.payload = zlib.decompress(message.payload)
-            if "#" in message.topic:
-                topic_str, *rest = message.topic.split("#", 1)
-            elif "/" in message.topic:
-                topic_str, *rest = message.topic.split("/", 1)
-            elif "|" in message.topic:
-                topic_str, *rest = message.topic.split("|", 1)
-            else:
-                topic_str, rest = message.topic, []
-            if len(rest) > 0:
-                self.log.trace("Got extra data in topic %s: %s", topic_str, rest)
+            match = fb_topic_regex.match(message.topic)
+            if not match:
+                self.log.warning("Failed to parse MQTT topic %s", message.topic)
+                return
+            topic_str, extra = match.groups()
+            if extra:
+                self.log.trace("Got extra data in topic %s: %s", message.topic, extra)
             topic = RealtimeTopic.decode(topic_str)
             if topic not in no_prefix_topics or message.payload.startswith(b"\x00"):
                 _, message.payload = message.payload.split(b"\x00", 1)
