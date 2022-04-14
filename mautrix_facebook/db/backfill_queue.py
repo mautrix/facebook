@@ -18,13 +18,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 from datetime import datetime
 from enum import IntEnum
+from queue import Empty, Queue
+import asyncio
 
 from asyncpg import Record
 from attr import dataclass
 
-from mautrix.types import EventID, RoomID
-from mautrix.types.primitive import UserID
-from mautrix.util.async_db import Database, Scheme
+from mautrix.types import UserID
+from mautrix.util.async_db import Database
 
 fake_db = Database.create("") if TYPE_CHECKING else None
 
@@ -34,11 +35,52 @@ class BackfillType(IntEnum):
     DEFERRED = 1
 
 
+class BackfillQueue:
+    immediate_requests: Queue[Backfill] = Queue(maxsize=1)
+    deferred_requests: Queue[Backfill] = Queue(maxsize=1)
+    re_check_queue: Queue[bool] = Queue()
+
+    @staticmethod
+    def run_loops(user_mxid: UserID) -> tuple[asyncio.Task, asyncio.Task]:
+        return (
+            asyncio.create_task(BackfillQueue._immediate_backfill_loop(user_mxid)),
+            asyncio.create_task(BackfillQueue._deferred_backfill_loop(user_mxid)),
+        )
+
+    @staticmethod
+    async def _immediate_backfill_loop(user_mxid: UserID):
+        while True:
+            backfill = await Backfill.get_next(user_mxid, BackfillType.IMMEDIATE)
+            if backfill:
+                BackfillQueue.immediate_requests.put(backfill)
+                await backfill.mark_done()
+            else:
+                try:
+                    BackfillQueue.re_check_queue.get(timeout=10)
+                except Empty:
+                    pass
+
+    @staticmethod
+    async def _deferred_backfill_loop(user_mxid: UserID):
+        while True:
+            immediate_backfill = await Backfill.get_next(user_mxid, BackfillType.IMMEDIATE)
+            if immediate_backfill:
+                await asyncio.sleep(10)
+                continue
+
+            backfill = await Backfill.get_next(user_mxid, BackfillType.DEFERRED)
+            if backfill:
+                BackfillQueue.deferred_requests.put(backfill)
+                await backfill.mark_done()
+            else:
+                await asyncio.sleep(10)
+
+
 @dataclass
 class Backfill:
     db: ClassVar[Database] = fake_db
 
-    queue_id: int
+    queue_id: int | None
     user_mxid: UserID
     type: BackfillType
     priority: int
@@ -51,32 +93,59 @@ class Backfill:
     batch_delay: int
     completed_at: datetime | None
 
+    @staticmethod
+    def new(
+        user_mxid: UserID,
+        backfill_type: BackfillType,
+        priority: int,
+        portal_fbid: int,
+        portal_fb_receiver: int,
+        time_start: datetime | None = None,
+        time_end: datetime | None = None,
+        max_batch_events: int | None = None,
+        max_total_events: int = -1,
+        batch_delay: int = 0,
+    ) -> "Backfill":
+        return Backfill(
+            queue_id=None,
+            user_mxid=user_mxid,
+            type=backfill_type,
+            priority=priority,
+            portal_fbid=portal_fbid,
+            portal_fb_receiver=portal_fb_receiver,
+            time_start=time_start,
+            time_end=time_end,
+            max_batch_events=max_batch_events,
+            max_total_events=max_total_events,
+            batch_delay=batch_delay,
+            completed_at=None,
+        )
+
     @classmethod
     def _from_row(cls, row: Record | None) -> Backfill | None:
         if row is None:
             return None
         return cls(**row)
 
-    columns = ",".join(
-        [
-            "user_mxid",
-            "type",
-            "priority",
-            "portal_fbid",
-            "portal_fb_receiver",
-            "time_start",
-            "time_end",
-            "max_batch_events",
-            "max_total_events",
-            "batch_delay",
-            "completed_at",
-        ]
-    )
+    columns = [
+        "user_mxid",
+        "type",
+        "priority",
+        "portal_fbid",
+        "portal_fb_receiver",
+        "time_start",
+        "time_end",
+        "max_batch_events",
+        "max_total_events",
+        "batch_delay",
+        "completed_at",
+    ]
+    columns_str = ",".join(columns)
 
     @classmethod
-    async def get_next(cls, user_mxid: UserID, backfill_type: BackfillType) -> list[Backfill]:
+    async def get_next(cls, user_mxid: UserID, backfill_type: BackfillType) -> Backfill | None:
         q = f"""
-        SELECT queue_id, {cls.columns}
+        SELECT queue_id, {cls.columns_str}
           FROM backfill_queue
          WHERE user_mxid=$1
            AND type=$2
@@ -84,8 +153,7 @@ class Backfill:
       ORDER BY priority, queue_id
          LIMIT 1
         """
-        rows = await cls.db.fetch(q, user_mxid, backfill_type)
-        return [cls._from_row(row) for row in rows]
+        return cls._from_row(await cls.db.fetchrow(q, user_mxid, backfill_type))
 
     @classmethod
     async def delete_all(cls, user_mxid: UserID) -> None:
@@ -93,8 +161,8 @@ class Backfill:
 
     async def insert(self) -> None:
         q = f"""
-        INSERT INTO backfill_queue ({self.columns})
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        INSERT INTO backfill_queue ({self.columns_str})
+        VALUES ({','.join(f'${i+1}' for i in range(len(self.columns)))})
         RETURNING queue_id
         """
         self.queue_id = (
@@ -112,7 +180,7 @@ class Backfill:
                 self.batch_delay,
                 self.completed_at,
             )
-        )[0]
+        )["queue_id"]
 
     async def mark_done(self) -> None:
         q = "UPDATE backfill_queue SET completed_at=$1 WHERE queue_id=$2"
