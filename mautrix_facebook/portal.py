@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
 from collections import deque
+from datetime import datetime, timedelta
 from html import escape
 from io import BytesIO
 import asyncio
@@ -34,6 +35,10 @@ from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.errors import IntentError, MatrixError, MForbidden, MNotFound, SessionNotFound
 from mautrix.types import (
     AudioInfo,
+    BatchID,
+    BatchSendEncryptedEvent,
+    BatchSendMessageEvent,
+    BatchSendStateEvent,
     BeeperMessageStatusEventContent,
     ContentURI,
     EncryptedFile,
@@ -65,6 +70,9 @@ from mautrix.util.simple_lock import SimpleLock
 from . import matrix as m, puppet as p, user as u
 from .config import Config
 from .db import (
+    Backfill,
+    BackfillQueue,
+    BackfillType,
     Message as DBMessage,
     Portal as DBPortal,
     Reaction as DBReaction,
@@ -100,6 +108,14 @@ class FakeLock:
 StateBridge = EventType.find("m.bridge", EventType.Class.STATE)
 StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STATE)
 
+BackfillEndDummyEvent = EventType.find("fi.mau.dummy.backfill_end", EventType.Class.MESSAGE)
+RoomMarker = EventType.find("m.room.marker", EventType.Class.MESSAGE)
+MSC2716Marker = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
+
+ConvertedMessage = tuple[EventType, MessageEventContent]
+
+BACKFILL_ID_FIELD = "fi.mau.facebook.backfill_msg_id"
+
 
 class Portal(DBPortal, BasePortal):
     invite_own_puppet_to_pm: bool = False
@@ -116,7 +132,6 @@ class Portal(DBPortal, BasePortal):
     _noop_lock: FakeLock = FakeLock()
     _typing: set[UserID]
     backfill_lock: SimpleLock
-    _backfill_leave: set[IntentAPI] | None
     _sleeping_to_resync: bool
     _scheduled_resync: asyncio.Task | None
     _resync_targets: dict[int, p.Puppet]
@@ -134,6 +149,8 @@ class Portal(DBPortal, BasePortal):
         name_set: bool = False,
         avatar_set: bool = False,
         relay_user_id: UserID | None = None,
+        first_event_id: EventID | None = None,
+        next_batch_id: BatchID | None = None,
     ) -> None:
         super().__init__(
             fbid,
@@ -147,6 +164,8 @@ class Portal(DBPortal, BasePortal):
             name_set,
             avatar_set,
             relay_user_id,
+            first_event_id,
+            next_batch_id,
         )
         self.log = self.log.getChild(self.fbid_log)
 
@@ -163,7 +182,6 @@ class Portal(DBPortal, BasePortal):
         self.backfill_lock = SimpleLock(
             "Waiting for backfilling to finish before handling %s", log=self.log
         )
-        self._backfill_leave = None
 
         self._relay_user = None
 
@@ -619,13 +637,13 @@ class Portal(DBPortal, BasePortal):
             self.log.warning("Failed to update bridge info", exc_info=True)
 
     async def _create_matrix_room(
-        self, source: u.User, info: graphql.Thread | None = None
+        self, source: u.User, info: graphql.Thread | None = None, backfill: bool = False
     ) -> RoomID | None:
         if self.mxid:
             await self._update_matrix_room(source, info)
             return self.mxid
 
-        self.log.debug(f"Creating Matrix room")
+        self.log.debug("Creating Matrix room")
         name: str | None = None
         initial_state = [
             {
@@ -666,64 +684,396 @@ class Portal(DBPortal, BasePortal):
                 }
             )
 
-        # We lock backfill lock here so any messages that come between the room being created
-        # and the initial backfill finishing wouldn't be bridged before the backfill messages.
-        with self.backfill_lock:
-            creation_content = {}
-            if not self.config["bridge.federate_rooms"]:
-                creation_content["m.federate"] = False
-            self.mxid = await self.main_intent.create_room(
-                name=name,
-                is_direct=self.is_direct,
-                initial_state=initial_state,
-                invitees=invites,
-                creation_content=creation_content,
-            )
-            if not self.mxid:
-                raise Exception("Failed to create room: no mxid returned")
+        creation_content = {}
+        if not self.config["bridge.federate_rooms"]:
+            creation_content["m.federate"] = False
+        self.mxid = await self.main_intent.create_room(
+            name=name,
+            is_direct=self.is_direct,
+            initial_state=initial_state,
+            invitees=invites,
+            creation_content=creation_content,
+        )
+        if not self.mxid:
+            raise Exception("Failed to create room: no mxid returned")
 
-            if self.encrypted and self.matrix.e2ee and self.is_direct:
-                try:
-                    await self.az.intent.ensure_joined(self.mxid)
-                except Exception:
-                    self.log.warning(f"Failed to add bridge bot to new private chat {self.mxid}")
-
-            await self.save()
-            self.log.debug(f"Matrix room created: {self.mxid}")
-            self.by_mxid[self.mxid] = self
-
-            puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
-            await self.main_intent.invite_user(
-                self.mxid, source.mxid, extra_content=self._get_invite_content(puppet)
-            )
-            if puppet:
-                try:
-                    if self.is_direct:
-                        await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
-                    await puppet.intent.join_room_by_id(self.mxid)
-                except MatrixError:
-                    self.log.debug(
-                        "Failed to join custom puppet into newly created portal",
-                        exc_info=True,
-                    )
-
-            if not self.is_direct:
-                await self._update_participants(source, info)
-
-            await UserPortal(
-                user=source.fbid,
-                portal=self.fbid,
-                portal_receiver=self.fb_receiver,
-            ).upsert()
-
+        if self.encrypted and self.matrix.e2ee and self.is_direct:
             try:
-                await self.backfill(source, is_initial=True, thread=info)
+                await self.az.intent.ensure_joined(self.mxid)
             except Exception:
-                self.log.exception("Failed to backfill new portal")
+                self.log.warning(f"Failed to add bridge bot to new private chat {self.mxid}")
+        await self.save()
+        self.log.debug(f"Matrix room created: {self.mxid}")
+        self.by_mxid[self.mxid] = self
 
-            await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
+        puppet = await p.Puppet.get_by_custom_mxid(source.mxid)
+        await self.main_intent.invite_user(
+            self.mxid, source.mxid, extra_content=self._get_invite_content(puppet)
+        )
+        if puppet:
+            try:
+                if self.is_direct:
+                    await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
+                await puppet.intent.join_room_by_id(self.mxid)
+            except MatrixError:
+                self.log.debug(
+                    "Failed to join custom puppet into newly created portal",
+                    exc_info=True,
+                )
+
+        if not self.is_direct:
+            await self._update_participants(source, info)
+
+        await UserPortal(
+            user=source.fbid,
+            portal=self.fbid,
+            portal_receiver=self.fb_receiver,
+        ).upsert()
+
+        if self.config["bridge.backfill.enable"] and backfill:
+            await self.enqueue_immediate_backfill(source, 0)
+            await self.enqueue_deferred_backfills(source, 1, 0, datetime.now())
+            BackfillQueue.re_check_queue.put(True)
+
+        await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
 
         return self.mxid
+
+    # endregion
+    # region Backfill
+
+    async def enqueue_immediate_backfill(self, source: u.User, priority: int) -> None:
+        max_messages = self.config["bridge.backfill.immediate.max_events"]
+        await Backfill.new(
+            user_mxid=source.mxid,
+            backfill_type=BackfillType.IMMEDIATE,
+            priority=priority,
+            portal_fbid=self.fbid,
+            portal_fb_receiver=self.fb_receiver,
+            max_batch_events=max_messages,
+            max_total_events=max_messages,
+        ).insert()
+
+    async def enqueue_deferred_backfills(
+        self, source: u.User, total_conversations: int, priority: int, now: datetime
+    ) -> None:
+        for i, stage in enumerate(self.config["bridge.backfill.deferred"]):
+            start_date = (
+                now + timedelta(days=-stage["start_days_ago"])
+                if stage["start_days_ago"] > 0
+                else None
+            )
+            await Backfill.new(
+                user_mxid=source.mxid,
+                backfill_type=BackfillType.DEFERRED,
+                priority=i * total_conversations + priority,
+                portal_fbid=self.fbid,
+                portal_fb_receiver=self.fb_receiver,
+                time_start=start_date,
+                max_batch_events=stage["max_batch_events"],
+                batch_delay=stage["batch_delay"],
+            ).insert()
+
+    async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
+        assert source.client
+        with self.backfill_lock:
+            # Get the thread information.
+            threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
+            if not threads:
+                return None
+            elif threads[0].thread_key.id != self.fbid:
+                self.log.warning(
+                    "fetch_thread_info response contained different ID (%s) than expected (%s)",
+                    threads[0].thread_key.id,
+                    self.fbid,
+                )
+                self.log.debug(f"Number of threads in unexpected response: {len(threads)}")
+            thread = threads[0]
+
+            # Create or update the Matrix room
+            was_created = False
+            if not self.mxid:
+                await self.create_matrix_room(source, thread)
+                was_created = True
+            else:
+                await self.update_matrix_room(source, thread)
+            if was_created or not self.config["bridge.tag_only_on_create"]:
+                await source.mute_room(self, thread.mute_until)
+
+            # Actually backfill
+            last_message_timestamp, insertion_event_ids = await self._backfill(
+                source, backfill_request, thread=thread
+            )
+            for insertion_event_id in insertion_event_ids:
+                await self._send_post_backfill_dummy(last_message_timestamp, insertion_event_id)
+
+            if thread.unread_count == 0:
+                last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
+                puppet = await source.get_puppet()
+                if last_message and puppet:
+                    await puppet.intent_for(self).mark_read(self.mxid, last_message.mxid)
+
+    async def _backfill(
+        self,
+        source: u.User,
+        backfill_request: Backfill,
+        thread: graphql.Thread,
+    ) -> tuple[int, list[EventID]]:
+        assert self.mxid and source.client
+        self.log.debug("Backfill request:", backfill_request)
+
+        history_max_ts = None
+        history_batch_prev_event_id = None
+        history_batch_batch_id = None
+        history_batch_messages: list[BatchSendMessageEvent | BatchSendEncryptedEvent] = []
+        history_state_events_at_start: list[BatchSendStateEvent] = []
+
+        new_min_ts = None
+        new_batch_prev_event_id = None
+        new_batch_messages: list[BatchSendMessageEvent | BatchSendEncryptedEvent] = []
+
+        first_msg_timestamp = thread.messages.nodes[0].timestamp
+
+        first_message = await DBMessage.get_first_in_chat(self.fbid, self.fb_receiver)
+        last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
+
+        added_members = set()
+        current_members = await self.main_intent.state_store.get_members(
+            self.mxid, memberships=(Membership.JOIN,)
+        )
+
+        def add_member(puppet: p.Puppet):
+            assert self.mxid
+            if puppet.mxid in added_members:
+                return
+            content_args = {"avatar_url": puppet.photo_mxc, "displayname": puppet.name}
+            invite_content = MemberStateEventContent(Membership.INVITE, **content_args)
+            join_content = MemberStateEventContent(Membership.JOIN, **content_args)
+            for c in (invite_content, join_content):
+                history_state_events_at_start.append(
+                    BatchSendStateEvent(
+                        content=c,
+                        type=EventType.ROOM_MEMBER,
+                        sender=self.main_intent.mxid,
+                        state_key=puppet.mxid,
+                        timestamp=first_msg_timestamp,
+                    )
+                )
+            added_members.add(puppet.mxid)
+
+        if self.first_event_id or self.next_batch_id:
+            history_batch_prev_event_id = self.first_event_id
+            history_batch_batch_id = self.next_batch_id
+            if first_message is None and last_message is None:
+                history_max_ts = int(time.time())
+            else:
+                history_max_ts = first_msg_timestamp
+
+            if backfill_request.time_end:
+                history_max_ts = min(history_max_ts, int(backfill_request.time_end.timestamp()))
+
+        if last_message:
+            new_batch_prev_event_id = last_message.mxid
+            new_min_ts = last_message.timestamp
+
+        max_batch_events = backfill_request.max_batch_events
+        max_total_events = backfill_request.max_total_events
+        self.log.debug(
+            "Backfilling up to %d events of history through %s", max_total_events, source.mxid
+        )
+        messages = thread.messages.nodes
+
+        backfilled = 0
+        insertion_event_ids: list[EventID] = []
+        last_message_timestamp = 0
+        backfill_request_start_reached = False
+
+        while True:
+            backfilled_in_batch = 0
+            oldest_bridged_message_timestamp = 2**60
+
+            message_map: dict[str | None, graphql.Message | mqtt.Message] = {}
+
+            for message in reversed(messages):
+                if max_batch_events and backfilled_in_batch >= max_batch_events:
+                    break
+                if max_total_events and backfilled >= max_total_events:
+                    break
+
+                if (
+                    backfill_request.time_start
+                    and message.timestamp < backfill_request.time_start.timestamp()
+                ):
+                    backfill_request_start_reached = True
+                    break
+
+                if history_max_ts is not None and message.timestamp < history_max_ts:
+                    batch_messages = history_batch_messages
+                elif new_min_ts is not None and new_min_ts < message.timestamp:
+                    batch_messages = new_batch_messages
+                else:
+                    continue
+
+                message_id = (
+                    message.message_id
+                    if isinstance(message, graphql.Message)
+                    else message.metadata.id
+                )
+                message_map[message_id] = message
+
+                oldest_bridged_message_timestamp = min(
+                    oldest_bridged_message_timestamp, message.timestamp
+                )
+                last_message_timestamp = max(last_message_timestamp, message.timestamp)
+
+                puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
+                intent = puppet.intent_for(self)
+
+                # Convert the message
+                converted = await self.convert_facebook_message(source, intent, message)
+                if not converted:
+                    self.log.debug("Skipping unsupported message in backfill")
+                    continue
+
+                if not puppet.custom_mxid and puppet.mxid not in current_members:
+                    add_member(puppet)
+
+                for event_type, content in converted:
+                    content[BACKFILL_ID_FIELD] = message_id
+                    if puppet.is_real_user and intent.api.bridge_name is not None:
+                        content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
+
+                    if self.encrypted and self.matrix.e2ee:
+                        event_type, content = await self.matrix.e2ee.encrypt(
+                            self.mxid, event_type, content
+                        )
+                        # Re-add the double puppet key after the encryption.
+                        content[BACKFILL_ID_FIELD] = message_id
+                        if intent.api.is_real_user and intent.api.bridge_name is not None:
+                            content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
+
+                        batch_send_event_type = BatchSendEncryptedEvent
+                    else:
+                        batch_send_event_type = BatchSendMessageEvent
+                    batch_messages.append(
+                        batch_send_event_type(
+                            content,
+                            event_type,
+                            sender=UserID(puppet.mxid),
+                            timestamp=message.timestamp,
+                        )
+                    )
+
+                backfilled_in_batch += 1
+                backfilled += 1
+
+            # If there are messages, then delay to avoid overloading Synapse or getting
+            # rate-limited by Facebook.
+            if history_batch_messages or new_batch_messages:
+                await asyncio.sleep(backfill_request.batch_delay)
+
+            if (history_batch_messages and history_batch_batch_id is None) or new_batch_messages:
+                self.log.debug("Sending dummy event to avoid forward extremity errors")
+                await self.main_intent.send_message_event(
+                    self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
+                )
+
+            if history_batch_messages and history_batch_prev_event_id:
+                self.log.info("Sending %d historical messages...", len(history_batch_messages))
+                try:
+                    batch_send_resp = await self.main_intent.batch_send(
+                        self.mxid,
+                        history_batch_prev_event_id,
+                        batch_id=history_batch_batch_id,
+                        events=reversed(history_batch_messages),
+                        state_events_at_start=history_state_events_at_start,
+                    )
+                    insertion_event_ids.append(batch_send_resp.base_insertion_event_id)
+                    await self._finish_batch(batch_send_resp.event_ids, message_map)
+                    self.next_batch_id = batch_send_resp.next_batch_id
+                    await self.save()
+                except Exception as e:
+                    self.log.error("Error sending batch of historical messages.", e)
+
+            if new_batch_messages and new_batch_prev_event_id:
+                self.log.info("Sending %d new messages...", len(history_batch_messages))
+                try:
+                    batch_send_resp = await self.main_intent.batch_send(
+                        self.mxid, new_batch_prev_event_id, events=reversed(new_batch_messages)
+                    )
+                    insertion_event_ids.append(batch_send_resp.base_insertion_event_id)
+                    await self._finish_batch(batch_send_resp.event_ids, message_map)
+                except Exception as e:
+                    self.log.error("Error sending batch of historical messages.", e)
+
+            if (
+                # If we hit the start time of the backfill request, then don't fetch more messages.
+                backfill_request_start_reached
+                # If no max total events is specified, then keep looping until we run out of
+                # messages (resp.nodes is empty below).
+                # Otherwise, backfill up to max_total_events.
+                or (max_total_events and backfilled >= max_total_events)
+            ):
+                break
+
+            # Fetch more messages
+            resp = await source.client.fetch_messages(
+                self.fbid, oldest_bridged_message_timestamp - 1
+            )
+            if not resp.nodes:
+                break
+            messages = resp.nodes
+
+        return last_message_timestamp, insertion_event_ids
+
+    async def _finish_batch(
+        self,
+        event_ids: list[EventID],
+        message_map: dict[str | None, graphql.Message | mqtt.Message],
+    ):
+        for event_id in event_ids:
+            try:
+                event = await self.main_intent.get_event(self.mxid, event_id)
+                message_id = event[BACKFILL_ID_FIELD]
+                message = message_map[message_id]
+                await DBMessage(
+                    mxid=event_id,
+                    mx_room=self.mxid,
+                    index=0,
+                    timestamp=message.timestamp,
+                    fbid=message_id,
+                    fb_chat=self.fbid,
+                    fb_receiver=self.fb_receiver,
+                    fb_sender=message.message_sender.id,
+                    fb_txn_id=int(message.offline_threading_id),
+                ).insert()
+            except Exception:
+                self.log.exception("Failed to ")
+
+    async def _send_post_backfill_dummy(
+        self, last_message_timestamp: int, insertion_event_id: EventID
+    ):
+        assert self.mxid
+        for evt_type in (BackfillEndDummyEvent, RoomMarker, MSC2716Marker):
+            event_id = await self.main_intent.send_message_event(
+                self.mxid,
+                event_type=evt_type,
+                content={
+                    "org.matrix.msc2716.marker.insertion": insertion_event_id,
+                    "m.marker.insertion": insertion_event_id,
+                },
+            )
+            await DBMessage(
+                mxid=event_id,
+                mx_room=self.mxid,
+                index=0,
+                timestamp=last_message_timestamp + 1,
+                fbid=None,
+                fb_chat=self.fbid,
+                fb_receiver=self.fb_receiver,
+                fb_sender=0,
+                fb_txn_id=None,
+            ).insert()
 
     # endregion
     # region Matrix event handling
@@ -1250,28 +1600,19 @@ class Portal(DBPortal, BasePortal):
         if not await self._bridge_own_message_pm(source, sender, f"message {msg_id}"):
             return
         intent = sender.intent_for(self)
-        if (
-            self._backfill_leave is not None
-            and self.fbid != sender.fbid
-            and intent != sender.intent
-            and intent not in self._backfill_leave
-        ):
-            self.log.debug("Adding %s's default puppet to room for backfilling", sender.mxid)
-            await self.main_intent.invite_user(self.mxid, intent.mxid)
-            await intent.ensure_joined(self.mxid)
-            self._backfill_leave.add(intent)
-
         event_ids = []
-        if message.montage_reply_data and message.montage_reply_data.snippet:
-            event_ids.append(await self._handle_facebook_story_reply(intent, message, timestamp))
-        if isinstance(message, graphql.Message):
-            event_ids += await self._handle_graphql_message(source, intent, message)
-        else:
-            event_ids += await self._handle_mqtt_message(source, intent, message, reply_to)
+        for event_type, content in await self.convert_facebook_message(
+            source, intent, message, reply_to
+        ):
+            event_ids.append(
+                await self._send_message(
+                    intent, content, event_type=event_type, timestamp=message.timestamp
+                )
+            )
+        event_ids = [event_id for event_id in event_ids if event_id]
         if not event_ids:
             self.log.warning(f"Unhandled Messenger message {msg_id}")
             return
-        event_ids = [event_id for event_id in event_ids if event_id]
         self.log.debug(f"Handled Messenger message {msg_id} -> {event_ids}")
         created_msgs = await DBMessage.bulk_create(
             fbid=msg_id,
@@ -1289,9 +1630,39 @@ class Portal(DBPortal, BasePortal):
                 source, created_msgs[0], message.message_reactions, timestamp
             )
 
-    async def _handle_facebook_story_reply(
-        self, intent: IntentAPI, message: mqtt.Message | graphql.Message, timestamp: int
-    ) -> EventID | None:
+    async def convert_facebook_message(
+        self,
+        source: u.User,
+        intent: IntentAPI,
+        message: graphql.Message | mqtt.Message,
+        reply_to: mqtt.Message | None = None,
+    ) -> list[ConvertedMessage]:
+        converted: list[ConvertedMessage] = []
+
+        try:
+            if message.montage_reply_data and message.montage_reply_data.snippet:
+                converted.append(await self._convert_facebook_story_reply(message))
+
+            if isinstance(message, graphql.Message):
+                converted.extend(await self._convert_graphql_message(source, intent, message))
+            else:
+                converted.extend(
+                    await self._convert_mqtt_message(source, intent, message, reply_to)
+                )
+        except Exception:
+            self.log.exception(
+                "Error converting Facebook message %s",
+                message.message_id
+                if isinstance(message, graphql.Message)
+                else message.metadata.id,
+            )
+
+        return converted
+
+    async def _convert_facebook_story_reply(
+        self, message: mqtt.Message | graphql.Message
+    ) -> ConvertedMessage:
+        assert message.montage_reply_data and message.montage_reply_data.snippet
         text = message.montage_reply_data.snippet
         if message.montage_reply_data.message_id and message.montage_reply_data.montage_thread_id:
             card_id_data = f"S:_ISC:{message.montage_reply_data.message_id}"
@@ -1301,53 +1672,47 @@ class Portal(DBPortal, BasePortal):
                 / base64.b64encode(card_id_data.encode("utf-8")).decode("utf-8")
             )
             text += f" ({story_url})"
-        content = TextMessageEventContent(msgtype=MessageType.NOTICE, body=text)
-        return await self._send_message(intent, content, timestamp=timestamp)
+        return EventType.ROOM_MESSAGE, TextMessageEventContent(
+            msgtype=MessageType.NOTICE, body=text
+        )
 
-    async def _handle_mqtt_message(
+    async def _convert_mqtt_message(
         self,
         source: u.User,
         intent: IntentAPI,
         message: mqtt.Message,
         reply_to: mqtt.Message | None,
-    ) -> list[EventID]:
-        event_ids = []
+    ) -> list[ConvertedMessage]:
+        converted: list[ConvertedMessage] = []
         if message.sticker:
-            event_ids.append(
-                await self._handle_facebook_sticker(
-                    source,
-                    intent,
-                    message.sticker,
-                    reply_to,
-                    message.metadata.timestamp,
-                )
+            converted.append(
+                await self._convert_facebook_sticker(source, intent, message.sticker, reply_to)
             )
         if len(message.attachments) > 0:
-            attach_ids = await asyncio.gather(
+            attachment_contents = await asyncio.gather(
                 *[
-                    self._handle_facebook_attachment(
+                    self._convert_facebook_attachment(
                         message.metadata.id,
                         source,
                         intent,
                         attachment,
                         reply_to,
-                        message.metadata.timestamp,
                         message_text=message.text,
                     )
                     for attachment in message.attachments
                 ]
             )
-            event_ids += [attach_id for attach_id in attach_ids if attach_id]
+            converted += [c for c in attachment_contents if c]
         if message.text:
-            event_ids.append(
-                await self._handle_facebook_text(
-                    intent, message, reply_to, message.metadata.timestamp
-                )
-            )
-        return event_ids
+            converted.append(await self._handle_facebook_text(message, reply_to))
+        return converted
 
     async def _convert_extensible_media(
-        self, source: u.User, intent: IntentAPI, sa: graphql.StoryAttachment, message_text: str
+        self,
+        source: u.User,
+        intent: IntentAPI,
+        sa: graphql.StoryAttachment,
+        message_text: str | None,
     ) -> MessageEventContent | None:
         if sa.target and sa.target.typename == graphql.AttachmentType.EXTERNAL_URL:
             url = str(sa.clean_url)
@@ -1459,7 +1824,7 @@ class Portal(DBPortal, BasePortal):
         intent: IntentAPI,
         attachment: mqtt.Attachment,
         message_text: str,
-    ) -> MessageEventContent:
+    ) -> MessageEventContent | None:
         filename = attachment.file_name
         if attachment.mime_type and filename is not None and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
@@ -1606,71 +1971,56 @@ class Portal(DBPortal, BasePortal):
             await asyncio.gather(*tasks)
             self.log.debug(f"Updated {len(tasks)} reactions of {message_id}")
 
-    async def _handle_graphql_message(
+    async def _convert_graphql_message(
         self, source: u.User, intent: IntentAPI, message: graphql.Message
-    ) -> list[EventID]:
+    ) -> list[ConvertedMessage]:
         reply_to_msg = message.replied_to_message.message if message.replied_to_message else None
-        event_ids = []
+        converted: list[ConvertedMessage] = []
         if message.sticker:
-            event_ids.append(
-                await self._handle_facebook_sticker(
-                    source,
-                    intent,
-                    int(message.sticker.id),
-                    reply_to_msg,
-                    message.timestamp,
+            converted.append(
+                await self._convert_facebook_sticker(
+                    source, intent, int(message.sticker.id), reply_to_msg
                 )
             )
+
         if len(message.blob_attachments) > 0:
-            attach_ids = await asyncio.gather(
+            attachment_contents = await asyncio.gather(
                 *[
-                    self._handle_facebook_attachment(
-                        message.message_id,
-                        source,
-                        intent,
-                        attachment,
-                        reply_to_msg,
-                        message.timestamp,
+                    self._convert_facebook_attachment(
+                        message.message_id, source, intent, attachment, reply_to_msg
                     )
                     for attachment in message.blob_attachments
                 ]
             )
-            event_ids += [attach_id for attach_id in attach_ids if attach_id]
+            converted += [c for c in attachment_contents if c]
+
         text = message.message.text if message.message else None
         if message.extensible_attachment:
             sa = message.extensible_attachment.story_attachment
             content = await self._convert_extensible_media(source, intent, sa, message_text=text)
             if content:
-                event_ids.append(
-                    await self._send_message(intent, content, timestamp=message.timestamp)
-                )
+                converted.append((EventType.ROOM_MESSAGE, content))
         if text:
-            event_ids.append(
-                await self._handle_facebook_text(
-                    intent, message.message, reply_to_msg, message.timestamp
-                )
-            )
-        return event_ids
+            converted.append(await self._handle_facebook_text(message.message, reply_to_msg))
+        return converted
 
     async def _handle_facebook_text(
         self,
-        intent: IntentAPI,
         message: graphql.MessageText | mqtt.Message,
         reply_to: graphql.MinimalMessage | mqtt.Message,
-        timestamp: int,
-    ) -> EventID:
+    ) -> ConvertedMessage:
         content = await facebook_to_matrix(message)
         await self._add_facebook_reply(content, reply_to)
-        return await self._send_message(intent, content, timestamp=timestamp)
+        return EventType.ROOM_MESSAGE, content
 
-    async def _handle_facebook_sticker(
+    async def _convert_facebook_sticker(
         self,
         source: u.User,
         intent: IntentAPI,
         sticker_id: int,
         reply_to: graphql.MinimalMessage | mqtt.Message,
-        timestamp: int,
-    ) -> EventID:
+    ) -> ConvertedMessage:
+        assert source.client
         resp = await source.client.fetch_stickers([sticker_id], sticker_labels_enabled=True)
         sticker = resp.nodes[0]
         url = (sticker.animated_image or sticker.thread_image).uri
@@ -1685,20 +2035,17 @@ class Portal(DBPortal, BasePortal):
             body=sticker.label or "",
         )
         await self._add_facebook_reply(content, reply_to)
-        return await self._send_message(
-            intent, event_type=EventType.STICKER, content=content, timestamp=timestamp
-        )
+        return EventType.STICKER, content
 
-    async def _handle_facebook_attachment(
+    async def _convert_facebook_attachment(
         self,
         msg_id: str,
         source: u.User,
         intent: IntentAPI,
         attachment: graphql.Attachment | mqtt.Attachment,
         reply_to: graphql.MinimalMessage | mqtt.Message,
-        timestamp: int,
         message_text: str | None = None,
-    ) -> EventID | None:
+    ) -> ConvertedMessage | None:
         if isinstance(attachment, graphql.Attachment):
             content = await self._convert_graphql_attachment(msg_id, source, intent, attachment)
         elif isinstance(attachment, mqtt.Attachment):
@@ -1710,7 +2057,7 @@ class Portal(DBPortal, BasePortal):
         if not content:
             return None
         await self._add_facebook_reply(content, reply_to)
-        return await self._send_message(intent, content, timestamp=timestamp)
+        return EventType.ROOM_MESSAGE, content
 
     async def _convert_graphql_attachment(
         self,
@@ -2083,113 +2430,6 @@ class Portal(DBPortal, BasePortal):
                 )
 
     # endregion
-
-    async def backfill(self, source: u.User, is_initial: bool, thread: graphql.Thread) -> None:
-        if not is_initial:
-            return
-        limit = self.config["bridge.backfill.max_initial_conversations"]
-        if limit == 0:
-            return
-        elif limit < 0:
-            limit = None
-        last_active = None
-        if not is_initial and thread and len(thread.last_message.nodes) > 0:
-            last_active = thread.last_message.nodes[0].timestamp
-        most_recent = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
-        if most_recent and is_initial:
-            self.log.debug("Not backfilling %s: already bridged messages found", self.fbid_log)
-        elif (not most_recent or not most_recent.timestamp) and not is_initial:
-            self.log.debug("Not backfilling %s: no most recent message found", self.fbid_log)
-        elif last_active and most_recent.timestamp >= last_active:
-            self.log.debug(
-                "Not backfilling %s: last activity is equal to most recent bridged "
-                "message (%s >= %s)",
-                self.fbid_log,
-                most_recent.timestamp,
-                last_active,
-            )
-        else:
-            with self.backfill_lock:
-                await self._backfill(
-                    source,
-                    limit,
-                    most_recent.timestamp if most_recent else None,
-                    thread=thread,
-                )
-
-    async def _backfill(
-        self,
-        source: u.User,
-        limit: int,
-        after_timestamp: int | None,
-        thread: graphql.Thread,
-    ) -> None:
-        self.log.debug("Backfilling history through %s", source.mxid)
-        messages = thread.messages.nodes
-        oldest_message = messages[0]
-        before_timestamp = oldest_message.timestamp - 1
-        self.log.debug("Fetching up to %d messages through %s", limit, source.fbid)
-        while len(messages) < limit:
-            resp = await source.client.fetch_messages(self.fbid, before_timestamp)
-            if not resp.nodes:
-                self.log.debug(
-                    "Stopping fetching messages at %s after empty response",
-                    oldest_message.message_id,
-                )
-                break
-            oldest_message = resp.nodes[0]
-            before_timestamp = oldest_message.timestamp - 1
-            messages = resp.nodes + messages
-            if not resp.page_info.has_previous_page:
-                self.log.debug(
-                    "Stopping fetching messages at %s as response said there are no "
-                    "more messages",
-                    oldest_message.message_id,
-                )
-                break
-            elif after_timestamp and oldest_message.timestamp <= after_timestamp:
-                self.log.debug(
-                    "Stopping fetching messages at %s as message is older than newest "
-                    "bridged message (%s < %s)",
-                    oldest_message.message_id,
-                    oldest_message.timestamp,
-                    after_timestamp,
-                )
-                break
-        if after_timestamp:
-            try:
-                slice_index = next(
-                    index
-                    for index, message in enumerate(messages)
-                    if message.timestamp > after_timestamp
-                )
-                messages = messages[slice_index:]
-            except StopIteration:
-                messages = []
-        if not messages:
-            self.log.debug("Didn't get any messages from server")
-            return
-        self.log.debug("Got %d messages from server", len(messages))
-
-        # If we got more messages than the limit, trim the list.
-        if len(messages) > limit:
-            filtered_messages = []
-            for message in reversed(messages):
-                filtered_messages.append(message)
-                if len(filtered_messages) >= limit and message.is_likely_bridgeable:
-                    break
-            messages = list(reversed(filtered_messages))
-            self.log.debug(f"Trimmed message list down to {limit} messages.")
-
-        self._backfill_leave = set()
-        async with NotificationDisabler(self.mxid, source):
-            for message in messages:
-                puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
-                await self.handle_facebook_message(source, puppet, message)
-        for intent in self._backfill_leave:
-            self.log.trace("Leaving room with %s post-backfill", intent.mxid)
-            await intent.leave_room(self.mxid)
-        self.log.info("Backfilled %d messages through %s", len(messages), source.mxid)
 
     async def handle_forced_fetch(self, source: u.User, messages: list[graphql.Message]) -> None:
         most_recent = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)

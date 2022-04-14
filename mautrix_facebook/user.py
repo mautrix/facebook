@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, TypeVar, cast
+from datetime import datetime
+from queue import Queue
 import asyncio
 import hashlib
 import hmac
@@ -47,7 +49,7 @@ from mautrix.util.simple_lock import SimpleLock
 from . import portal as po, puppet as pu
 from .commands import enter_2fa_code
 from .config import Config
-from .db import Message as DBMessage, ThreadType, User as DBUser, UserPortal
+from .db import Backfill, BackfillQueue, ThreadType, User as DBUser, UserPortal
 from .presence import PresenceUpdater
 from .util.interval import get_interval
 
@@ -106,6 +108,7 @@ class User(DBUser, BaseUser):
     client: AndroidAPI | None
     mqtt: AndroidMQTT | None
     listen_task: asyncio.Task | None
+    backfill_tasks: list[asyncio.Task] = []
     seq_id: int | None
 
     _notice_room_lock: asyncio.Lock
@@ -283,10 +286,7 @@ class User(DBUser, BaseUser):
         elif not self.state:
             # If we have a user in the DB with no state, we can assume
             # FB logged us out and the bridge has restarted
-            await self.push_bridge_state(
-                BridgeStateEvent.BAD_CREDENTIALS,
-                error="logged-out",
-            )
+            await self.push_bridge_state(BridgeStateEvent.BAD_CREDENTIALS, error="logged-out")
             return False
         self.state.device.connection_type = self.config["facebook.connection_type"]
         self.state.carrier.name = self.config["facebook.carrier"]
@@ -306,6 +306,7 @@ class User(DBUser, BaseUser):
             self._is_logged_in = True
             self.is_connected = None
             self.stop_listen()
+            self.stop_backfill_tasks()
             asyncio.create_task(self.post_login(is_startup=is_startup))
             return True
         return False
@@ -474,6 +475,7 @@ class User(DBUser, BaseUser):
     async def logout(self, remove_fbid: bool = True, from_auth_error: bool = False) -> bool:
         ok = True
         self.stop_listen()
+        self.stop_backfill_tasks()
         if self.state and self.client and not from_auth_error:
             try:
                 ok = await self.client.logout()
@@ -511,10 +513,35 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
 
+        # Immediate backfills can be done in parallel
+        self.backfill_tasks.extend(
+            asyncio.create_task(
+                self._handle_backfill_requests_loop(BackfillQueue.immediate_requests)
+            )
+            for _ in range(self.config["bridge.backfill.immediate.worker_count"])
+        )
+
+        # Deferred backfills should be handled synchronously so as not to overload the homeserver.
+        # Users can configure their backfill stages to be more or less aggressive with backfilling
+        # at this stage.
+        self.backfill_tasks.append(
+            asyncio.create_task(
+                self._handle_backfill_requests_loop(BackfillQueue.deferred_requests)
+            )
+        )
+
+        self.backfill_tasks.extend(BackfillQueue.run_loops(self.mxid))
+
         if self.config["bridge.sync_on_startup"] or not is_startup or not self.seq_id:
             await self.sync_threads(start_listen=True)
         else:
             self.start_listen()
+
+    async def _handle_backfill_requests_loop(self, request_queue: Queue[Backfill]) -> None:
+        while req := request_queue.get():
+            self.log.info("Backfill request ", req)
+            portal = po.Portal.get_by_fbid(req.portal_fbid, fb_receiver=req.portal_fb_receiver)
+            portal.backfill(self, req)
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
@@ -552,9 +579,13 @@ class User(DBUser, BaseUser):
             await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
         return False
 
-    async def _sync_threads(self, start_listen: bool) -> None:
-        sync_count = self.config["bridge.initial_chat_sync"]
-        self.log.debug("Fetching threads...")
+    async def _sync_threads(self, start_listen: bool, is_initial: bool = False) -> None:
+        sync_count = (
+            self.config["bridge.backfill.max_initial_conversations"]
+            if is_initial
+            else self.config["bridge.backfill.max_incremental_conversations"]
+        )
+        self.log.debug(f"Fetching {sync_count} threads...")
         # TODO paginate with 20 threads per request
         resp = await self.client.fetch_thread_list(thread_count=sync_count)
         self.seq_id = int(resp.sync_sequence_id)
@@ -565,30 +596,16 @@ class User(DBUser, BaseUser):
             self.start_listen()
         if sync_count <= 0:
             return
-        await self.push_bridge_state(BridgeStateEvent.BACKFILLING)
-        for thread in resp.nodes:
-            try:
-                await self._sync_thread(thread)
-            except Exception:
-                self.log.exception("Failed to sync thread %s", thread.id)
+        now = datetime.now()
+        for priority, thread in enumerate(resp.nodes):
+            portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
+            await portal.enqueue_immediate_backfill(self, priority)
+            await portal.enqueue_deferred_backfills(self, len(resp.nodes), priority, now)
+            BackfillQueue.re_check_queue.put(True)
 
         await self.update_direct_chats()
 
-    async def _sync_thread(self, thread: graphql.Thread) -> None:
-        self.log.debug(f"Syncing thread {thread.thread_key.id}")
-        portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
-
-        was_created = False
-        if not portal.mxid:
-            await portal.create_matrix_room(self, thread)
-            was_created = True
-        else:
-            await portal.update_matrix_room(self, thread)
-            await portal.backfill(self, is_initial=False, thread=thread)
-        if was_created or not self.config["bridge.tag_only_on_create"]:
-            await self._mute_room(portal, thread.mute_until)
-
-    async def _mute_room(self, portal: po.Portal, mute_until: int) -> None:
+    async def mute_room(self, portal: po.Portal, mute_until: int | None) -> None:
         if not self.config["bridge.mute_bridging"] or not portal or not portal.mxid:
             return
         puppet = await pu.Puppet.get_by_custom_mxid(self.mxid)
@@ -860,6 +877,12 @@ class User(DBUser, BaseUser):
         self.mqtt = None
         self.listen_task = None
 
+    def stop_backfill_tasks(self) -> None:
+        for t in self.backfill_tasks:
+            if not t.cancelled():
+                t.cancel()
+        self.backfill_tasks = []
+
     async def on_logged_in(self, state: AndroidState) -> None:
         self.log.debug(f"Successfully logged in as {state.session.uid}")
         self.fbid = state.session.uid
@@ -877,6 +900,7 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
+        self.stop_backfill_tasks()
         asyncio.create_task(self.post_login(is_startup=True))
 
     @async_time(METRIC_MESSAGE)

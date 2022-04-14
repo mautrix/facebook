@@ -88,6 +88,7 @@ class MessengerBridge(Bridge):
         User.shutdown = True
         for user in User.by_fbid.values():
             user.stop_listen()
+            user.stop_backfill_tasks()
         self.add_shutdown_actions(user.save() for user in User.by_mxid.values())
 
     async def start(self) -> None:
