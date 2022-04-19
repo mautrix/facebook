@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, TypeVar, cast
 from datetime import datetime
-from queue import Queue
 import asyncio
 import hashlib
 import hmac
@@ -537,9 +536,9 @@ class User(DBUser, BaseUser):
         else:
             self.start_listen()
 
-    async def _handle_backfill_requests_loop(self, request_queue: Queue[Backfill]) -> None:
-        while req := request_queue.get():
-            self.log.info("Backfill request ", req)
+    async def _handle_backfill_requests_loop(self, request_queue: asyncio.Queue[Backfill]) -> None:
+        while req := await request_queue.get():
+            self.log.info("Backfill request %s", req)
             portal = po.Portal.get_by_fbid(req.portal_fbid, fb_receiver=req.portal_fb_receiver)
             portal.backfill(self, req)
 
@@ -601,7 +600,7 @@ class User(DBUser, BaseUser):
             portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
             await portal.enqueue_immediate_backfill(self, priority)
             await portal.enqueue_deferred_backfills(self, len(resp.nodes), priority, now)
-            BackfillQueue.re_check_queue.put(True)
+            await BackfillQueue.re_check_queue.put(True)
 
         await self.update_direct_chats()
 

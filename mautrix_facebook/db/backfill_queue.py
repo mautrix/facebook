@@ -18,7 +18,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 from datetime import datetime
 from enum import IntEnum
-from queue import Empty, Queue
 import asyncio
 
 from asyncpg import Record
@@ -36,9 +35,9 @@ class BackfillType(IntEnum):
 
 
 class BackfillQueue:
-    immediate_requests: Queue[Backfill] = Queue(maxsize=1)
-    deferred_requests: Queue[Backfill] = Queue(maxsize=1)
-    re_check_queue: Queue[bool] = Queue()
+    immediate_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
+    deferred_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
+    re_check_queue: asyncio.Queue[bool] = asyncio.Queue()
 
     @staticmethod
     def run_loops(user_mxid: UserID) -> tuple[asyncio.Task, asyncio.Task]:
@@ -52,12 +51,12 @@ class BackfillQueue:
         while True:
             backfill = await Backfill.get_next(user_mxid, BackfillType.IMMEDIATE)
             if backfill:
-                BackfillQueue.immediate_requests.put(backfill)
+                await BackfillQueue.immediate_requests.put(backfill)
                 await backfill.mark_done()
             else:
                 try:
-                    BackfillQueue.re_check_queue.get(timeout=10)
-                except Empty:
+                    await asyncio.wait_for(BackfillQueue.re_check_queue.get(), 10)
+                except asyncio.TimeoutError:
                     pass
 
     @staticmethod
@@ -70,7 +69,7 @@ class BackfillQueue:
 
             backfill = await Backfill.get_next(user_mxid, BackfillType.DEFERRED)
             if backfill:
-                BackfillQueue.deferred_requests.put(backfill)
+                await BackfillQueue.deferred_requests.put(backfill)
                 await backfill.mark_done()
             else:
                 await asyncio.sleep(10)
