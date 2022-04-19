@@ -733,7 +733,7 @@ class Portal(DBPortal, BasePortal):
         if self.config["bridge.backfill.enable"] and backfill:
             await self.enqueue_immediate_backfill(source, 0)
             await self.enqueue_deferred_backfills(source, 1, 0, datetime.now())
-            BackfillQueue.re_check_queue.put(True)
+            await BackfillQueue.re_check_queue.put(True)
 
         await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
 
@@ -1604,9 +1604,14 @@ class Portal(DBPortal, BasePortal):
         for event_type, content in await self.convert_facebook_message(
             source, intent, message, reply_to
         ):
+            assert isinstance(message, (graphql.Message, mqtt.Message))
+            if isinstance(message, graphql.Message):
+                timestamp = message.timestamp
+            elif isinstance(message, mqtt.Message):
+                timestamp = message.metadata.timestamp
             event_ids.append(
                 await self._send_message(
-                    intent, content, event_type=event_type, timestamp=message.timestamp
+                    intent, content, event_type=event_type, timestamp=timestamp
                 )
             )
         event_ids = [event_id for event_id in event_ids if event_id]
