@@ -379,7 +379,9 @@ class StoryAttachment(SerializableAttrs):
     @property
     def is_likely_bridgeable(self) -> bool:
         return bool(
-            (self.target and self.target.typename == AttachmentType.EXTERNAL_URL) or self.media
+            (self.target and self.target.typename == AttachmentType.EXTERNAL_URL)
+            or (self.url and self.title)
+            or self.media
         )
 
 

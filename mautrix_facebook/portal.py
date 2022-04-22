@@ -1327,12 +1327,11 @@ class Portal(DBPortal, BasePortal):
                 # URL is present in message, don't repost
                 return None
             escaped_url = escape(url)
-            html = f'<a href="{escaped_url}">{escaped_url}</a>'
             return TextMessageEventContent(
                 msgtype=MessageType.TEXT,
                 format=Format.HTML,
                 body=str(sa.clean_url),
-                formatted_body=html,
+                formatted_body=f'<a href="{escaped_url}">{escaped_url}</a>',
             )
         elif sa.media:
             msgtype = {
@@ -1390,6 +1389,12 @@ class Portal(DBPortal, BasePortal):
                 info=info,
                 external_url=sa.url,
             )
+        elif sa.url and sa.title:
+            url = str(sa.clean_url)
+            if message_text is not None and (url in message_text or sa.title in message_text):
+                # URL is present in message, don't repost
+                return None
+            return TextMessageEventContent(msgtype=MessageType.TEXT, body=f"{sa.title}\n\n{url}")
         else:
             self.log.debug("Unhandled story attachment: %s", sa.serialize())
             return None
