@@ -380,7 +380,7 @@ class AndroidMQTT:
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
-            waiter = self._publish_waiters[mid]
+            waiter = self._publish_waiters.pop(mid)
         except KeyError:
             return
         waiter.set_result(None)
