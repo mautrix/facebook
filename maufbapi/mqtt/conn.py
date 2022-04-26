@@ -164,6 +164,18 @@ class AndroidMQTT:
         self._client.on_socket_register_write = self._on_socket_register_write
         self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
+    def _clear_response_waiters(self) -> None:
+        for waiter in self._response_waiters.values():
+            waiter.set_exception(
+                MQTTNotConnected("MQTT disconnected before request returned response")
+            )
+        for waiter in self._publish_waiters.values():
+            waiter.set_exception(
+                MQTTNotConnected("MQTT disconnected before request was published")
+            )
+        self._response_waiters = {}
+        self._publish_waiters = {}
+
     def _form_client_id(self, force_password: bool = False) -> bytes:
         subscribe_topics = [
             "/t_assist_rp",
@@ -277,6 +289,7 @@ class AndroidMQTT:
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
         err_str = "Generic error." if rc == pmc.MQTT_ERR_NOMEM else pmc.error_string(rc)
         self.log.debug(f"MQTT disconnection code %d: %s", rc, err_str)
+        self._clear_response_waiters()
 
     @property
     def _sync_queue_params(self) -> dict[str, Any]:
