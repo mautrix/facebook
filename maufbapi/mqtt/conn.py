@@ -62,6 +62,7 @@ except ImportError:
 T = TypeVar("T")
 no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
+REQUEST_TIMEOUT = 60
 
 
 # TODO add some custom stuff in these?
@@ -166,13 +167,15 @@ class AndroidMQTT:
 
     def _clear_response_waiters(self) -> None:
         for waiter in self._response_waiters.values():
-            waiter.set_exception(
-                MQTTNotConnected("MQTT disconnected before request returned response")
-            )
+            if not waiter.done():
+                waiter.set_exception(
+                    MQTTNotConnected("MQTT disconnected before request returned response")
+                )
         for waiter in self._publish_waiters.values():
-            waiter.set_exception(
-                MQTTNotConnected("MQTT disconnected before request was published")
-            )
+            if not waiter.done():
+                waiter.set_exception(
+                    MQTTNotConnected("MQTT disconnected before request was published")
+                )
         self._response_waiters = {}
         self._publish_waiters = {}
 
@@ -383,7 +386,8 @@ class AndroidMQTT:
             waiter = self._publish_waiters.pop(mid)
         except KeyError:
             return
-        waiter.set_result(None)
+        if not waiter.done():
+            waiter.set_result(None)
 
     # region Incoming event parsing
 
@@ -458,7 +462,14 @@ class AndroidMQTT:
                 except KeyError:
                     self.log.debug("No handler for MQTT message in %s: %s", topic, message.payload)
                 else:
-                    waiter.set_result(message)
+                    if not waiter.done():
+                        waiter.set_result(message)
+                    else:
+                        self.log.debug(
+                            "Got response in %s, but waiter was already cancelled: %s",
+                            topic,
+                            message.payload,
+                        )
         except Exception:
             self.log.exception("Error in incoming MQTT message handler")
             self.log.trace("Errored MQTT payload: %s", message.payload)
@@ -567,6 +578,11 @@ class AndroidMQTT:
 
     # region Basic outgoing MQTT
 
+    @staticmethod
+    def _cancel_later(fut: asyncio.Future) -> None:
+        if not fut.done():
+            fut.set_exception(asyncio.TimeoutError("MQTT request timed out"))
+
     def publish(
         self,
         topic: RealtimeTopic | str,
@@ -587,7 +603,9 @@ class AndroidMQTT:
         info = self._client.publish(
             topic.encoded if isinstance(topic, RealtimeTopic) else topic, payload, qos=1
         )
-        fut = asyncio.Future()
+        fut = self._loop.create_future()
+        timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._cancel_later, fut)
+        fut.add_done_callback(timeout_handle.cancel)
         self._publish_waiters[info.mid] = fut
         return fut
 
@@ -599,9 +617,11 @@ class AndroidMQTT:
         prefix: bytes = b"",
     ) -> pmc.MQTTMessage:
         async with self._response_waiter_locks[response]:
-            fut = asyncio.Future()
+            fut = self._loop.create_future()
             self._response_waiters[response] = fut
             await self.publish(topic, payload, prefix)
+            timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._cancel_later, fut)
+            fut.add_done_callback(timeout_handle.cancel)
             return await fut
 
     @staticmethod
