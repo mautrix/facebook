@@ -31,7 +31,7 @@ fake_db = Database.create("") if TYPE_CHECKING else None
 
 class BackfillType(IntEnum):
     IMMEDIATE = 0
-    DEFERRED = 1
+    DEFERRED = 100
 
 
 class BackfillQueue:
