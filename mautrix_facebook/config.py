@@ -83,6 +83,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.allow_invites")
         copy("bridge.backfill.enable")
         copy("bridge.backfill.invite_own_puppet")
+        copy("bridge.backfill.double_puppet_backfill")
         if "bridge.initial_chat_sync" in self:
             initial_chat_sync = self["bridge.initial_chat_sync"]
             base["bridge.backfill.max_initial_conversations"] = initial_chat_sync
