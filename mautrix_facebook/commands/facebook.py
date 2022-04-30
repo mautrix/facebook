@@ -20,7 +20,7 @@ import asyncio
 from maufbapi.types import graphql
 from mautrix.bridge.commands import HelpSection, command_handler
 
-from .. import puppet as pu, user as u
+from .. import portal as po, puppet as pu, user as u
 from .typehint import CommandEvent
 
 SECTION_MISC = HelpSection("Miscellaneous", 40, "")
@@ -56,3 +56,15 @@ async def search(evt: CommandEvent) -> None:
         await evt.reply(f"Search results:\n\n{results}")
     else:
         await evt.reply("No results :(")
+
+
+@command_handler(
+    needs_auth=True,
+    management_only=False,
+    help_section=SECTION_MISC,
+    help_text="Backfill the current chat",
+)
+async def backfill(evt: CommandEvent) -> None:
+    portal: po.Portal = await po.Portal.get_by_mxid(evt.room_id)
+    await portal.enqueue_immediate_backfill(evt.sender, 0)
+    await evt.reply("Backfilling portal...")
