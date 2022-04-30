@@ -730,6 +730,11 @@ class Portal(DBPortal, BasePortal):
             portal_receiver=self.fb_receiver,
         ).upsert()
 
+        self.first_event_id = await self.az.intent.send_message_event(
+            self.mxid, EventType("fi.mau.dummy.portal_created", EventType.Class.MESSAGE), {}
+        )
+        await self.save()
+
         if self.config["bridge.backfill.enable"] and backfill:
             await self.enqueue_immediate_backfill(source, 0)
             await self.enqueue_deferred_backfills(source, 1, 0, datetime.now())
@@ -820,7 +825,7 @@ class Portal(DBPortal, BasePortal):
         thread: graphql.Thread,
     ) -> tuple[int, list[EventID]]:
         assert self.mxid and source.client
-        self.log.debug("Backfill request:", backfill_request)
+        self.log.debug("Backfill request: %s", backfill_request)
 
         history_max_ts = None
         history_batch_prev_event_id = None
@@ -832,7 +837,12 @@ class Portal(DBPortal, BasePortal):
         new_batch_prev_event_id = None
         new_batch_messages: list[BatchSendMessageEvent | BatchSendEncryptedEvent] = []
 
-        first_msg_timestamp = thread.messages.nodes[0].timestamp
+        first_message_in_thread = thread.messages.nodes[0]
+        first_msg_timestamp = (
+            first_message_in_thread.timestamp
+            if isinstance(first_message_in_thread, graphql.Message)
+            else first_message_in_thread.metadata.timestamp
+        )
 
         first_message = await DBMessage.get_first_in_chat(self.fbid, self.fb_receiver)
         last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
@@ -864,13 +874,14 @@ class Portal(DBPortal, BasePortal):
         if self.first_event_id or self.next_batch_id:
             history_batch_prev_event_id = self.first_event_id
             history_batch_batch_id = self.next_batch_id
-            if first_message is None and last_message is None:
-                history_max_ts = int(time.time())
-            else:
-                history_max_ts = first_msg_timestamp
 
-            if backfill_request.time_end:
-                history_max_ts = min(history_max_ts, int(backfill_request.time_end.timestamp()))
+        if first_message is None and last_message is None:
+            history_max_ts = int(time.time() * 1000)
+        else:
+            history_max_ts = first_msg_timestamp
+
+        if backfill_request.time_end:
+            history_max_ts = min(history_max_ts, int(backfill_request.time_end.timestamp()))
 
         if last_message:
             new_batch_prev_event_id = last_message.mxid
@@ -879,7 +890,10 @@ class Portal(DBPortal, BasePortal):
         max_batch_events = backfill_request.max_batch_events
         max_total_events = backfill_request.max_total_events
         self.log.debug(
-            "Backfilling up to %d events of history through %s", max_total_events, source.mxid
+            "Backfilling up to %d events of history in %s through %s",
+            max_total_events,
+            self.mxid,
+            source.mxid,
         )
         messages = thread.messages.nodes
 
@@ -900,31 +914,31 @@ class Portal(DBPortal, BasePortal):
                 if max_total_events and backfilled >= max_total_events:
                     break
 
+                if isinstance(message, graphql.Message):
+                    timestamp = message.timestamp
+                    message_id = message.message_id
+                else:
+                    timestamp = message.metadata.timestamp
+                    message_id = message.metadata.id
+
                 if (
                     backfill_request.time_start
-                    and message.timestamp < backfill_request.time_start.timestamp()
+                    and timestamp < backfill_request.time_start.timestamp()
                 ):
                     backfill_request_start_reached = True
                     break
 
-                if history_max_ts is not None and message.timestamp < history_max_ts:
+                if history_max_ts is not None and timestamp < history_max_ts:
                     batch_messages = history_batch_messages
-                elif new_min_ts is not None and new_min_ts < message.timestamp:
+                elif new_min_ts is not None and new_min_ts < timestamp:
                     batch_messages = new_batch_messages
                 else:
                     continue
 
-                message_id = (
-                    message.message_id
-                    if isinstance(message, graphql.Message)
-                    else message.metadata.id
-                )
                 message_map[message_id] = message
 
-                oldest_bridged_message_timestamp = min(
-                    oldest_bridged_message_timestamp, message.timestamp
-                )
-                last_message_timestamp = max(last_message_timestamp, message.timestamp)
+                oldest_bridged_message_timestamp = min(oldest_bridged_message_timestamp, timestamp)
+                last_message_timestamp = max(last_message_timestamp, timestamp)
 
                 puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
                 intent = puppet.intent_for(self)
@@ -962,10 +976,10 @@ class Portal(DBPortal, BasePortal):
                         batch_send_event_type = BatchSendMessageEvent
                     batch_messages.append(
                         batch_send_event_type(
-                            content,
-                            event_type,
-                            sender=UserID(puppet.mxid),
-                            timestamp=message.timestamp,
+                            content=content,
+                            type=event_type,
+                            sender=intent.mxid,
+                            timestamp=timestamp,
                         )
                     )
 
@@ -979,14 +993,14 @@ class Portal(DBPortal, BasePortal):
 
             if (history_batch_messages and history_batch_batch_id is None) or new_batch_messages:
                 self.log.debug("Sending dummy event to avoid forward extremity errors")
-                await self.main_intent.send_message_event(
+                history_batch_prev_event_id = await self.az.intent.send_message_event(
                     self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
                 )
 
             if history_batch_messages and history_batch_prev_event_id:
                 self.log.info("Sending %d historical messages...", len(history_batch_messages))
                 try:
-                    batch_send_resp = await self.main_intent.batch_send(
+                    batch_send_resp = await self.az.intent.batch_send(
                         self.mxid,
                         history_batch_prev_event_id,
                         batch_id=history_batch_batch_id,
@@ -998,12 +1012,12 @@ class Portal(DBPortal, BasePortal):
                     self.next_batch_id = batch_send_resp.next_batch_id
                     await self.save()
                 except Exception as e:
-                    self.log.error("Error sending batch of historical messages.", e)
+                    self.log.exception("Error sending batch of historical messages.")
 
             if new_batch_messages and new_batch_prev_event_id:
                 self.log.info("Sending %d new messages...", len(history_batch_messages))
                 try:
-                    batch_send_resp = await self.main_intent.batch_send(
+                    batch_send_resp = await self.az.intent.batch_send(
                         self.mxid, new_batch_prev_event_id, events=reversed(new_batch_messages)
                     )
                     insertion_event_ids.append(batch_send_resp.base_insertion_event_id)
@@ -1047,29 +1061,40 @@ class Portal(DBPortal, BasePortal):
     ):
         for event_id in event_ids:
             try:
-                event = await self.main_intent.get_event(self.mxid, event_id)
-                message_id = event[BACKFILL_ID_FIELD]
+                event = await self.az.intent.get_event(self.mxid, event_id)
+                if event.type == EventType.ROOM_ENCRYPTED:
+                    try:
+                        event = await self.matrix.e2ee.decrypt(event, wait_session_timeout=0)
+                    except SessionNotFound:
+                        return
+
+                message_id = event.content[BACKFILL_ID_FIELD]
                 message = message_map[message_id]
+                timestamp = (
+                    message.timestamp
+                    if isinstance(message, graphql.Message)
+                    else message.metadata.timestamp
+                )
                 await DBMessage(
                     mxid=event_id,
                     mx_room=self.mxid,
                     index=0,
-                    timestamp=message.timestamp,
+                    timestamp=timestamp,
                     fbid=message_id,
                     fb_chat=self.fbid,
                     fb_receiver=self.fb_receiver,
-                    fb_sender=message.message_sender.id,
+                    fb_sender=int(message.message_sender.id),
                     fb_txn_id=int(message.offline_threading_id),
                 ).insert()
             except Exception:
-                self.log.exception("Failed to ")
+                self.log.exception("Failed to finish batch")
 
     async def _send_post_backfill_dummy(
         self, last_message_timestamp: int, insertion_event_id: EventID
     ):
         assert self.mxid
         for evt_type in (BackfillEndDummyEvent, RoomMarker, MSC2716Marker):
-            event_id = await self.main_intent.send_message_event(
+            event_id = await self.az.intent.send_message_event(
                 self.mxid,
                 event_type=evt_type,
                 content={
@@ -1619,10 +1644,11 @@ class Portal(DBPortal, BasePortal):
             source, intent, message, reply_to
         ):
             assert isinstance(message, (graphql.Message, mqtt.Message))
-            if isinstance(message, graphql.Message):
-                timestamp = message.timestamp
-            elif isinstance(message, mqtt.Message):
-                timestamp = message.metadata.timestamp
+            timestamp = (
+                message.timestamp
+                if isinstance(message, graphql.Message)
+                else message.metadata.timestamp
+            )
             event_ids.append(
                 await self._send_message(
                     intent, content, event_type=event_type, timestamp=timestamp
