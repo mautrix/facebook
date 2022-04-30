@@ -539,8 +539,13 @@ class User(DBUser, BaseUser):
     async def _handle_backfill_requests_loop(self, request_queue: asyncio.Queue[Backfill]) -> None:
         while req := await request_queue.get():
             self.log.info("Backfill request %s", req)
-            portal = po.Portal.get_by_fbid(req.portal_fbid, fb_receiver=req.portal_fb_receiver)
-            portal.backfill(self, req)
+            try:
+                portal = await po.Portal.get_by_fbid(
+                    req.portal_fbid, fb_receiver=req.portal_fb_receiver
+                )
+                await portal.backfill(self, req)
+            except Exception:
+                self.log.exception("Failed to backfill portal")
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
