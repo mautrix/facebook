@@ -928,6 +928,9 @@ class Portal(DBPortal, BasePortal):
 
                 puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
                 intent = puppet.intent_for(self)
+                can_double_puppet_backfill = self._can_double_puppet_backfill(puppet.custom_mxid)
+                if puppet.custom_mxid and not can_double_puppet_backfill:
+                    intent = puppet.default_mxid_intent
 
                 # Convert the message
                 converted = await self.convert_facebook_message(source, intent, message)
@@ -935,7 +938,9 @@ class Portal(DBPortal, BasePortal):
                     self.log.debug("Skipping unsupported message in backfill")
                     continue
 
-                if not puppet.custom_mxid and puppet.mxid not in current_members:
+                if (
+                    not puppet.custom_mxid or not can_double_puppet_backfill
+                ) and puppet.mxid not in current_members:
                     add_member(puppet)
 
                 for event_type, content in converted:
@@ -1025,6 +1030,15 @@ class Portal(DBPortal, BasePortal):
             messages = resp.nodes
 
         return last_message_timestamp, insertion_event_ids
+
+    def _can_double_puppet_backfill(self, custom_mxid: UserID) -> bool:
+        if not self.config["bridge.backfill.double_puppet_backfill"]:
+            return False
+
+        # Batch sending can only use local users, so don't allow double puppets on other servers.
+        if custom_mxid[custom_mxid.index(":") + 1 :] != self.config["homeserver.domain"]:
+            return False
+        return True
 
     async def _finish_batch(
         self,
