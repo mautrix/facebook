@@ -496,6 +496,8 @@ class User(DBUser, BaseUser):
             del self.by_fbid[self.fbid]
             self.fbid = None
 
+            await Backfill.delete_all(self.mxid)
+
         await self.save()
         return ok
 
