@@ -912,7 +912,7 @@ class Portal(DBPortal, BasePortal):
 
         while True:
             backfilled_in_batch = 0
-            oldest_bridged_message_timestamp = 2**60
+            oldest_bridged_message_timestamp = int(time.time() * 1000)
 
             message_map: dict[str | None, graphql.Message | mqtt.Message] = {}
 
