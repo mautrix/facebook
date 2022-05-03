@@ -35,41 +35,48 @@ class BackfillType(IntEnum):
 
 
 class BackfillQueue:
-    immediate_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
-    deferred_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
-    re_check_queue: asyncio.Queue[bool] = asyncio.Queue()
+    _backfill_queues: dict[UserID, "BackfillQueue"] = {}
 
-    @staticmethod
-    def run_loops(user_mxid: UserID) -> tuple[asyncio.Task, asyncio.Task]:
+    @classmethod
+    def for_user(cls, user_mxid: UserID) -> "BackfillQueue":
+        if user_mxid not in cls._backfill_queues:
+            cls._backfill_queues[user_mxid] = BackfillQueue(user_mxid)
+        return cls._backfill_queues[user_mxid]
+
+    def __init__(self, user_mxid: UserID):
+        self.user_mxid = user_mxid
+        self.immediate_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
+        self.deferred_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
+        self.re_check_queue: asyncio.Queue[bool] = asyncio.Queue()
+
+    def run_loops(self) -> tuple[asyncio.Task, asyncio.Task]:
         return (
-            asyncio.create_task(BackfillQueue._immediate_backfill_loop(user_mxid)),
-            asyncio.create_task(BackfillQueue._deferred_backfill_loop(user_mxid)),
+            asyncio.create_task(self._immediate_backfill_loop()),
+            asyncio.create_task(self._deferred_backfill_loop()),
         )
 
-    @staticmethod
-    async def _immediate_backfill_loop(user_mxid: UserID):
+    async def _immediate_backfill_loop(self):
         while True:
-            backfill = await Backfill.get_next(user_mxid, BackfillType.IMMEDIATE)
+            backfill = await Backfill.get_next(self.user_mxid, BackfillType.IMMEDIATE)
             if backfill:
-                await BackfillQueue.immediate_requests.put(backfill)
+                await self.immediate_requests.put(backfill)
                 await backfill.mark_done()
             else:
                 try:
-                    await asyncio.wait_for(BackfillQueue.re_check_queue.get(), 10)
+                    await asyncio.wait_for(self.re_check_queue.get(), 10)
                 except asyncio.TimeoutError:
                     pass
 
-    @staticmethod
-    async def _deferred_backfill_loop(user_mxid: UserID):
+    async def _deferred_backfill_loop(self):
         while True:
-            immediate_backfill = await Backfill.get_next(user_mxid, BackfillType.IMMEDIATE)
+            immediate_backfill = await Backfill.get_next(self.user_mxid, BackfillType.IMMEDIATE)
             if immediate_backfill:
                 await asyncio.sleep(10)
                 continue
 
-            backfill = await Backfill.get_next(user_mxid, BackfillType.DEFERRED)
+            backfill = await Backfill.get_next(self.user_mxid, BackfillType.DEFERRED)
             if backfill:
-                await BackfillQueue.deferred_requests.put(backfill)
+                await self.deferred_requests.put(backfill)
                 await backfill.mark_done()
             else:
                 await asyncio.sleep(10)

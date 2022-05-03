@@ -739,7 +739,7 @@ class Portal(DBPortal, BasePortal):
         if self.config["bridge.backfill.enable"] and backfill:
             await self.enqueue_immediate_backfill(source, 0)
             await self.enqueue_deferred_backfills(source, 1, 0, datetime.now())
-            await BackfillQueue.re_check_queue.put(True)
+            await BackfillQueue.for_user(source.mxid).re_check_queue.put(True)
 
         await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
 

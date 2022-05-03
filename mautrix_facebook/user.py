@@ -514,10 +514,12 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
 
+        backfill_queue = BackfillQueue.for_user(self.mxid)
+
         # Immediate backfills can be done in parallel
         self.backfill_tasks.extend(
             asyncio.create_task(
-                self._handle_backfill_requests_loop(BackfillQueue.immediate_requests)
+                self._handle_backfill_requests_loop(backfill_queue.immediate_requests)
             )
             for _ in range(self.config["bridge.backfill.immediate.worker_count"])
         )
@@ -527,11 +529,11 @@ class User(DBUser, BaseUser):
         # at this stage.
         self.backfill_tasks.append(
             asyncio.create_task(
-                self._handle_backfill_requests_loop(BackfillQueue.deferred_requests)
+                self._handle_backfill_requests_loop(backfill_queue.deferred_requests)
             )
         )
 
-        self.backfill_tasks.extend(BackfillQueue.run_loops(self.mxid))
+        self.backfill_tasks.extend(backfill_queue.run_loops())
 
         if self.config["bridge.sync_on_startup"] or not is_startup or not self.seq_id:
             await self.sync_threads(start_listen=True)
@@ -607,7 +609,7 @@ class User(DBUser, BaseUser):
             portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
             await portal.enqueue_immediate_backfill(self, priority)
             await portal.enqueue_deferred_backfills(self, len(resp.nodes), priority, now)
-            await BackfillQueue.re_check_queue.put(True)
+            await BackfillQueue.for_user(self.mxid).re_check_queue.put(True)
 
         await self.update_direct_chats()
 
