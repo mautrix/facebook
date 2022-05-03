@@ -34,6 +34,7 @@ from mautrix.appservice import DOUBLE_PUPPET_SOURCE_KEY, IntentAPI
 from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
 from mautrix.errors import IntentError, MatrixError, MForbidden, MNotFound, SessionNotFound
 from mautrix.types import (
+    JSON,
     AudioInfo,
     BatchID,
     BatchSendEncryptedEvent,
@@ -853,24 +854,30 @@ class Portal(DBPortal, BasePortal):
             self.mxid, memberships=(Membership.JOIN,)
         )
 
-        def add_member(puppet: p.Puppet):
+        def add_member(puppet: p.Puppet, mxid: UserID):
             assert self.mxid
-            if puppet.mxid in added_members:
+            if mxid in added_members:
                 return
-            content_args = {"avatar_url": puppet.photo_mxc, "displayname": puppet.name}
-            invite_content = MemberStateEventContent(Membership.INVITE, **content_args)
-            join_content = MemberStateEventContent(Membership.JOIN, **content_args)
-            for c in (invite_content, join_content):
-                history_state_events_at_start.append(
+            content_args: JSON = {"avatar_url": puppet.photo_mxc, "displayname": puppet.name}
+            history_state_events_at_start.extend(
+                [
                     BatchSendStateEvent(
-                        content=c,
+                        content=MemberStateEventContent(Membership.INVITE, **content_args),
                         type=EventType.ROOM_MEMBER,
                         sender=self.main_intent.mxid,
-                        state_key=puppet.mxid,
+                        state_key=mxid,
                         timestamp=first_msg_timestamp,
-                    )
-                )
-            added_members.add(puppet.mxid)
+                    ),
+                    BatchSendStateEvent(
+                        content=MemberStateEventContent(Membership.JOIN, **content_args),
+                        type=EventType.ROOM_MEMBER,
+                        sender=mxid,
+                        state_key=mxid,
+                        timestamp=first_msg_timestamp,
+                    ),
+                ]
+            )
+            added_members.add(mxid)
 
         if self.first_event_id or self.next_batch_id:
             history_batch_prev_event_id = self.first_event_id
@@ -944,7 +951,7 @@ class Portal(DBPortal, BasePortal):
                 puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
                 intent = puppet.intent_for(self)
                 can_double_puppet_backfill = self._can_double_puppet_backfill(puppet.custom_mxid)
-                if puppet.custom_mxid and not can_double_puppet_backfill:
+                if not puppet.custom_mxid or not can_double_puppet_backfill:
                     intent = puppet.default_mxid_intent
 
                 # Convert the message
@@ -955,8 +962,8 @@ class Portal(DBPortal, BasePortal):
 
                 if (
                     not puppet.custom_mxid or not can_double_puppet_backfill
-                ) and puppet.mxid not in current_members:
-                    add_member(puppet)
+                ) and intent.mxid not in current_members:
+                    add_member(puppet, intent.mxid)
 
                 for event_type, content in converted:
                     content[BACKFILL_ID_FIELD] = message_id
