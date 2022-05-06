@@ -392,14 +392,13 @@ class User(DBUser, BaseUser):
                 else:
                     self.log.debug("MQTT connection disconnected")
             self.mqtt = None
-            if self.client:
-                self.client.sequence_id_callback = None
         if self.temp_disconnect_notices or force_notice:
             event_id = await self.send_bridge_notice(
                 "Refreshing session...",
                 edit=event_id,
                 state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
             )
+        self.client = None
         await self.reload_session(event_id)
 
     async def reload_session(
@@ -446,6 +445,8 @@ class User(DBUser, BaseUser):
         await self.listen_task
         self.listen_task = None
         self.mqtt = None
+        if self.client:
+            self.client.setup_http()
         if fetch_user:
             self.log.debug("Fetching current user after MQTT disconnection")
             await self.fetch_logged_in_user(action="fetch current user after MQTT disconnection")
