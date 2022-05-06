@@ -243,6 +243,8 @@ bridge:
     # If set to true, downloading media from the CDN will use a plain aiohttp client without the usual headers or
     # other configuration. This may be useful if you don't want to use the default proxy for large files.
     sandbox_media_download: false
+    # URL to call to retrieve a proxy URL from (defaults to the http_proxy environment variable).
+    get_proxy_api_url: null
 
     # Permissions for using the bridge.
     # Permitted values:

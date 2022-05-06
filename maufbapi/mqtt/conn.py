@@ -31,6 +31,7 @@ import paho.mqtt.client as pmc
 
 from mautrix.util.logging import TraceLogger
 
+from ..proxy import get_proxy_url
 from ..state import AndroidState
 from ..thrift import ThriftObject
 from ..types import (
@@ -49,7 +50,6 @@ from ..types import (
     TypingNotification,
 )
 from ..types.mqtt import Mention, Presence
-from ..proxy import get_proxy_url
 from .events import Connect, Disconnect
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
@@ -102,6 +102,7 @@ class AndroidMQTT:
         loop: asyncio.AbstractEventLoop | None = None,
         log: TraceLogger | None = None,
         connect_token_hash: bytes | None = None,
+        get_proxy_api_url: str | None = None,
     ) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
@@ -126,7 +127,7 @@ class AndroidMQTT:
             protocol=pmc.MQTTv31,
             transport="tcp",
         )
-        http_proxy = get_proxy_url()
+        http_proxy = get_proxy_url(api_url=get_proxy_api_url)
         if http_proxy:
             if not socks:
                 self.log.warning("http_proxy is set, but pysocks is not installed")

@@ -77,10 +77,15 @@ class BaseAndroidAPI:
     # Seems to be a per-request incrementing integer
     _tid: int
 
-    def __init__(self, state: AndroidState, log: TraceLogger | None = None) -> None:
+    def __init__(
+        self,
+        state: AndroidState,
+        log: TraceLogger | None = None,
+        get_proxy_api_url: str | None = None,
+    ) -> None:
         self.log = log or logging.getLogger("mauigpapi.http")
 
-        self.setup_http()
+        self.setup_http(api_url=get_proxy_api_url)
         self.state = state
         self._cid = ""
         self._cid_ts = 0
@@ -148,9 +153,9 @@ class BaseAndroidAPI:
             "client_country_code": self.state.device.country_code,
         }
 
-    def setup_http(self):
+    def setup_http(self, api_url: str | None = None):
         connector = None
-        http_proxy = get_proxy_url()
+        http_proxy = get_proxy_url(api_url=api_url)
         if http_proxy:
             if ProxyConnector:
                 connector = ProxyConnector.from_url(http_proxy)

@@ -728,6 +728,7 @@ class User(DBUser, BaseUser):
                     self.state,
                     log=self.log.getChild("mqtt"),
                     connect_token_hash=self.connect_token_hash,
+                    get_proxy_api_url=self.config["bridge.get_proxy_api_url"],
                 )
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint
@@ -841,7 +842,11 @@ class User(DBUser, BaseUser):
         self.fbid = state.session.uid
         await self.push_bridge_state(BridgeStateEvent.CONNECTING)
         self.state = state
-        self.client = AndroidAPI(state, log=self.log.getChild("api"))
+        self.client = AndroidAPI(
+            state,
+            log=self.log.getChild("api"),
+            get_proxy_api_url=self.config["bridge.get_proxy_api_url"],
+        )
         await self.save()
         try:
             self._logged_in_info = await self.client.fetch_logged_in_user(post_login=True)
