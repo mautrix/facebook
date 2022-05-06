@@ -24,7 +24,6 @@ import logging
 import random
 import re
 import time
-import urllib.request
 import zlib
 
 from yarl import URL
@@ -50,6 +49,7 @@ from ..types import (
     TypingNotification,
 )
 from ..types.mqtt import Mention, Presence
+from ..proxy import get_proxy_url
 from .events import Connect, Disconnect
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
@@ -126,11 +126,8 @@ class AndroidMQTT:
             protocol=pmc.MQTTv31,
             transport="tcp",
         )
-        try:
-            http_proxy = urllib.request.getproxies()["http"]
-        except KeyError:
-            http_proxy = None
-        else:
+        http_proxy = get_proxy_url()
+        if http_proxy:
             if not socks:
                 self.log.warning("http_proxy is set, but pysocks is not installed")
             else:
