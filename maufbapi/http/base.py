@@ -67,6 +67,7 @@ class BaseAndroidAPI:
     rupload_url = URL("https://rupload.facebook.com")
     http: ClientSession
     log: TraceLogger
+    get_proxy_api_url: str
 
     # Seems to be a per-minute request identifier
     _cid: str
@@ -85,7 +86,9 @@ class BaseAndroidAPI:
     ) -> None:
         self.log = log or logging.getLogger("mauigpapi.http")
 
-        self.setup_http(api_url=get_proxy_api_url)
+        self.get_proxy_api_url = get_proxy_api_url
+        self.setup_http()
+
         self.state = state
         self._cid = ""
         self._cid_ts = 0
@@ -153,9 +156,9 @@ class BaseAndroidAPI:
             "client_country_code": self.state.device.country_code,
         }
 
-    def setup_http(self, api_url: str | None = None):
+    def setup_http(self) -> str | None:
         connector = None
-        http_proxy = get_proxy_url(api_url=api_url)
+        http_proxy = get_proxy_url(api_url=self.get_proxy_api_url)
         if http_proxy:
             if ProxyConnector:
                 connector = ProxyConnector.from_url(http_proxy)
@@ -163,6 +166,7 @@ class BaseAndroidAPI:
                 self.log.warning("http_proxy is set, but aiohttp-socks is not installed")
 
         self.http = ClientSession(connector=connector)
+        return None
 
     def get(
         self,
