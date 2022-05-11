@@ -23,7 +23,7 @@ import time
 
 from aiohttp import ClientConnectionError
 
-from maufbapi import AndroidAPI, AndroidMQTT, AndroidState
+from maufbapi import AndroidAPI, AndroidMQTT, AndroidState, ProxyHandler
 from maufbapi.http import InvalidAccessToken, ResponseError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn
 from maufbapi.types import graphql, mqtt as mqtt_t
@@ -171,6 +171,10 @@ class User(DBUser, BaseUser):
         self.mqtt = None
         self.listen_task = None
 
+        self.proxy_handler = ProxyHandler(
+            api_url=self.config["bridge.get_proxy_api_url"],
+        )
+
     @classmethod
     def init_cls(cls, bridge: "MessengerBridge") -> AsyncIterable[Awaitable[bool]]:
         cls.bridge = bridge
@@ -287,7 +291,11 @@ class User(DBUser, BaseUser):
         self.state.device.connection_type = self.config["facebook.connection_type"]
         self.state.carrier.name = self.config["facebook.carrier"]
         self.state.carrier.hni = self.config["facebook.hni"]
-        client = AndroidAPI(self.state, log=self.log.getChild("api"))
+        client = AndroidAPI(
+            self.state,
+            log=self.log.getChild("api"),
+            proxy_handler=self.proxy_handler,
+        )
         user_info = await self.fetch_logged_in_user(client)
         if user_info:
             self.log.info("Loaded session successfully")
@@ -728,7 +736,7 @@ class User(DBUser, BaseUser):
                     self.state,
                     log=self.log.getChild("mqtt"),
                     connect_token_hash=self.connect_token_hash,
-                    get_proxy_api_url=self.config["bridge.get_proxy_api_url"],
+                    proxy_handler=self.proxy_handler,
                 )
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint
@@ -845,7 +853,7 @@ class User(DBUser, BaseUser):
         self.client = AndroidAPI(
             state,
             log=self.log.getChild("api"),
-            get_proxy_api_url=self.config["bridge.get_proxy_api_url"],
+            proxy_handler=self.proxy_handler,
         )
         await self.save()
         try:

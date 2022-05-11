@@ -31,7 +31,7 @@ import paho.mqtt.client as pmc
 
 from mautrix.util.logging import TraceLogger
 
-from ..proxy import get_proxy_url
+from ..proxy import ProxyHandler
 from ..state import AndroidState
 from ..thrift import ThriftObject
 from ..types import (
@@ -102,7 +102,7 @@ class AndroidMQTT:
         loop: asyncio.AbstractEventLoop | None = None,
         log: TraceLogger | None = None,
         connect_token_hash: bytes | None = None,
-        get_proxy_api_url: str | None = None,
+        proxy_handler: ProxyHandler | None = None,
     ) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
@@ -127,7 +127,26 @@ class AndroidMQTT:
             protocol=pmc.MQTTv31,
             transport="tcp",
         )
-        http_proxy = get_proxy_url(api_url=get_proxy_api_url)
+        self.proxy_handler = proxy_handler
+        self.setup_proxy()
+        self._client.enable_logger()
+        self._client.tls_set()
+        # mqtt.max_inflight_messages_set(20)  # The rest will get queued
+        # mqtt.max_queued_messages_set(0)  # Unlimited messages can be queued
+        # mqtt.message_retry_set(20)  # Retry sending for at least 20 seconds
+        # mqtt.reconnect_delay_set(min_delay=1, max_delay=120)
+        self._client.connect_async("edge-mqtt.facebook.com", 443, keepalive=60)
+        self._client.on_message = self._on_message_handler
+        self._client.on_publish = self._on_publish_handler
+        self._client.on_connect = self._on_connect_handler
+        self._client.on_disconnect = self._on_disconnect_handler
+        self._client.on_socket_open = self._on_socket_open
+        self._client.on_socket_close = self._on_socket_close
+        self._client.on_socket_register_write = self._on_socket_register_write
+        self._client.on_socket_unregister_write = self._on_socket_unregister_write
+
+    def setup_proxy(self):
+        http_proxy = self.proxy_handler.get_proxy_url()
         if http_proxy:
             if not socks:
                 self.log.warning("http_proxy is set, but pysocks is not installed")
@@ -147,21 +166,6 @@ class AndroidMQTT:
                     proxy_username=proxy_url.user,
                     proxy_password=proxy_url.password,
                 )
-        self._client.enable_logger()
-        self._client.tls_set()
-        # mqtt.max_inflight_messages_set(20)  # The rest will get queued
-        # mqtt.max_queued_messages_set(0)  # Unlimited messages can be queued
-        # mqtt.message_retry_set(20)  # Retry sending for at least 20 seconds
-        # mqtt.reconnect_delay_set(min_delay=1, max_delay=120)
-        self._client.connect_async("edge-mqtt.facebook.com", 443, keepalive=60)
-        self._client.on_message = self._on_message_handler
-        self._client.on_publish = self._on_publish_handler
-        self._client.on_connect = self._on_connect_handler
-        self._client.on_disconnect = self._on_disconnect_handler
-        self._client.on_socket_open = self._on_socket_open
-        self._client.on_socket_close = self._on_socket_close
-        self._client.on_socket_register_write = self._on_socket_register_write
-        self._client.on_socket_unregister_write = self._on_socket_unregister_write
 
     def _clear_response_waiters(self) -> None:
         for waiter in self._response_waiters.values():

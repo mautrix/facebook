@@ -35,7 +35,7 @@ import zstandard as zstd
 from mautrix.types import JSON
 from mautrix.util.logging import TraceLogger
 
-from ..proxy import get_proxy_url
+from ..proxy import ProxyHandler
 from ..state import AndroidState
 from ..types import GraphQLMutation, GraphQLQuery
 from .errors import GraphQLError, ResponseError, ResponseTypeError, error_class_map, error_code_map
@@ -82,11 +82,11 @@ class BaseAndroidAPI:
         self,
         state: AndroidState,
         log: TraceLogger | None = None,
-        get_proxy_api_url: str | None = None,
+        proxy_handler: ProxyHandler | None = None,
     ) -> None:
         self.log = log or logging.getLogger("mauigpapi.http")
 
-        self.get_proxy_api_url = get_proxy_api_url
+        self.proxy_handler = proxy_handler
         self.setup_http()
 
         self.state = state
@@ -156,9 +156,9 @@ class BaseAndroidAPI:
             "client_country_code": self.state.device.country_code,
         }
 
-    def setup_http(self) -> str | None:
+    def setup_http(self) -> None:
         connector = None
-        http_proxy = get_proxy_url(api_url=self.get_proxy_api_url)
+        http_proxy = self.proxy_handler.get_proxy_url()
         if http_proxy:
             if ProxyConnector:
                 connector = ProxyConnector.from_url(http_proxy)
