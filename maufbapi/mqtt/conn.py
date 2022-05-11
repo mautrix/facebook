@@ -50,7 +50,7 @@ from ..types import (
     TypingNotification,
 )
 from ..types.mqtt import Mention, Presence
-from .events import Connect, Disconnect
+from .events import Connect, Disconnect, ProxyUpdate
 from .otclient import MQTToTClient
 from .subscription import RealtimeTopic, topic_map
 
@@ -556,6 +556,9 @@ class AndroidMQTT:
                 elif rc == pmc.MQTT_ERR_NO_CONN:
                     if connection_retries > retry_limit:
                         raise MQTTNotConnected(f"Connection failed {connection_retries} times")
+                    if self.proxy_handler.update_proxy_url():
+                        self.setup_proxy()
+                        await self._dispatch(ProxyUpdate())
                     sleep = connection_retries * 2
                     msg = f"MQTT Error: no connection, retrying in {connection_retries} seconds"
                     await self._dispatch(Disconnect(reason=msg))
