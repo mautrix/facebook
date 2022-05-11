@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import urllib.request
@@ -6,6 +8,9 @@ import urllib.request
 class ProxyHandler:
     current_proxy_url: str | None = None
     log = logging.getLogger("maufbapi.proxy")
+
+    def __init__(self, api_url: str) -> None:
+        self.api_url = api_url
 
     def get_proxy_url_from_api(self) -> str | None:
         request = urllib.request.Request(self.api_url, method="GET")
@@ -18,12 +23,14 @@ class ProxyHandler:
         else:
             return response["proxy_url"]
 
+        return None
+
     def update_proxy_url(self) -> bool:
         old_proxy = self.current_proxy_url
         new_proxy = None
 
         if self.api_url is not None:
-            new_proxy = self.get_proxy_url_from_api(self.api_url)
+            new_proxy = self.get_proxy_url_from_api()
         else:
             new_proxy = urllib.request.getproxies().get("http")
 
