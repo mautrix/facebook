@@ -331,6 +331,7 @@ class Portal(DBPortal, BasePortal):
             raise ValueError("URL not provided")
         headers = {"referer": f"fbapp://{source.state.application.client_id}/{referer}"}
         sandbox = cls.config["bridge.sandbox_media_download"]
+        cls.log.trace("Reuploading file %s", url)
         async with source.client.get(url, headers=headers, sandbox=sandbox) as resp:
             length = int(resp.headers["Content-Length"])
             if length > cls.matrix.media_config.upload_size:
@@ -1392,7 +1393,8 @@ class Portal(DBPortal, BasePortal):
                 )
             info.size = additional_info.size
             info.mimetype = additional_info.mimetype
-            filename = f"{sa.media.typename_str}{mimetypes.guess_extension(info.mimetype)}"
+            title = sa.title or sa.media.typename_str
+            filename = f"{title}{mimetypes.guess_extension(info.mimetype)}"
             return MediaMessageEventContent(
                 url=mxc,
                 file=decryption_info,
