@@ -354,6 +354,13 @@ class StoryMediaAttachment(SerializableAttrs):
 
 
 @dataclass
+class ActionLink(SerializableAttrs):
+    typename_str: str = field(json="__typename")  # e.g. GroupJoinActionLink
+    title: Optional[str] = None
+    url: Optional[str] = None
+
+
+@dataclass
 class StoryAttachment(SerializableAttrs):
     title: str
     url: Optional[str] = None
@@ -366,6 +373,7 @@ class StoryAttachment(SerializableAttrs):
     target: Optional[StoryTarget] = None
     deduplication_key: Optional[str] = None
     media: Optional[StoryMediaAttachment] = None
+    action_links: List[ActionLink] = None
 
     @property
     def clean_url(self) -> URL:
