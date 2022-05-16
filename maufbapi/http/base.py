@@ -174,10 +174,10 @@ class BaseAndroidAPI:
         orig_url = url
         url = URL(url)
         if "/" in url.query_string:
-            # Hacky hacks for forcing encoded slashes in query parameters.
-            # Normally yarl/aiohttp forces decoding slashes in query parameters, but Facebook's
-            # CDN doesn't like that (the reason there are slashes in the URL in the first place
-            # is thatFacebook hasn't heard of URL-safe base64).
+            # Hacky hacks for forcing encoded slashes in query parameters. Normally yarl/aiohttp
+            # forces decoding slashes in query parameters, but that breaks Facebook's URL signature
+            # and the CDN rejects the request. (the reason there are slashes in the URL in the
+            # first place is presumably that Facebook hasn't heard of URL-safe base64).
             urlparsed = urlparse(orig_url)
             url = url.with_query(None).with_path(
                 f"{urlparsed.path}?{urlparsed.query}", encoded=True
