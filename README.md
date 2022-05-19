@@ -13,8 +13,8 @@ All setup and usage instructions are located on
 [docs.mau.fi](https://docs.mau.fi/bridges/python/facebook/index.html).
 Some quick links:
 
-* [Bridge setup](https://docs.mau.fi/bridges/python/setup/index.html?bridge=facebook)
-  (or [with Docker](https://docs.mau.fi/bridges/python/setup/docker.html?bridge=facebook))
+* [Bridge setup](https://docs.mau.fi/bridges/python/setup.html?bridge=facebook)
+  (or [with Docker](https://docs.mau.fi/bridges/general/docker-setup.html?bridge=facebook))
 * Basic usage: [Authentication](https://docs.mau.fi/bridges/python/facebook/authentication.html)
 
 ### Features & Roadmap
