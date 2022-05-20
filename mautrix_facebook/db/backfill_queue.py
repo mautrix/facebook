@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Iterable
 from datetime import datetime
 from enum import IntEnum
 import asyncio
@@ -31,55 +31,28 @@ fake_db = Database.create("") if TYPE_CHECKING else None
 
 class BackfillType(IntEnum):
     IMMEDIATE = 0
-    DEFERRED = 100
+    FORWARD = 100
+    DEFERRED = 200
 
 
 class BackfillQueue:
-    _backfill_queues: dict[UserID, "BackfillQueue"] = {}
+    def __init__(self, user_id: UserID):
+        self._user_id = user_id
+        self._re_check_queues: list[asyncio.Queue[bool]] = []
 
-    @classmethod
-    def for_user(cls, user_mxid: UserID) -> "BackfillQueue":
-        if user_mxid not in cls._backfill_queues:
-            cls._backfill_queues[user_mxid] = BackfillQueue(user_mxid)
-        return cls._backfill_queues[user_mxid]
+    def re_check(self):
+        for queue in self._re_check_queues:
+            try:
+                queue.put_nowait(True)
+            except asyncio.QueueFull:
+                # This is fine, it just means that there's already a re-check request in the queue.
+                pass
 
-    def __init__(self, user_mxid: UserID):
-        self.user_mxid = user_mxid
-        self.immediate_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
-        self.deferred_requests: asyncio.Queue[Backfill] = asyncio.Queue(maxsize=1)
-        self.re_check_queue: asyncio.Queue[bool] = asyncio.Queue()
+    def add_re_check_queue(self, queue: asyncio.Queue):
+        self._re_check_queues.append(queue)
 
-    def run_loops(self) -> tuple[asyncio.Task, asyncio.Task]:
-        return (
-            asyncio.create_task(self._immediate_backfill_loop()),
-            asyncio.create_task(self._deferred_backfill_loop()),
-        )
-
-    async def _immediate_backfill_loop(self):
-        while True:
-            backfill = await Backfill.get_next(self.user_mxid, BackfillType.IMMEDIATE)
-            if backfill:
-                await self.immediate_requests.put(backfill)
-                await backfill.mark_done()
-            else:
-                try:
-                    await asyncio.wait_for(self.re_check_queue.get(), 10)
-                except asyncio.TimeoutError:
-                    pass
-
-    async def _deferred_backfill_loop(self):
-        while True:
-            immediate_backfill = await Backfill.get_next(self.user_mxid, BackfillType.IMMEDIATE)
-            if immediate_backfill:
-                await asyncio.sleep(10)
-                continue
-
-            backfill = await Backfill.get_next(self.user_mxid, BackfillType.DEFERRED)
-            if backfill:
-                await self.deferred_requests.put(backfill)
-                await backfill.mark_done()
-            else:
-                await asyncio.sleep(10)
+    async def get_next(self, backfill_types: Iterable[BackfillType]) -> Backfill | None:
+        return await Backfill.get_next(self._user_id, backfill_types)
 
 
 @dataclass
@@ -93,10 +66,10 @@ class Backfill:
     portal_fbid: int
     portal_fb_receiver: int
     time_start: datetime | None
-    time_end: datetime | None
     max_batch_events: int | None
     max_total_events: int | None
     batch_delay: int
+    dispatch_time: datetime | None
     completed_at: datetime | None
 
     @staticmethod
@@ -107,7 +80,6 @@ class Backfill:
         portal_fbid: int,
         portal_fb_receiver: int,
         time_start: datetime | None = None,
-        time_end: datetime | None = None,
         max_batch_events: int | None = None,
         max_total_events: int = -1,
         batch_delay: int = 0,
@@ -120,10 +92,10 @@ class Backfill:
             portal_fbid=portal_fbid,
             portal_fb_receiver=portal_fb_receiver,
             time_start=time_start,
-            time_end=time_end,
             max_batch_events=max_batch_events,
             max_total_events=max_total_events,
             batch_delay=batch_delay,
+            dispatch_time=None,
             completed_at=None,
         )
 
@@ -140,26 +112,34 @@ class Backfill:
         "portal_fbid",
         "portal_fb_receiver",
         "time_start",
-        "time_end",
         "max_batch_events",
         "max_total_events",
         "batch_delay",
+        "dispatch_time",
         "completed_at",
     ]
     columns_str = ",".join(columns)
 
     @classmethod
-    async def get_next(cls, user_mxid: UserID, backfill_type: BackfillType) -> Backfill | None:
+    async def get_next(
+        cls, user_mxid: UserID, backfill_types: Iterable[BackfillType]
+    ) -> Backfill | None:
         q = f"""
         SELECT queue_id, {cls.columns_str}
-          FROM backfill_queue
-         WHERE user_mxid=$1
-           AND type=$2
-           AND completed_at IS NULL
-      ORDER BY priority, queue_id
-         LIMIT 1
+        FROM backfill_queue
+        WHERE user_mxid=$1
+            AND type IN ({','.join([str(bt.value) for bt in backfill_types])})
+            AND (
+                dispatch_time IS NULL
+                OR (
+                    dispatch_time < current_timestamp - interval '15 minutes'
+                    AND completed_at IS NULL
+                )
+            )
+        ORDER BY type, priority, queue_id
+        LIMIT 1
         """
-        return cls._from_row(await cls.db.fetchrow(q, user_mxid, backfill_type))
+        return cls._from_row(await cls.db.fetchrow(q, user_mxid))
 
     @classmethod
     async def delete_all(cls, user_mxid: UserID) -> None:
@@ -171,22 +151,25 @@ class Backfill:
         VALUES ({','.join(f'${i+1}' for i in range(len(self.columns)))})
         RETURNING queue_id
         """
-        self.queue_id = (
-            await self.db.fetchrow(
-                q,
-                self.user_mxid,
-                self.type,
-                self.priority,
-                self.portal_fbid,
-                self.portal_fb_receiver,
-                self.time_start,
-                self.time_end,
-                self.max_batch_events,
-                self.max_total_events,
-                self.batch_delay,
-                self.completed_at,
-            )
-        )["queue_id"]
+        row = await self.db.fetchrow(
+            q,
+            self.user_mxid,
+            self.type,
+            self.priority,
+            self.portal_fbid,
+            self.portal_fb_receiver,
+            self.time_start,
+            self.max_batch_events,
+            self.max_total_events,
+            self.batch_delay,
+            self.dispatch_time,
+            self.completed_at,
+        )
+        self.queue_id = row["queue_id"]
+
+    async def mark_dispatched(self) -> None:
+        q = "UPDATE backfill_queue SET dispatch_time=$1 WHERE queue_id=$2"
+        await self.db.execute(q, datetime.now(), self.queue_id)
 
     async def mark_done(self) -> None:
         q = "UPDATE backfill_queue SET completed_at=$1 WHERE queue_id=$2"

@@ -48,7 +48,7 @@ from mautrix.util.simple_lock import SimpleLock
 from . import portal as po, puppet as pu
 from .commands import enter_2fa_code
 from .config import Config
-from .db import Backfill, BackfillQueue, ThreadType, User as DBUser, UserPortal
+from .db import Backfill, BackfillQueue, BackfillType, ThreadType, User as DBUser, UserPortal
 from .presence import PresenceUpdater
 from .util.interval import get_interval
 
@@ -109,6 +109,7 @@ class User(DBUser, BaseUser):
     listen_task: asyncio.Task | None
     backfill_tasks: list[asyncio.Task] = []
     seq_id: int | None
+    backfill_queue: BackfillQueue
 
     _notice_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
@@ -172,6 +173,7 @@ class User(DBUser, BaseUser):
         self.client = None
         self.mqtt = None
         self.listen_task = None
+        self.backfill_queue = BackfillQueue(mxid)
 
         self.proxy_handler = ProxyHandler(
             api_url=self.config["bridge.get_proxy_api_url"],
@@ -514,12 +516,10 @@ class User(DBUser, BaseUser):
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
 
-        backfill_queue = BackfillQueue.for_user(self.mxid)
-
         # Immediate backfills can be done in parallel
         self.backfill_tasks.extend(
             asyncio.create_task(
-                self._handle_backfill_requests_loop(backfill_queue.immediate_requests)
+                self._handle_backfill_requests_loop(BackfillType.IMMEDIATE, BackfillType.FORWARD)
             )
             for _ in range(self.config["bridge.backfill.immediate.worker_count"])
         )
@@ -528,26 +528,27 @@ class User(DBUser, BaseUser):
         # Users can configure their backfill stages to be more or less aggressive with backfilling
         # at this stage.
         self.backfill_tasks.append(
-            asyncio.create_task(
-                self._handle_backfill_requests_loop(backfill_queue.deferred_requests)
-            )
+            asyncio.create_task(self._handle_backfill_requests_loop(BackfillType.DEFERRED))
         )
-
-        self.backfill_tasks.extend(backfill_queue.run_loops())
 
         if self.config["bridge.sync_on_startup"] or not is_startup or not self.seq_id:
             await self.sync_threads(start_listen=True)
         else:
             self.start_listen()
 
-    async def _handle_backfill_requests_loop(self, request_queue: asyncio.Queue[Backfill]) -> None:
-        while req := await request_queue.get():
+    async def _handle_backfill_requests_loop(self, *backfill_types: BackfillType) -> None:
+        re_check_queue: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
+        self.backfill_queue.add_re_check_queue(re_check_queue)
+
+        while req := await self.backfill_queue.get_next(backfill_types):
             self.log.info("Backfill request %s", req)
             try:
                 portal = await po.Portal.get_by_fbid(
                     req.portal_fbid, fb_receiver=req.portal_fb_receiver
                 )
+                await req.mark_dispatched()
                 await portal.backfill(self, req)
+                await req.mark_done()
             except Exception:
                 self.log.exception("Failed to backfill portal")
 
@@ -609,7 +610,7 @@ class User(DBUser, BaseUser):
             portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
             await portal.enqueue_immediate_backfill(self, priority)
             await portal.enqueue_deferred_backfills(self, len(resp.nodes), priority, now)
-            await BackfillQueue.for_user(self.mxid).re_check_queue.put(True)
+            self.backfill_queue.re_check()
 
         await self.update_direct_chats()
 
