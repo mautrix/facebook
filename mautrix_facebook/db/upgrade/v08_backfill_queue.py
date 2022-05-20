@@ -30,10 +30,10 @@ async def upgrade_v7(conn: Connection) -> None:
             portal_fbid         BIGINT,
             portal_fb_receiver  BIGINT,
             time_start          TIMESTAMP,
-            time_end            TIMESTAMP,
             max_batch_events    INTEGER NOT NULL,
             max_total_events    INTEGER,
             batch_delay         INTEGER,
+            dispatch_time       TIMESTAMP,
             completed_at        TIMESTAMP,
 
             FOREIGN KEY (user_mxid) REFERENCES "user"(mxid) ON DELETE CASCADE ON UPDATE CASCADE,

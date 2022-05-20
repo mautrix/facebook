@@ -37,8 +37,7 @@ from mautrix.types import (
     JSON,
     AudioInfo,
     BatchID,
-    BatchSendEncryptedEvent,
-    BatchSendMessageEvent,
+    BatchSendEvent,
     BatchSendStateEvent,
     BeeperMessageStatusEventContent,
     ContentURI,
@@ -73,7 +72,6 @@ from . import matrix as m, puppet as p, user as u
 from .config import Config
 from .db import (
     Backfill,
-    BackfillQueue,
     BackfillType,
     Message as DBMessage,
     Portal as DBPortal,
@@ -740,7 +738,7 @@ class Portal(DBPortal, BasePortal):
         if self.config["bridge.backfill.enable"] and backfill:
             await self.enqueue_immediate_backfill(source, 0)
             await self.enqueue_deferred_backfills(source, 1, 0, datetime.now())
-            await BackfillQueue.for_user(source.mxid).re_check_queue.put(True)
+            source.backfill_queue.re_check()
 
         await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
 
@@ -785,7 +783,13 @@ class Portal(DBPortal, BasePortal):
         assert source.client
         with self.backfill_lock:
             # Get the thread information.
-            threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
+            while True:
+                try:
+                    threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
+                    break
+                except Exception as e:
+                    await asyncio.sleep(10)
+
             if not threads:
                 return None
             elif threads[0].thread_key.id != self.fbid:
@@ -832,12 +836,12 @@ class Portal(DBPortal, BasePortal):
         history_max_ts = None
         history_batch_prev_event_id = None
         history_batch_batch_id = None
-        history_batch_messages: list[BatchSendMessageEvent | BatchSendEncryptedEvent] = []
+        history_batch_messages: list[BatchSendEvent] = []
         history_state_events_at_start: list[BatchSendStateEvent] = []
 
         new_min_ts = None
         new_batch_prev_event_id = None
-        new_batch_messages: list[BatchSendMessageEvent | BatchSendEncryptedEvent] = []
+        new_batch_messages: list[BatchSendEvent] = []
 
         first_message_in_thread = thread.messages.nodes[0]
         first_msg_timestamp = (
@@ -888,9 +892,6 @@ class Portal(DBPortal, BasePortal):
         else:
             history_max_ts = first_msg_timestamp
 
-        if backfill_request.time_end:
-            history_max_ts = min(history_max_ts, int(backfill_request.time_end.timestamp()))
-
         if last_message:
             new_batch_prev_event_id = last_message.mxid
             new_min_ts = last_message.timestamp
@@ -919,7 +920,7 @@ class Portal(DBPortal, BasePortal):
             for message in reversed(messages):
                 if max_batch_events and backfilled_in_batch >= max_batch_events:
                     break
-                if max_total_events and backfilled >= max_total_events:
+                if max_total_events and max_total_events >= 0 and backfilled >= max_total_events:
                     break
 
                 if isinstance(message, graphql.Message):
@@ -979,11 +980,8 @@ class Portal(DBPortal, BasePortal):
                         if intent.api.is_real_user and intent.api.bridge_name is not None:
                             content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
 
-                        batch_send_event_type = BatchSendEncryptedEvent
-                    else:
-                        batch_send_event_type = BatchSendMessageEvent
                     batch_messages.append(
-                        batch_send_event_type(
+                        BatchSendEvent(
                             content=content,
                             type=event_type,
                             sender=intent.mxid,
