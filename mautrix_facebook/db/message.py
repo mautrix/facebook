@@ -98,8 +98,7 @@ class Message:
     ) -> Message | None:
         q = (
             f"SELECT {cls.columns} "
-            "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND timestamp<=$3 AND "
-            "                   fbid IS NOT NULL "
+            "FROM message WHERE fb_chat=$1 AND fb_receiver=$2 AND timestamp<=$3 "
             "ORDER BY timestamp DESC LIMIT 1"
         )
         row = await cls.db.fetchrow(q, fb_chat, fb_receiver, timestamp)

@@ -542,7 +542,7 @@ class Portal(DBPortal, BasePortal):
             if not puppet:
                 continue
             msgid_text = message.mxid
-            if reactions:
+            if reactions and message.fbid:
                 reaction = await DBReaction.get_last_for_message(message.fbid, message.fb_receiver)
                 if reaction:
                     msgid_text = f"{message.mxid} -> last reaction {reaction.mxid}"
