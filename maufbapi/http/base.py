@@ -84,7 +84,7 @@ class BaseAndroidAPI:
         log: TraceLogger | None = None,
         proxy_handler: ProxyHandler | None = None,
     ) -> None:
-        self.log = log or logging.getLogger("mauigpapi.http")
+        self.log = log or logging.getLogger("maufbapi.http")
 
         self.proxy_handler = proxy_handler
         self.setup_http()

@@ -118,7 +118,7 @@ class AndroidMQTT:
         self._event_handlers = defaultdict(lambda: [])
         self._event_dispatcher_task = None
         self._outgoing_events = asyncio.Queue()
-        self.log = log or logging.getLogger("mauigpapi.mqtt")
+        self.log = log or logging.getLogger("maufbapi.mqtt")
         self._loop = loop or asyncio.get_event_loop()
         self.state = state
         self._client = MQTToTClient(

@@ -313,6 +313,8 @@ logging:
     loggers:
         mau:
             level: DEBUG
+        maufbapi:
+            level: DEBUG
         paho:
             level: INFO
         aiohttp:
