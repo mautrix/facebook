@@ -67,7 +67,6 @@ class BaseAndroidAPI:
     rupload_url = URL("https://rupload.facebook.com")
     http: ClientSession
     log: TraceLogger
-    get_proxy_api_url: str
 
     # Seems to be a per-minute request identifier
     _cid: str
