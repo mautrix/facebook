@@ -9,11 +9,14 @@ class ProxyHandler:
     current_proxy_url: str | None = None
     log = logging.getLogger("maufbapi.proxy")
 
-    def __init__(self, api_url: str) -> None:
+    def __init__(self, api_url: str | None) -> None:
         self.api_url = api_url
 
     def get_proxy_url_from_api(self) -> str | None:
+        assert self.api_url is not None
+
         request = urllib.request.Request(self.api_url, method="GET")
+        self.log.debug("Requesting new proxy from: %s", self.api_url)
 
         try:
             with urllib.request.urlopen(request) as f:
