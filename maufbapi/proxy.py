@@ -16,7 +16,7 @@ class ProxyHandler:
         assert self.api_url is not None
 
         request = urllib.request.Request(self.api_url, method="GET")
-        self.log.debug("Requesting new proxy from: %s", self.api_url)
+        self.log.debug("Requesting proxy from: %s", self.api_url)
 
         try:
             with urllib.request.urlopen(request) as f:
@@ -37,11 +37,13 @@ class ProxyHandler:
         else:
             new_proxy = urllib.request.getproxies().get("http")
 
-        if new_proxy:
+        if old_proxy != new_proxy:
             self.log.debug("Set new proxy URL: %s", new_proxy)
             self.current_proxy_url = new_proxy
+            return True
 
-        return old_proxy != new_proxy
+        self.log.debug("Got same proxy URL: %s", new_proxy)
+        return False
 
     def get_proxy_url(self) -> str | None:
         if not self.current_proxy_url:
