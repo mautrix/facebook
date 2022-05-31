@@ -839,7 +839,7 @@ class User(DBUser, BaseUser):
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
         await self.push_bridge_state(BridgeStateEvent.TRANSIENT_DISCONNECT, message=evt.reason)
 
-    async def on_proxy_update(self, evt: ProxyUpdate) -> None:
+    async def on_proxy_update(self, evt: ProxyUpdate | None = None) -> None:
         if self.client:
             self.client.setup_http()
 
