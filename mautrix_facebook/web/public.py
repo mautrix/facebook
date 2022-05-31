@@ -171,7 +171,11 @@ class PublicBridgeWebsite:
     async def login_prepare(self, request: web.Request) -> web.Response:
         user = await self.check_token(request)
         state = user.generate_state()
-        api = AndroidAPI(state, log=user.log.getChild("login-api"))
+        api = AndroidAPI(
+            state,
+            log=user.log.getChild("login-api"),
+            proxy_handler=user.proxy_handler,
+        )
         user.command_status = {
             "action": "Login",
             "state": state,
@@ -226,7 +230,11 @@ class PublicBridgeWebsite:
             api: AndroidAPI = user.command_status["api"]
         else:
             state = user.generate_state()
-            api = AndroidAPI(state, log=user.log.getChild("login-api"))
+            api = AndroidAPI(
+                state,
+                log=user.log.getChild("login-api"),
+                proxy_handler=user.proxy_handler,
+            )
             await api.mobile_config_sessionless()
 
         try:

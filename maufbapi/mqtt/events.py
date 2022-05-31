@@ -24,3 +24,8 @@ class Connect:
 @dataclass
 class Disconnect:
     reason: str
+
+
+@dataclass
+class ProxyUpdate:
+    pass

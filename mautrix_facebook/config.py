@@ -129,6 +129,8 @@ class Config(BaseBridgeConfig):
 
         copy_dict("bridge.permissions")
 
+        copy("bridge.get_proxy_api_url")
+
         for key in (
             "bridge.periodic_reconnect.interval",
             "bridge.on_reconnection_fail.wait_for",

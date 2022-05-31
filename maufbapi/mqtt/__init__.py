@@ -1,2 +1,2 @@
 from .conn import AndroidMQTT, MQTTNotConnected, MQTTNotLoggedIn
-from .events import Connect, Disconnect
+from .events import Connect, Disconnect, ProxyUpdate

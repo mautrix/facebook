@@ -98,7 +98,11 @@ async def enter_password(evt: CommandEvent) -> None:
     password = evt.content.body
 
     state = evt.sender.generate_state()
-    api = AndroidAPI(state, log=evt.sender.log.getChild("login-api"))
+    api = AndroidAPI(
+        state,
+        log=evt.sender.log.getChild("login-api"),
+        proxy_handler=evt.sender.proxy_handler,
+    )
     try:
         await api.mobile_config_sessionless()
         await api.login(email, password)
