@@ -1,6 +1,6 @@
 from mautrix.util.async_db import Database
 
-from .backfill_queue import Backfill, BackfillQueue, BackfillType
+from .backfill_queue import Backfill
 from .message import Message
 from .portal import Portal, ThreadType
 from .puppet import Puppet
@@ -19,8 +19,6 @@ __all__ = [
     "upgrade_table",
     "init",
     "Backfill",
-    "BackfillQueue",
-    "BackfillType",
     "Message",
     "Reaction",
     "Portal",

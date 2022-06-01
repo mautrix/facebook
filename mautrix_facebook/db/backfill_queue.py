@@ -15,9 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Iterable
+from typing import TYPE_CHECKING, ClassVar
 from datetime import datetime
-from enum import IntEnum
 import asyncio
 
 from asyncpg import Record
@@ -29,72 +28,43 @@ from mautrix.util.async_db import Database
 fake_db = Database.create("") if TYPE_CHECKING else None
 
 
-class BackfillType(IntEnum):
-    IMMEDIATE = 0
-    FORWARD = 100
-    DEFERRED = 200
-
-
-class BackfillQueue:
-    def __init__(self, user_id: UserID):
-        self._user_id = user_id
-        self._re_check_queues: list[asyncio.Queue[bool]] = []
-
-    def re_check(self):
-        for queue in self._re_check_queues:
-            try:
-                queue.put_nowait(True)
-            except asyncio.QueueFull:
-                # This is fine, it just means that there's already a re-check request in the queue.
-                pass
-
-    def add_re_check_queue(self, queue: asyncio.Queue):
-        self._re_check_queues.append(queue)
-
-    async def get_next(self, backfill_types: Iterable[BackfillType]) -> Backfill | None:
-        return await Backfill.get_next(self._user_id, backfill_types)
-
-
 @dataclass
 class Backfill:
     db: ClassVar[Database] = fake_db
 
     queue_id: int | None
     user_mxid: UserID
-    type: BackfillType
     priority: int
     portal_fbid: int
     portal_fb_receiver: int
-    time_start: datetime | None
-    max_batch_events: int | None
-    max_total_events: int | None
-    batch_delay: int
+    num_pages: int
+    page_delay: int
+    post_batch_delay: int
+    max_total_pages: int
     dispatch_time: datetime | None
     completed_at: datetime | None
 
     @staticmethod
     def new(
         user_mxid: UserID,
-        backfill_type: BackfillType,
         priority: int,
         portal_fbid: int,
         portal_fb_receiver: int,
-        time_start: datetime | None = None,
-        max_batch_events: int | None = None,
-        max_total_events: int = -1,
-        batch_delay: int = 0,
+        num_pages: int,
+        page_delay: int = 0,
+        post_batch_delay: int = 0,
+        max_total_pages: int = -1,
     ) -> "Backfill":
         return Backfill(
             queue_id=None,
             user_mxid=user_mxid,
-            type=backfill_type,
             priority=priority,
             portal_fbid=portal_fbid,
             portal_fb_receiver=portal_fb_receiver,
-            time_start=time_start,
-            max_batch_events=max_batch_events,
-            max_total_events=max_total_events,
-            batch_delay=batch_delay,
+            num_pages=num_pages,
+            page_delay=page_delay,
+            post_batch_delay=post_batch_delay,
+            max_total_pages=max_total_pages,
             dispatch_time=None,
             completed_at=None,
         )
@@ -107,28 +77,24 @@ class Backfill:
 
     columns = [
         "user_mxid",
-        "type",
         "priority",
         "portal_fbid",
         "portal_fb_receiver",
-        "time_start",
-        "max_batch_events",
-        "max_total_events",
-        "batch_delay",
+        "num_pages",
+        "page_delay",
+        "post_batch_delay",
+        "max_total_pages",
         "dispatch_time",
         "completed_at",
     ]
     columns_str = ",".join(columns)
 
     @classmethod
-    async def get_next(
-        cls, user_mxid: UserID, backfill_types: Iterable[BackfillType]
-    ) -> Backfill | None:
+    async def get_next(cls, user_mxid: UserID) -> Backfill | None:
         q = f"""
         SELECT queue_id, {cls.columns_str}
         FROM backfill_queue
         WHERE user_mxid=$1
-            AND type IN ({','.join([str(bt.value) for bt in backfill_types])})
             AND (
                 dispatch_time IS NULL
                 OR (
@@ -136,10 +102,28 @@ class Backfill:
                     AND completed_at IS NULL
                 )
             )
-        ORDER BY type, priority, queue_id
+        ORDER BY priority, queue_id
         LIMIT 1
         """
         return cls._from_row(await cls.db.fetchrow(q, user_mxid))
+
+    @classmethod
+    async def get(
+        cls,
+        user_mxid: UserID,
+        portal_fbid: int,
+        portal_fb_receiver: int,
+    ) -> Backfill | None:
+        q = f"""
+        SELECT queue_id, {cls.columns_str}
+        FROM backfill_queue
+        WHERE user_mxid=$1
+          AND portal_fbid=$2
+          AND portal_fb_receiver=$3
+        ORDER BY priority, queue_id
+        LIMIT 1
+        """
+        return cls._from_row(await cls.db.fetchrow(q, user_mxid, portal_fbid, portal_fb_receiver))
 
     @classmethod
     async def delete_all(cls, user_mxid: UserID) -> None:
@@ -154,14 +138,13 @@ class Backfill:
         row = await self.db.fetchrow(
             q,
             self.user_mxid,
-            self.type,
             self.priority,
             self.portal_fbid,
             self.portal_fb_receiver,
-            self.time_start,
-            self.max_batch_events,
-            self.max_total_events,
-            self.batch_delay,
+            self.num_pages,
+            self.page_delay,
+            self.post_batch_delay,
+            self.max_total_pages,
             self.dispatch_time,
             self.completed_at,
         )

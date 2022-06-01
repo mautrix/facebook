@@ -71,43 +71,45 @@ class Portal:
         fb_type = ThreadType(data.pop("fb_type"))
         return cls(**data, fb_type=fb_type)
 
+    column_names = ",".join(
+        (
+            "fbid",
+            "fb_receiver",
+            "fb_type",
+            "mxid",
+            "name",
+            "photo_id",
+            "avatar_url",
+            "encrypted",
+            "name_set",
+            "avatar_set",
+            "relay_user_id",
+            "first_event_id",
+            "next_batch_id",
+        )
+    )
+
     @classmethod
     async def get_by_fbid(cls, fbid: int, fb_receiver: int) -> Portal | None:
-        q = """
-            SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
-                   name_set, avatar_set, relay_user_id
-            FROM portal WHERE fbid=$1 AND fb_receiver=$2
-        """
+        q = f"SELECT {cls.column_names} FROM portal WHERE fbid=$1 AND fb_receiver=$2"
         row = await cls.db.fetchrow(q, fbid, fb_receiver)
         return cls._from_row(row)
 
     @classmethod
     async def get_by_mxid(cls, mxid: RoomID) -> Portal | None:
-        q = """
-            SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
-                   name_set, avatar_set, relay_user_id
-            FROM portal WHERE mxid=$1
-        """
+        q = f"SELECT {cls.column_names} FROM portal WHERE mxid=$1"
         row = await cls.db.fetchrow(q, mxid)
         return cls._from_row(row)
 
     @classmethod
     async def get_all_by_receiver(cls, fb_receiver: int) -> list[Portal]:
-        q = """
-            SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
-                   name_set, avatar_set, relay_user_id
-            FROM portal WHERE fb_receiver=$1 AND fb_type='USER'
-        """
+        q = f"SELECT {cls.column_names} FROM portal WHERE fb_receiver=$1 AND fb_type='USER'"
         rows = await cls.db.fetch(q, fb_receiver)
         return [cls._from_row(row) for row in rows]
 
     @classmethod
     async def all(cls) -> list[Portal]:
-        q = """
-            SELECT fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url, encrypted,
-                   name_set, avatar_set, relay_user_id
-            FROM portal
-        """
+        q = f"SELECT {cls.column_names} FROM portal"
         rows = await cls.db.fetch(q)
         return [cls._from_row(row) for row in rows]
 
@@ -125,13 +127,14 @@ class Portal:
             self.name_set,
             self.avatar_set,
             self.relay_user_id,
+            self.first_event_id,
+            self.next_batch_id,
         )
 
     async def insert(self) -> None:
-        q = """
-        INSERT INTO portal (fbid, fb_receiver, fb_type, mxid, name, photo_id, avatar_url,
-                            encrypted, name_set, avatar_set, relay_user_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        q = f"""
+        INSERT INTO portal ({self.column_names})
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         """
         await self.db.execute(q, *self._values)
 
@@ -142,7 +145,8 @@ class Portal:
     async def save(self) -> None:
         q = """
             UPDATE portal SET fb_type=$3, mxid=$4, name=$5, photo_id=$6, avatar_url=$7,
-                              encrypted=$8, name_set=$9, avatar_set=$10, relay_user_id=$11
+                              encrypted=$8, name_set=$9, avatar_set=$10, relay_user_id=$11,
+                              first_event_id=$12, next_batch_id=$13
             WHERE fbid=$1 AND fb_receiver=$2
         """
         await self.db.execute(q, *self._values)

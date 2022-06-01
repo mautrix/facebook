@@ -72,7 +72,6 @@ from . import matrix as m, puppet as p, user as u
 from .config import Config
 from .db import (
     Backfill,
-    BackfillType,
     Message as DBMessage,
     Portal as DBPortal,
     Reaction as DBReaction,
@@ -292,7 +291,7 @@ class Portal(DBPortal, BasePortal):
 
     async def update_info(
         self,
-        source: u.User | None = None,
+        source: u.User,
         info: graphql.Thread | None = None,
         force_save: bool = False,
     ) -> graphql.Thread | None:
@@ -388,7 +387,7 @@ class Portal(DBPortal, BasePortal):
             decryption_info.url = url
         return url, info, decryption_info
 
-    async def _update_name(self, name: str) -> bool:
+    async def _update_name(self, name: str | None) -> bool:
         if not name:
             self.log.warning("Got empty name in _update_name call")
             return False
@@ -405,7 +404,7 @@ class Portal(DBPortal, BasePortal):
             return True
         return False
 
-    async def _update_photo(self, source: u.User, photo: graphql.Picture) -> bool:
+    async def _update_photo(self, source: u.User, photo: graphql.Picture | None) -> bool:
         if self.is_direct and not self.encrypted:
             return False
         photo_id = self.get_photo_id(photo)
@@ -637,7 +636,7 @@ class Portal(DBPortal, BasePortal):
             self.log.warning("Failed to update bridge info", exc_info=True)
 
     async def _create_matrix_room(
-        self, source: u.User, info: graphql.Thread | None = None, backfill: bool = False
+        self, source: u.User, info: graphql.Thread | None = None
     ) -> RoomID | None:
         if self.mxid:
             await self._update_matrix_room(source, info)
@@ -670,7 +669,7 @@ class Portal(DBPortal, BasePortal):
             if self.is_direct:
                 invites.append(self.az.bot_mxid)
 
-        info = await self.update_info(source=source, info=info)
+        info = await self.update_info(source, info=info)
         if not info:
             self.log.debug("update_info() didn't return info, cancelling room creation")
             return None
@@ -735,61 +734,17 @@ class Portal(DBPortal, BasePortal):
         )
         await self.save()
 
-        if self.config["bridge.backfill.enable"] and backfill:
-            await self.enqueue_immediate_backfill(source, 0)
-            await self.enqueue_deferred_backfills(source, 1, 0, datetime.now())
-            source.backfill_queue.re_check()
-
         await self._sync_read_receipts(info.read_receipts.nodes, reactions=True)
-
         return self.mxid
 
     # endregion
     # region Backfill
 
-    async def enqueue_immediate_backfill(self, source: u.User, priority: int) -> None:
-        max_messages = self.config["bridge.backfill.immediate.max_events"]
-        await Backfill.new(
-            user_mxid=source.mxid,
-            backfill_type=BackfillType.IMMEDIATE,
-            priority=priority,
-            portal_fbid=self.fbid,
-            portal_fb_receiver=self.fb_receiver,
-            max_batch_events=max_messages,
-            max_total_events=max_messages,
-        ).insert()
-
-    async def enqueue_deferred_backfills(
-        self, source: u.User, total_conversations: int, priority: int, now: datetime
-    ) -> None:
-        for i, stage in enumerate(self.config["bridge.backfill.deferred"]):
-            start_date = (
-                now + timedelta(days=-stage["start_days_ago"])
-                if stage["start_days_ago"] > 0
-                else None
-            )
-            await Backfill.new(
-                user_mxid=source.mxid,
-                backfill_type=BackfillType.DEFERRED,
-                priority=i * total_conversations + priority,
-                portal_fbid=self.fbid,
-                portal_fb_receiver=self.fb_receiver,
-                time_start=start_date,
-                max_batch_events=stage["max_batch_events"],
-                batch_delay=stage["batch_delay"],
-            ).insert()
-
     async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
         assert source.client
         with self.backfill_lock:
             # Get the thread information.
-            while True:
-                try:
-                    threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
-                    break
-                except Exception as e:
-                    await asyncio.sleep(10)
-
+            threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
             if not threads:
                 return None
             elif threads[0].thread_key.id != self.fbid:
@@ -833,25 +788,127 @@ class Portal(DBPortal, BasePortal):
         assert self.mxid and source.client
         self.log.debug("Backfill request: %s", backfill_request)
 
-        history_max_ts = None
-        history_batch_prev_event_id = None
-        history_batch_batch_id = None
-        history_batch_messages: list[BatchSendEvent] = []
-        history_state_events_at_start: list[BatchSendStateEvent] = []
-
-        new_min_ts = None
-        new_batch_prev_event_id = None
-        new_batch_messages: list[BatchSendEvent] = []
-
-        first_message_in_thread = thread.messages.nodes[0]
-        first_msg_timestamp = (
-            first_message_in_thread.timestamp
-            if isinstance(first_message_in_thread, graphql.Message)
-            else first_message_in_thread.metadata.timestamp
+        num_pages = backfill_request.num_pages
+        self.log.debug(
+            "Backfilling up to %d pages of history in %s through %s",
+            num_pages,
+            self.mxid,
+            source.mxid,
         )
 
-        first_message = await DBMessage.get_first_in_chat(self.fbid, self.fb_receiver)
-        last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
+        if first_message := await DBMessage.get_first_in_chat(self.fbid, self.fb_receiver):
+            self.log.debug("There is a first message in the chat, fetching messages before it")
+            resp = await source.client.fetch_messages(self.fbid, first_message.timestamp - 1)
+            messages = resp.nodes
+        else:
+            self.log.debug(
+                "There is no first message in the chat, starting with the messages on the thread"
+            )
+            messages = thread.messages.nodes
+            if len(messages) == 0:
+                resp = await source.client.fetch_messages(self.fbid, int(time.time()))
+                messages = resp.nodes
+
+        if len(messages) == 0:
+            return 0, []
+
+        last_message_timestamp = messages[-1].timestamp
+        insertion_event_ids: list[EventID] = []
+
+        pages_to_backfill = backfill_request.num_pages
+        if backfill_request.max_total_pages > -1:
+            pages_to_backfill = min(pages_to_backfill, backfill_request.max_total_pages)
+
+        backfill_more = True
+        for i in range(pages_to_backfill):
+            oldest_bridged_msg_ts, insertion_event_id = await self.backfill_message_page(
+                source, thread, messages
+            )
+
+            if insertion_event_id:
+                insertion_event_ids.append(insertion_event_id)
+            else:
+                self.log.warning("No insertion event ID")
+                # TODO this could just be due to the messages not being bridged for other reasons
+                backfill_more = False
+                break
+
+            if i < pages_to_backfill - 1:
+                # Sleep before fetching another page of messages.
+                await asyncio.sleep(backfill_request.page_delay)
+
+                # Fetch more messages
+                resp = await source.client.fetch_messages(self.fbid, oldest_bridged_msg_ts - 1)
+                if not resp.nodes:
+                    # There were no more messages, we are at the beginning of history, so just
+                    # break.
+                    backfill_more = False
+                    break
+                messages = resp.nodes
+
+        if backfill_more:
+            if backfill_request.max_total_pages == -1:
+                new_max_total_pages = -1
+            else:
+                new_max_total_pages = backfill_request.max_total_pages - backfill_request.num_pages
+                if new_max_total_pages <= 0:
+                    backfill_more = False
+
+            self.log.debug(f"Enqueueing more backfill of {self.fbid} / {self.fb_receiver}")
+            await Backfill.new(
+                source.mxid,
+                0,
+                self.fbid,
+                self.fb_receiver,
+                backfill_request.num_pages,
+                backfill_request.page_delay,
+                backfill_request.post_batch_delay,
+                new_max_total_pages,
+            ).insert()
+        else:
+            self.log.debug(f"No more messages to backfill in {self.fbid} / {self.fb_receiver}")
+
+        await asyncio.sleep(backfill_request.post_batch_delay)
+        return last_message_timestamp, insertion_event_ids
+
+    async def backfill_message_page(
+        self,
+        source: u.User,
+        thread: graphql.Thread,
+        message_page: list[graphql.Message | mqtt.Message],
+        forward: bool = False,
+    ) -> tuple[int, EventID | None]:
+        """
+        Backfills a page of messages to Matrix. The messages should be in order from oldest to
+        newest.
+
+        Returns: the timestamp of the oldest bridged message
+        """
+        assert source.client
+        if len(message_page) == 0:
+            return 0, None
+
+        # Create or update the Matrix room
+        was_created = False
+        if not self.mxid:
+            await self.create_matrix_room(source, thread)
+            was_created = True
+        else:
+            await self.update_matrix_room(source, thread)
+        if was_created or not self.config["bridge.tag_only_on_create"]:
+            await source.mute_room(self, thread.mute_until)
+
+        assert self.mxid
+
+        oldest_message_in_page = message_page[0]
+        oldest_msg_timestamp = (
+            oldest_message_in_page.timestamp
+            if isinstance(oldest_message_in_page, graphql.Message)
+            else oldest_message_in_page.metadata.timestamp
+        )
+
+        batch_messages: list[BatchSendEvent] = []
+        state_events_at_start: list[BatchSendStateEvent] = []
 
         added_members = set()
         current_members = await self.main_intent.state_store.get_members(
@@ -862,194 +919,115 @@ class Portal(DBPortal, BasePortal):
             assert self.mxid
             if mxid in added_members:
                 return
-            content_args: JSON = {"avatar_url": puppet.photo_mxc, "displayname": puppet.name}
-            history_state_events_at_start.extend(
+            content_args = {"avatar_url": puppet.photo_mxc, "displayname": puppet.name}
+            state_events_at_start.extend(
                 [
                     BatchSendStateEvent(
                         content=MemberStateEventContent(Membership.INVITE, **content_args),
                         type=EventType.ROOM_MEMBER,
                         sender=self.main_intent.mxid,
                         state_key=mxid,
-                        timestamp=first_msg_timestamp,
+                        timestamp=oldest_msg_timestamp,
                     ),
                     BatchSendStateEvent(
                         content=MemberStateEventContent(Membership.JOIN, **content_args),
                         type=EventType.ROOM_MEMBER,
                         sender=mxid,
                         state_key=mxid,
-                        timestamp=first_msg_timestamp,
+                        timestamp=oldest_msg_timestamp,
                     ),
                 ]
             )
             added_members.add(mxid)
 
-        if self.first_event_id or self.next_batch_id:
-            history_batch_prev_event_id = self.first_event_id
-            history_batch_batch_id = self.next_batch_id
-
-        if first_message is None and last_message is None:
-            history_max_ts = int(time.time() * 1000)
-        else:
-            history_max_ts = first_msg_timestamp
-
-        if last_message:
-            new_batch_prev_event_id = last_message.mxid
-            new_min_ts = last_message.timestamp
-
-        max_batch_events = backfill_request.max_batch_events
-        max_total_events = backfill_request.max_total_events
-        self.log.debug(
-            "Backfilling up to %d events of history in %s through %s",
-            max_total_events,
-            self.mxid,
-            source.mxid,
-        )
-        messages = thread.messages.nodes
-
-        backfilled = 0
-        insertion_event_ids: list[EventID] = []
+        message_map: dict[str | None, graphql.Message | mqtt.Message] = {}
         last_message_timestamp = 0
-        backfill_request_start_reached = False
 
-        while True:
-            backfilled_in_batch = 0
-            oldest_bridged_message_timestamp = int(time.time() * 1000)
+        for message in message_page:
+            if isinstance(message, graphql.Message):
+                timestamp = message.timestamp
+                message_id = message.message_id
+            else:
+                timestamp = message.metadata.timestamp
+                message_id = message.metadata.id
 
-            message_map: dict[str | None, graphql.Message | mqtt.Message] = {}
+            message_map[message_id] = message
+            last_message_timestamp = max(last_message_timestamp, timestamp)
 
-            for message in reversed(messages):
-                if max_batch_events and backfilled_in_batch >= max_batch_events:
-                    break
-                if max_total_events and max_total_events >= 0 and backfilled >= max_total_events:
-                    break
+            puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
+            intent = puppet.intent_for(self)
+            can_double_puppet_backfill = self._can_double_puppet_backfill(puppet.custom_mxid)
+            if not puppet.custom_mxid or not can_double_puppet_backfill:
+                intent = puppet.default_mxid_intent
 
-                if isinstance(message, graphql.Message):
-                    timestamp = message.timestamp
-                    message_id = message.message_id
-                else:
-                    timestamp = message.metadata.timestamp
-                    message_id = message.metadata.id
-
-                if (
-                    backfill_request.time_start
-                    and timestamp < backfill_request.time_start.timestamp()
-                ):
-                    backfill_request_start_reached = True
-                    break
-
-                if history_max_ts is not None and timestamp < history_max_ts:
-                    batch_messages = history_batch_messages
-                elif new_min_ts is not None and new_min_ts < timestamp:
-                    batch_messages = new_batch_messages
-                else:
-                    continue
-
-                message_map[message_id] = message
-
-                oldest_bridged_message_timestamp = min(oldest_bridged_message_timestamp, timestamp)
-                last_message_timestamp = max(last_message_timestamp, timestamp)
-
-                puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
-                intent = puppet.intent_for(self)
-                can_double_puppet_backfill = self._can_double_puppet_backfill(puppet.custom_mxid)
-                if not puppet.custom_mxid or not can_double_puppet_backfill:
-                    intent = puppet.default_mxid_intent
-
-                # Convert the message
-                converted = await self.convert_facebook_message(source, intent, message)
-                if not converted:
-                    self.log.debug("Skipping unsupported message in backfill")
-                    continue
-
-                if (
-                    not puppet.custom_mxid or not can_double_puppet_backfill
-                ) and intent.mxid not in current_members:
-                    add_member(puppet, intent.mxid)
-
-                for event_type, content in converted:
-                    content[BACKFILL_ID_FIELD] = message_id
-                    if puppet.is_real_user and intent.api.bridge_name is not None:
-                        content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
-
-                    if self.encrypted and self.matrix.e2ee:
-                        event_type, content = await self.matrix.e2ee.encrypt(
-                            self.mxid, event_type, content
-                        )
-                        # Re-add the double puppet key after the encryption.
-                        content[BACKFILL_ID_FIELD] = message_id
-                        if intent.api.is_real_user and intent.api.bridge_name is not None:
-                            content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
-
-                    batch_messages.append(
-                        BatchSendEvent(
-                            content=content,
-                            type=event_type,
-                            sender=intent.mxid,
-                            timestamp=timestamp,
-                        )
-                    )
-
-                backfilled_in_batch += 1
-                backfilled += 1
-
-            # If there are messages, then delay to avoid overloading Synapse or getting
-            # rate-limited by Facebook.
-            if history_batch_messages or new_batch_messages:
-                await asyncio.sleep(backfill_request.batch_delay)
-
-            if (history_batch_messages and history_batch_batch_id is None) or new_batch_messages:
-                self.log.debug("Sending dummy event to avoid forward extremity errors")
-                history_batch_prev_event_id = await self.az.intent.send_message_event(
-                    self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
-                )
-
-            if history_batch_messages and history_batch_prev_event_id:
-                self.log.info("Sending %d historical messages...", len(history_batch_messages))
-                try:
-                    batch_send_resp = await self.az.intent.batch_send(
-                        self.mxid,
-                        history_batch_prev_event_id,
-                        batch_id=history_batch_batch_id,
-                        events=reversed(history_batch_messages),
-                        state_events_at_start=history_state_events_at_start,
-                    )
-                    insertion_event_ids.append(batch_send_resp.base_insertion_event_id)
-                    await self._finish_batch(batch_send_resp.event_ids, message_map)
-                    self.next_batch_id = batch_send_resp.next_batch_id
-                    await self.save()
-                except Exception as e:
-                    self.log.exception("Error sending batch of historical messages.")
-
-            if new_batch_messages and new_batch_prev_event_id:
-                self.log.info("Sending %d new messages...", len(history_batch_messages))
-                try:
-                    batch_send_resp = await self.az.intent.batch_send(
-                        self.mxid, new_batch_prev_event_id, events=reversed(new_batch_messages)
-                    )
-                    insertion_event_ids.append(batch_send_resp.base_insertion_event_id)
-                    await self._finish_batch(batch_send_resp.event_ids, message_map)
-                except Exception as e:
-                    self.log.error("Error sending batch of historical messages.", e)
+            # Convert the message
+            converted = await self.convert_facebook_message(source, intent, message)
+            if not converted:
+                self.log.debug("Skipping unsupported message in backfill")
+                continue
 
             if (
-                # If we hit the start time of the backfill request, then don't fetch more messages.
-                backfill_request_start_reached
-                # If no max total events is specified, then keep looping until we run out of
-                # messages (resp.nodes is empty below).
-                # Otherwise, backfill up to max_total_events.
-                or (max_total_events and backfilled >= max_total_events)
-            ):
-                break
+                not puppet.custom_mxid or not can_double_puppet_backfill
+            ) and intent.mxid not in current_members:
+                add_member(puppet, intent.mxid)
 
-            # Fetch more messages
-            resp = await source.client.fetch_messages(
-                self.fbid, oldest_bridged_message_timestamp - 1
+            for event_type, content in converted:
+                content[BACKFILL_ID_FIELD] = message_id
+                if puppet.is_real_user and intent.api.bridge_name is not None:
+                    content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
+
+                if self.encrypted and self.matrix.e2ee:
+                    event_type, content = await self.matrix.e2ee.encrypt(
+                        self.mxid, event_type, content
+                    )
+                    # Re-add the double puppet key after the encryption.
+                    content[BACKFILL_ID_FIELD] = message_id
+                    if intent.api.is_real_user and intent.api.bridge_name is not None:
+                        content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
+
+                batch_messages.append(
+                    BatchSendEvent(
+                        content=content,
+                        type=event_type,
+                        sender=intent.mxid,
+                        timestamp=timestamp,
+                    )
+                )
+
+        if not batch_messages:
+            # Still return the oldest message's timestamp, since none of the messages were
+            # bridgeable, we want to skip further back in history to find some that are bridgable.
+            return oldest_msg_timestamp, None
+
+        if forward or self.next_batch_id is None:
+            # This is a forward backfill, or no backfills have happened yet.
+            self.log.debug("Sending dummy event to avoid forward extremity errors")
+            prev_event_id = await self.az.intent.send_message_event(
+                self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
             )
-            if not resp.nodes:
-                break
-            messages = resp.nodes
+        else:
+            assert self.first_event_id
+            prev_event_id = self.first_event_id
 
-        return last_message_timestamp, insertion_event_ids
+        self.log.info(
+            "Sending %d historical messages. Batch ID: %s, Previous Event ID %s",
+            len(batch_messages),
+            self.next_batch_id,
+            prev_event_id,
+        )
+        batch_send_resp = await self.az.intent.batch_send(
+            self.mxid,
+            prev_event_id,
+            batch_id=self.next_batch_id,
+            events=batch_messages,
+            state_events_at_start=state_events_at_start,
+        )
+        await self._finish_batch(batch_send_resp.event_ids, message_map)
+        self.log.info("Next batch for %s will be %s", self.mxid, batch_send_resp.next_batch_id)
+        self.next_batch_id = batch_send_resp.next_batch_id
+        await self.save()
+
+        return oldest_msg_timestamp, batch_send_resp.base_insertion_event_id
 
     def _can_double_puppet_backfill(self, custom_mxid: UserID) -> bool:
         if not self.config["bridge.backfill.double_puppet_backfill"]:
