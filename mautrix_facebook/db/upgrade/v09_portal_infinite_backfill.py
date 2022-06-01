@@ -20,5 +20,5 @@ from . import upgrade_table
 
 @upgrade_table.register(description="Add columns to store infinite backfill pointers for portals")
 async def upgrade_v8(conn: Connection) -> None:
-    await conn.execute("ALTER TABLE portal ADD COLUMN first_event_id TEXT NOT NULL DEFAULT ''")
-    await conn.execute("ALTER TABLE portal ADD COLUMN next_batch_id TEXT NOT NULL DEFAULT ''")
+    await conn.execute("ALTER TABLE portal ADD COLUMN first_event_id TEXT")
+    await conn.execute("ALTER TABLE portal ADD COLUMN next_batch_id TEXT")

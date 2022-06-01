@@ -25,14 +25,13 @@ async def upgrade_v7(conn: Connection) -> None:
         CREATE TABLE backfill_queue (
             queue_id            INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
             user_mxid           TEXT,
-            type                INTEGER NOT NULL,
             priority            INTEGER NOT NULL,
             portal_fbid         BIGINT,
             portal_fb_receiver  BIGINT,
-            time_start          TIMESTAMP,
-            max_batch_events    INTEGER NOT NULL,
-            max_total_events    INTEGER,
-            batch_delay         INTEGER,
+            num_pages           INTEGER NOT NULL,
+            page_delay          INTEGER NOT NULL,
+            post_batch_delay    INTEGER NOT NULL,
+            max_total_pages     INTEGER NOT NULL,
             dispatch_time       TIMESTAMP,
             completed_at        TIMESTAMP,
 

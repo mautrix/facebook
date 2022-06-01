@@ -92,9 +92,10 @@ class Config(BaseBridgeConfig):
             copy("bridge.backfill.max_initial_conversations")
             copy("bridge.backfill.max_incremental_conversations")
         copy("bridge.backfill.disable_notifications")
-        copy("bridge.backfill.immediate.worker_count")
-        copy("bridge.backfill.immediate.max_events")
-        copy("bridge.backfill.deferred")
+        copy("bridge.backfill.incremental.max_pages")
+        copy("bridge.backfill.incremental.max_total_pages")
+        copy("bridge.backfill.incremental.page_delay")
+        copy("bridge.backfill.incremental.post_batch_delay")
         if "bridge.periodic_reconnect_interval" in self:
             base["bridge.periodic_reconnect.interval"] = self["bridge.periodic_reconnect_interval"]
             base["bridge.periodic_reconnect.mode"] = self["bridge.periodic_reconnect_mode"]
