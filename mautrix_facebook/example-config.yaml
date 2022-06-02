@@ -181,6 +181,10 @@ bridge:
     # Whether or not the bridge should send a read receipt from the bridge bot when a message has
     # been sent to Facebook.
     delivery_receipts: false
+    # Whether or not delivery errors should be reported as messages in the Matrix room.
+    delivery_error_reports: true
+    # Whether the bridge should send the message status as a custom com.beeper.message_send_status event.
+    message_status_events: false
     # Whether to allow inviting arbitrary mxids to portal rooms
     allow_invites: false
     # Whether or not created rooms should have federation enabled.

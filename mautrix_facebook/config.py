@@ -91,6 +91,8 @@ class Config(BaseBridgeConfig):
         copy("bridge.encryption.key_sharing.require_cross_signing")
         copy("bridge.encryption.key_sharing.require_verification")
         copy("bridge.delivery_receipts")
+        copy("bridge.delivery_error_reports")
+        copy("bridge.message_status_events")
         copy("bridge.federate_rooms")
         copy("bridge.allow_invites")
         copy("bridge.backfill.invite_own_puppet")
