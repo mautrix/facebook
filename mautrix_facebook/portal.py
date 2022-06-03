@@ -771,7 +771,6 @@ class Portal(DBPortal, BasePortal):
         event_id: EventID,
         event_type: EventType,
         message_type: MessageType | None = None,
-        msg: str | None = None,
     ) -> None:
         sender.send_remote_checkpoint(
             self._status_from_exception(err),
@@ -792,7 +791,7 @@ class Portal(DBPortal, BasePortal):
                 self.main_intent,
                 TextMessageEventContent(
                     msgtype=MessageType.NOTICE,
-                    body=f"\u26a0 Your {event_type_str} may not have been bridged: {msg}",
+                    body=f"\u26a0 Your {event_type_str} may not have been bridged: {str(err)}",
                 ),
             )
         asyncio.create_task(self._send_message_status(event_id, err))
