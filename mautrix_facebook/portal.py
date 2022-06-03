@@ -835,7 +835,7 @@ class Portal(DBPortal, BasePortal):
         try:
             await self._handle_matrix_message(sender, message, event_id)
         except Exception as e:
-            self.log.exception(f"Failed to handle Matrix event {event_id}: {e}")
+            self.log.exception(f"Failed to handle Matrix event {event_id}")
             await self._send_bridge_error(
                 sender, e, event_id, EventType.ROOM_MESSAGE, message.msgtype
             )
@@ -996,7 +996,7 @@ class Portal(DBPortal, BasePortal):
                 await message.delete()
                 await sender.client.unsend(message.fbid)
             except Exception as e:
-                self.log.exception(f"Unsend failed: {e}")
+                self.log.exception(f"Failed to unsend {message.fbid}")
                 raise
             return
 
@@ -1006,7 +1006,7 @@ class Portal(DBPortal, BasePortal):
                 await reaction.delete()
                 await sender.client.react(reaction.fb_msgid, None)
             except Exception as e:
-                self.log.exception(f"Removing reaction failed: {e}")
+                self.log.exception(f"Failed to remove reaction to {reaction.fb_msgid}")
                 raise
             return
 
