@@ -1049,6 +1049,8 @@ class Portal(DBPortal, BasePortal):
             message = await DBMessage.get_by_mxid(reacting_to, self.mxid)
             if not message:
                 raise NotImplementedError("reaction target message not found")
+            elif not message.fbid:
+                raise NotImplementedError("facebook ID of target message is unknown")
 
             existing = await DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.fbid)
             if existing and existing.reaction == reaction:
