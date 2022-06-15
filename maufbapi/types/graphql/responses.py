@@ -396,7 +396,7 @@ class StoryAttachment(SerializableAttrs):
 @dataclass
 class ExtensibleAttachment(SerializableAttrs):
     id: str
-    is_forwardable: bool
+    is_forwardable: bool = False
     story_attachment: Optional[StoryAttachment] = None
 
 
