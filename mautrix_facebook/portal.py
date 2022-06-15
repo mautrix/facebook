@@ -1027,7 +1027,7 @@ class Portal(DBPortal, BasePortal):
                 f"Failed to handle Matrix reaction {event_id}: {e}",
                 exc_info=not isinstance(e, NotImplementedError),
             )
-            await self._send_bridge_error(sender, e, event_id, EventType.ROOM_REDACTION)
+            await self._send_bridge_error(sender, e, event_id, EventType.REACTION)
         else:
             await self._send_bridge_success(sender, event_id, EventType.REACTION)
 
