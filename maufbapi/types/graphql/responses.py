@@ -534,7 +534,7 @@ class Thread(SerializableAttrs):
     thread_pin_timestamp: int
     thread_queue_enabled: bool
     thread_unsendability_status: MessageUnsendability
-    update_time_precise: Optional[str] = None
+    updated_time_precise: str
 
     last_message: MessageList
     messages: MessageList
@@ -556,15 +556,23 @@ class Thread(SerializableAttrs):
     can_viewer_reply: bool
     can_participants_claim_admin: bool
 
+    @property
+    def updated_timestamp(self) -> int:
+        return int(self.updated_time_precise)
+
 
 @dataclass
-class ThreadListResponse(SerializableAttrs):
+class MinimalThreadListResponse(SerializableAttrs):
+    nodes: List[Thread]
+    page_info: PageInfo
+
+
+@dataclass
+class ThreadListResponse(MinimalThreadListResponse, SerializableAttrs):
     count: int
     unread_count: int
     unseen_count: int
     mute_until: int
-    nodes: List[Thread]
-    page_info: PageInfo
     sync_sequence_id: str
 
 
