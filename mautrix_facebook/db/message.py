@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from asyncpg import Record
 from attr import dataclass
+import attr
 
 from mautrix.types import EventID, RoomID
 from mautrix.util.async_db import Database, Scheme
@@ -125,7 +126,7 @@ class Message:
     )
 
     @classmethod
-    async def bulk_create(
+    async def bulk_create_parts(
         cls,
         fbid: str,
         oti: int,
@@ -138,17 +139,22 @@ class Message:
     ) -> list[Message]:
         if not event_ids:
             return []
-        columns = [col.strip('"') for col in cls.columns.split(", ")]
-        records = [
-            (mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
+        messages = [
+            Message(mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
             for index, mxid in enumerate(event_ids)
         ]
+        await cls.bulk_insert(messages)
+        return messages
+
+    @classmethod
+    async def bulk_insert(cls, messages: list[Message]) -> None:
+        columns = [col.strip('"') for col in cls.columns.split(", ")]
+        records = [attr.astuple(message) for message in messages]
         async with cls.db.acquire() as conn, conn.transaction():
             if cls.db.scheme == Scheme.POSTGRES:
                 await conn.copy_records_to_table("message", records=records, columns=columns)
             else:
                 await conn.executemany(cls._insert_query, records)
-        return [Message(*record) for record in records]
 
     async def insert(self) -> None:
         q = self._insert_query

@@ -17,12 +17,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 from datetime import datetime
-import asyncio
 
 from asyncpg import Record
 from attr import dataclass
 
-from mautrix.types import UserID
+from mautrix.types import RoomID, UserID
 from mautrix.util.async_db import Database
 
 fake_db = Database.create("") if TYPE_CHECKING else None
@@ -128,6 +127,11 @@ class Backfill:
     @classmethod
     async def delete_all(cls, user_mxid: UserID) -> None:
         await cls.db.execute("DELETE FROM backfill_queue WHERE user_mxid=$1", user_mxid)
+
+    @classmethod
+    async def delete_for_portal(cls, fbid: int, fb_receiver: int) -> None:
+        q = "DELETE FROM backfill_queue WHERE portal_fbid=$1 AND portal_fb_receiver=$2"
+        await cls.db.execute(q, fbid, fb_receiver)
 
     async def insert(self) -> None:
         q = f"""

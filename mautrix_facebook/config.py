@@ -82,7 +82,6 @@ class Config(BaseBridgeConfig):
         copy("bridge.federate_rooms")
         copy("bridge.allow_invites")
         copy("bridge.backfill.enable")
-        copy("bridge.backfill.invite_own_puppet")
         copy("bridge.backfill.double_puppet_backfill")
         if "bridge.initial_chat_sync" in self:
             initial_chat_sync = self["bridge.initial_chat_sync"]
@@ -91,7 +90,6 @@ class Config(BaseBridgeConfig):
         else:
             copy("bridge.backfill.max_initial_conversations")
             copy("bridge.backfill.max_incremental_conversations")
-        copy("bridge.backfill.disable_notifications")
         copy("bridge.backfill.incremental.max_pages")
         copy("bridge.backfill.incremental.max_total_pages")
         copy("bridge.backfill.incremental.page_delay")
