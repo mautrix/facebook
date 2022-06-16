@@ -12,6 +12,7 @@ from .graphql import (
     MessageReactionMutation,
     MessageUndoSend,
     MessageUnsendResponse,
+    MinimalThreadListResponse,
     MoreMessagesQuery,
     MoreThreadsQuery,
     NTContext,

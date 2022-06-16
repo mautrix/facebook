@@ -15,7 +15,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+from typing import AsyncIterable
 from uuid import uuid4
+import time
 
 from yarl import URL
 import attr
@@ -33,7 +35,9 @@ from ..types import (
     MessageReactionMutation,
     MessageUndoSend,
     MessageUnsendResponse,
+    MinimalThreadListResponse,
     MoreMessagesQuery,
+    MoreThreadsQuery,
     ReactionAction,
     SearchEntitiesNamedQuery,
     SearchEntitiesResponse,
@@ -61,6 +65,39 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             response_type=ThreadListResponse,
             path=["data", "viewer", "message_threads"],
         )
+
+    async def fetch_more_threads(self, after_time_ms: int, **kwargs) -> MinimalThreadListResponse:
+        return await self.graphql(
+            MoreThreadsQuery(after_time_ms=str(after_time_ms), **kwargs),
+            path=["data", "viewer", "message_threads"],
+            response_type=MinimalThreadListResponse,
+        )
+
+    async def iter_thread_list(
+        self, start_at: ThreadListResponse | None = None, local_limit: int | None = None
+    ) -> AsyncIterable[Thread]:
+        page_size = 20
+        if not start_at:
+            start_at = await self.fetch_thread_list(thread_count=page_size)
+        after_ts = int(time.time() * 1000)
+        thread_counter = 0
+        for thread in start_at.nodes:
+            yield thread
+            after_ts = min(after_ts, thread.updated_timestamp)
+            thread_counter += 1
+            if local_limit and thread_counter >= local_limit:
+                return
+        has_next_page = len(start_at.nodes) >= page_size
+        while has_next_page:
+            self.log.debug(f"Fetching more threads from before {after_ts}")
+            resp = await self.fetch_more_threads(after_ts - 1, thread_count=page_size)
+            has_next_page = len(resp.nodes) >= page_size
+            for thread in resp.nodes:
+                yield thread
+                after_ts = min(after_ts, thread.updated_timestamp)
+                thread_counter += 1
+                if local_limit and thread_counter >= local_limit:
+                    return
 
     async def fetch_thread_info(self, *thread_ids: str | int, **kwargs) -> list[Thread]:
         resp = await self.graphql(

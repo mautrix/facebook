@@ -588,17 +588,18 @@ class User(DBUser, BaseUser):
             else self.config["bridge.backfill.max_incremental_conversations"]
         )
         self.log.debug(f"Fetching {sync_count} threads, 20 at a time...")
-        # TODO paginate with 20 threads per request
-        resp = await self.client.fetch_thread_list(thread_count=sync_count)
+        resp = await self.client.fetch_thread_list()
         self.seq_id = int(resp.sync_sequence_id)
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
         await self.save_seq_id()
         if start_listen:
             self.start_listen()
-        if sync_count <= 0:
+        if sync_count == 0:
             return
-        for thread in resp.nodes:
+        elif sync_count < 0:
+            sync_count = None
+        async for thread in self.client.iter_thread_list(resp, local_limit=sync_count):
             await self._sync_thread(thread)
 
         await self.update_direct_chats()

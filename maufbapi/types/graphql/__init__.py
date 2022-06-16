@@ -42,6 +42,7 @@ from .responses import (
     MinimalMessage,
     MinimalParticipant,
     MinimalSticker,
+    MinimalThreadListResponse,
     MontageReplyData,
     OwnInfo,
     PageInfo,
