@@ -31,7 +31,7 @@ from yarl import URL
 
 from maufbapi.types import graphql, mqtt
 from mautrix.appservice import DOUBLE_PUPPET_SOURCE_KEY, IntentAPI
-from mautrix.bridge import BasePortal, NotificationDisabler, async_getter_lock
+from mautrix.bridge import BasePortal, async_getter_lock
 from mautrix.errors import IntentError, MatrixError, MForbidden, MNotFound, SessionNotFound
 from mautrix.types import (
     JSON,
@@ -107,13 +107,10 @@ class FakeLock:
 StateBridge = EventType.find("m.bridge", EventType.Class.STATE)
 StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STATE)
 
-BackfillEndDummyEvent = EventType.find("fi.mau.dummy.backfill_end", EventType.Class.MESSAGE)
-RoomMarker = EventType.find("m.room.marker", EventType.Class.MESSAGE)
-MSC2716Marker = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
+PortalCreateDummy = EventType.find("fi.mau.dummy.portal_created", EventType.Class.MESSAGE)
+HistorySyncMarker = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
 
-ConvertedMessage = tuple[EventType, Union[MessageEventContent, EncryptedEventContent]]
-
-BACKFILL_ID_FIELD = "fi.mau.facebook.backfill_msg_id"
+ConvertedMessage = tuple[EventType, MessageEventContent]
 
 
 class Portal(DBPortal, BasePortal):
@@ -130,7 +127,6 @@ class Portal(DBPortal, BasePortal):
     _send_locks: dict[int, asyncio.Lock]
     _noop_lock: FakeLock = FakeLock()
     _typing: set[UserID]
-    backfill_lock: SimpleLock
     _sleeping_to_resync: bool
     _scheduled_resync: asyncio.Task | None
     _resync_targets: dict[int, p.Puppet]
@@ -177,11 +173,6 @@ class Portal(DBPortal, BasePortal):
         self._sleeping_to_resync = False
         self._scheduled_resync = None
         self._resync_targets = {}
-
-        self.backfill_lock = SimpleLock(
-            "Waiting for backfilling to finish before handling %s", log=self.log
-        )
-
         self._relay_user = None
 
     @classmethod
@@ -192,8 +183,6 @@ class Portal(DBPortal, BasePortal):
         cls.loop = bridge.loop
         cls.matrix = bridge.matrix
         cls.invite_own_puppet_to_pm = cls.config["bridge.invite_own_puppet_to_pm"]
-        NotificationDisabler.puppet_cls = p.Puppet
-        NotificationDisabler.config_enabled = cls.config["bridge.backfill.disable_notifications"]
 
     # region DB conversion
 
@@ -202,12 +191,15 @@ class Portal(DBPortal, BasePortal):
             await DBMessage.delete_all_by_room(self.mxid)
             await DBReaction.delete_all_by_room(self.mxid)
             self.by_mxid.pop(self.mxid, None)
+        await Backfill.delete_for_portal(self.fbid, self.fb_receiver)
         self.by_fbid.pop(self.fbid_full, None)
         self.mxid = None
         self.name_set = False
         self.avatar_set = False
         self.relay_user_id = None
         self.encrypted = False
+        self.first_event_id = None
+        self.next_batch_id = None
         await super().save()
 
     # endregion
@@ -494,7 +486,7 @@ class Portal(DBPortal, BasePortal):
         if self.mxid:
             if puppet.fbid != self.fb_receiver or puppet.is_real_user:
                 await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
-            if puppet.fbid in nick_map:
+            if puppet.fbid in nick_map and not puppet.is_real_user:
                 await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
         return changed
 
@@ -729,8 +721,9 @@ class Portal(DBPortal, BasePortal):
             portal_receiver=self.fb_receiver,
         ).upsert()
 
+        self.log.trace("Sending portal post-create dummy event")
         self.first_event_id = await self.az.intent.send_message_event(
-            self.mxid, EventType("fi.mau.dummy.portal_created", EventType.Class.MESSAGE), {}
+            self.mxid, PortalCreateDummy, {}
         )
         await self.save()
 
@@ -742,42 +735,41 @@ class Portal(DBPortal, BasePortal):
 
     async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
         assert source.client
-        with self.backfill_lock:
-            # Get the thread information.
-            threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
-            if not threads:
-                return None
-            elif threads[0].thread_key.id != self.fbid:
-                self.log.warning(
-                    "fetch_thread_info response contained different ID (%s) than expected (%s)",
-                    threads[0].thread_key.id,
-                    self.fbid,
-                )
-                self.log.debug(f"Number of threads in unexpected response: {len(threads)}")
-            thread = threads[0]
-
-            # Create or update the Matrix room
-            was_created = False
-            if not self.mxid:
-                await self.create_matrix_room(source, thread)
-                was_created = True
-            else:
-                await self.update_matrix_room(source, thread)
-            if was_created or not self.config["bridge.tag_only_on_create"]:
-                await source.mute_room(self, thread.mute_until)
-
-            # Actually backfill
-            last_message_timestamp, insertion_event_ids = await self._backfill(
-                source, backfill_request, thread=thread
+        # Get the thread information.
+        threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
+        if not threads:
+            return None
+        elif threads[0].thread_key.id != self.fbid:
+            self.log.warning(
+                "fetch_thread_info response contained different ID (%s) than expected (%s)",
+                threads[0].thread_key.id,
+                self.fbid,
             )
-            for insertion_event_id in insertion_event_ids:
-                await self._send_post_backfill_dummy(last_message_timestamp, insertion_event_id)
+            self.log.debug(f"Number of threads in unexpected response: {len(threads)}")
+        thread = threads[0]
 
-            if thread.unread_count == 0:
-                last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
-                puppet = await source.get_puppet()
-                if last_message and puppet:
-                    await puppet.intent_for(self).mark_read(self.mxid, last_message.mxid)
+        # Create or update the Matrix room
+        was_created = False
+        if not self.mxid:
+            await self.create_matrix_room(source, thread)
+            was_created = True
+        else:
+            await self.update_matrix_room(source, thread)
+        if was_created or not self.config["bridge.tag_only_on_create"]:
+            await source.mute_room(self, thread.mute_until)
+
+        # Actually backfill
+        last_message_timestamp, insertion_event_ids = await self._backfill(
+            source, backfill_request, thread=thread
+        )
+        for insertion_event_id in insertion_event_ids:
+            await self._send_post_backfill_dummy(last_message_timestamp, insertion_event_id)
+
+        if thread.unread_count == 0:
+            last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
+            puppet = await source.get_puppet()
+            if last_message and puppet:
+                await puppet.intent_for(self).mark_read(self.mxid, last_message.mxid)
 
     async def _backfill(
         self,
@@ -827,11 +819,6 @@ class Portal(DBPortal, BasePortal):
 
             if insertion_event_id:
                 insertion_event_ids.append(insertion_event_id)
-            else:
-                self.log.warning("No insertion event ID")
-                # TODO this could just be due to the messages not being bridged for other reasons
-                backfill_more = False
-                break
 
             if i < pages_to_backfill - 1:
                 # Sleep before fetching another page of messages.
@@ -854,7 +841,7 @@ class Portal(DBPortal, BasePortal):
                 if new_max_total_pages <= 0:
                     backfill_more = False
 
-            self.log.debug(f"Enqueueing more backfill of {self.fbid} / {self.fb_receiver}")
+            self.log.debug("Enqueueing more backfill")
             await Backfill.new(
                 source.mxid,
                 0,
@@ -866,7 +853,7 @@ class Portal(DBPortal, BasePortal):
                 new_max_total_pages,
             ).insert()
         else:
-            self.log.debug(f"No more messages to backfill in {self.fbid} / {self.fb_receiver}")
+            self.log.debug("No more messages to backfill")
 
         await asyncio.sleep(backfill_request.post_batch_delay)
         return last_message_timestamp, insertion_event_ids
@@ -875,7 +862,7 @@ class Portal(DBPortal, BasePortal):
         self,
         source: u.User,
         thread: graphql.Thread,
-        message_page: list[graphql.Message | mqtt.Message],
+        message_page: list[graphql.Message],
         forward: bool = False,
     ) -> tuple[int, EventID | None]:
         """
@@ -901,11 +888,7 @@ class Portal(DBPortal, BasePortal):
         assert self.mxid
 
         oldest_message_in_page = message_page[0]
-        oldest_msg_timestamp = (
-            oldest_message_in_page.timestamp
-            if isinstance(oldest_message_in_page, graphql.Message)
-            else oldest_message_in_page.metadata.timestamp
-        )
+        oldest_msg_timestamp = oldest_message_in_page.timestamp
 
         batch_messages: list[BatchSendEvent] = []
         state_events_at_start: list[BatchSendStateEvent] = []
@@ -940,24 +923,20 @@ class Portal(DBPortal, BasePortal):
             )
             added_members.add(mxid)
 
-        message_map: dict[str | None, graphql.Message | mqtt.Message] = {}
+        message_infos: list[tuple[graphql.Message, int]] = []
         last_message_timestamp = 0
 
         for message in message_page:
-            if isinstance(message, graphql.Message):
-                timestamp = message.timestamp
-                message_id = message.message_id
-            else:
-                timestamp = message.metadata.timestamp
-                message_id = message.metadata.id
-
-            message_map[message_id] = message
-            last_message_timestamp = max(last_message_timestamp, timestamp)
+            last_message_timestamp = max(last_message_timestamp, message.timestamp)
 
             puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
             intent = puppet.intent_for(self)
-            can_double_puppet_backfill = self._can_double_puppet_backfill(puppet.custom_mxid)
-            if not puppet.custom_mxid or not can_double_puppet_backfill:
+            can_double_puppet_backfill = puppet.is_real_user and self._can_double_puppet_backfill(
+                puppet.custom_mxid
+            )
+            if not can_double_puppet_backfill:
+                if puppet.is_real_user:
+                    self.log.warning("%s can't double puppet backfill :(", puppet.custom_mxid)
                 intent = puppet.default_mxid_intent
 
             # Convert the message
@@ -966,31 +945,26 @@ class Portal(DBPortal, BasePortal):
                 self.log.debug("Skipping unsupported message in backfill")
                 continue
 
-            if (
-                not puppet.custom_mxid or not can_double_puppet_backfill
-            ) and intent.mxid not in current_members:
+            if intent.mxid not in current_members:
                 add_member(puppet, intent.mxid)
 
+            index = 0
             for event_type, content in converted:
-                content[BACKFILL_ID_FIELD] = message_id
-                if puppet.is_real_user and intent.api.bridge_name is not None:
-                    content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
-
                 if self.encrypted and self.matrix.e2ee:
                     event_type, content = await self.matrix.e2ee.encrypt(
                         self.mxid, event_type, content
                     )
-                    # Re-add the double puppet key after the encryption.
-                    content[BACKFILL_ID_FIELD] = message_id
-                    if intent.api.is_real_user and intent.api.bridge_name is not None:
-                        content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
+                if intent.api.is_real_user and intent.api.bridge_name is not None:
+                    content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
 
+                message_infos.append((message, index))
+                index += 1
                 batch_messages.append(
                     BatchSendEvent(
                         content=content,
                         type=event_type,
                         sender=intent.mxid,
-                        timestamp=timestamp,
+                        timestamp=message.timestamp,
                     )
                 )
 
@@ -1022,8 +996,8 @@ class Portal(DBPortal, BasePortal):
             events=batch_messages,
             state_events_at_start=state_events_at_start,
         )
-        await self._finish_batch(batch_send_resp.event_ids, message_map)
-        self.log.info("Next batch for %s will be %s", self.mxid, batch_send_resp.next_batch_id)
+        await self._finish_batch(batch_send_resp.event_ids, message_infos)
+        self.log.debug("Got next batch ID %s for %s", batch_send_resp.next_batch_id, self.mxid)
         self.next_batch_id = batch_send_resp.next_batch_id
         await self.save()
 
@@ -1039,68 +1013,50 @@ class Portal(DBPortal, BasePortal):
         return True
 
     async def _finish_batch(
-        self,
-        event_ids: list[EventID],
-        message_map: dict[str | None, graphql.Message | mqtt.Message],
+        self, event_ids: list[EventID], message_infos: list[tuple[graphql.Message, int]]
     ):
-        event_id_idx: defaultdict[str, int] = defaultdict(int)
-        for event_id in event_ids:
-            try:
-                event = await self.az.intent.get_event(self.mxid, event_id)
-                if event.type == EventType.ROOM_ENCRYPTED:
-                    try:
-                        event = await self.matrix.e2ee.decrypt(event, wait_session_timeout=0)
-                    except SessionNotFound:
-                        return
-
-                message_id = event.content[BACKFILL_ID_FIELD]
-                message = message_map[message_id]
-                timestamp = (
-                    message.timestamp
-                    if isinstance(message, graphql.Message)
-                    else message.metadata.timestamp
-                )
-
-                await DBMessage(
-                    mxid=event_id,
-                    mx_room=self.mxid,
-                    index=event_id_idx[message_id],
-                    timestamp=timestamp,
-                    fbid=message_id,
-                    fb_chat=self.fbid,
-                    fb_receiver=self.fb_receiver,
-                    fb_sender=int(message.message_sender.id),
-                    fb_txn_id=int(message.offline_threading_id),
-                ).insert()
-
-                event_id_idx[message_id] += 1
-            except Exception:
-                self.log.exception("Failed to finish batch")
+        messages = [
+            DBMessage(
+                mxid=event_id,
+                mx_room=self.mxid,
+                index=index,
+                timestamp=message.timestamp,
+                fbid=message.message_id,
+                fb_chat=self.fbid,
+                fb_receiver=self.fb_receiver,
+                fb_sender=int(message.message_sender.id),
+                fb_txn_id=int(message.offline_threading_id),
+            )
+            for event_id, (message, index) in zip(event_ids, message_infos)
+        ]
+        try:
+            await DBMessage.bulk_insert(messages)
+        except Exception:
+            self.log.exception("Failed to store batch message IDs")
 
     async def _send_post_backfill_dummy(
         self, last_message_timestamp: int, insertion_event_id: EventID
     ):
         assert self.mxid
-        for evt_type in (BackfillEndDummyEvent, RoomMarker, MSC2716Marker):
-            event_id = await self.az.intent.send_message_event(
-                self.mxid,
-                event_type=evt_type,
-                content={
-                    "org.matrix.msc2716.marker.insertion": insertion_event_id,
-                    "m.marker.insertion": insertion_event_id,
-                },
-            )
-            await DBMessage(
-                mxid=event_id,
-                mx_room=self.mxid,
-                index=0,
-                timestamp=last_message_timestamp + 1,
-                fbid=None,
-                fb_chat=self.fbid,
-                fb_receiver=self.fb_receiver,
-                fb_sender=0,
-                fb_txn_id=None,
-            ).insert()
+        event_id = await self.az.intent.send_message_event(
+            self.mxid,
+            event_type=HistorySyncMarker,
+            content={
+                "org.matrix.msc2716.marker.insertion": insertion_event_id,
+                "m.marker.insertion": insertion_event_id,
+            },
+        )
+        await DBMessage(
+            mxid=event_id,
+            mx_room=self.mxid,
+            index=0,
+            timestamp=last_message_timestamp + 1,
+            fbid=None,
+            fb_chat=self.fbid,
+            fb_receiver=self.fb_receiver,
+            fb_sender=0,
+            fb_txn_id=None,
+        ).insert()
 
     # endregion
     # region Matrix event handling
@@ -1488,9 +1444,11 @@ class Portal(DBPortal, BasePortal):
         self, content: MessageEventContent, reply_to: graphql.MinimalMessage | mqtt.Message
     ) -> None:
         if isinstance(reply_to, graphql.MinimalMessage):
+            log_msg_id = reply_to.message_id
             message = await DBMessage.get_by_fbid(reply_to.message_id, self.fb_receiver)
         elif isinstance(reply_to, mqtt.Message):
             meta = reply_to.metadata
+            log_msg_id = f"{meta.id} / {meta.offline_threading_id}"
             message = await DBMessage.get_by_fbid_or_oti(
                 meta.id, meta.offline_threading_id, self.fb_receiver, meta.sender
             )
@@ -1507,7 +1465,7 @@ class Portal(DBPortal, BasePortal):
 
         if not message:
             self.log.warning(
-                f"Couldn't find reply target {reply_to} to bridge reply metadata to Matrix"
+                f"Couldn't find reply target {log_msg_id} to bridge reply metadata to Matrix"
             )
             return
 
@@ -1647,7 +1605,7 @@ class Portal(DBPortal, BasePortal):
             self.log.warning(f"Unhandled Messenger message {msg_id}")
             return
         self.log.debug(f"Handled Messenger message {msg_id} -> {event_ids}")
-        created_msgs = await DBMessage.bulk_create(
+        created_msgs = await DBMessage.bulk_create_parts(
             fbid=msg_id,
             oti=oti,
             fb_chat=self.fbid,

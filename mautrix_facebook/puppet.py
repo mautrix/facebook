@@ -106,9 +106,7 @@ class Puppet(DBPuppet, BasePuppet):
         )
 
     def intent_for(self, portal: p.Portal) -> IntentAPI:
-        if portal.fbid == self.fbid or (
-            portal.backfill_lock.locked and self.config["bridge.backfill.invite_own_puppet"]
-        ):
+        if portal.fbid == self.fbid:
             return self.default_mxid_intent
         return self.intent
 

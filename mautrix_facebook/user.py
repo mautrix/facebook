@@ -960,7 +960,6 @@ class User(DBUser, BaseUser):
             reply_to = None
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-        await portal.backfill_lock.wait(evt.metadata.id)
         if not puppet.name:
             portal.schedule_resync(self, puppet)
         await portal.handle_facebook_message(self, puppet, evt, reply_to=reply_to)
@@ -969,7 +968,6 @@ class User(DBUser, BaseUser):
     async def on_title_change(self, evt: mqtt_t.NameChange) -> None:
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-        await portal.backfill_lock.wait("title change")
         await portal.handle_facebook_name(
             self, sender, evt.new_name, evt.metadata.id, evt.metadata.timestamp
         )
@@ -978,7 +976,6 @@ class User(DBUser, BaseUser):
     async def on_avatar_change(self, evt: mqtt_t.AvatarChange) -> None:
         portal = await po.Portal.get_by_thread(evt.metadata.thread, self.fbid)
         sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-        await portal.backfill_lock.wait("avatar change")
         await portal.handle_facebook_photo(
             self, sender, evt.new_avatar, evt.metadata.id, evt.metadata.timestamp
         )
@@ -988,7 +985,6 @@ class User(DBUser, BaseUser):
         puppet = await pu.Puppet.get_by_fbid(evt.user_id)
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
         if portal and portal.mxid:
-            await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
             await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_SEEN)
@@ -997,14 +993,12 @@ class User(DBUser, BaseUser):
         for thread in evt.threads:
             portal = await po.Portal.get_by_thread(thread, self.fbid, create=False)
             if portal:
-                await portal.backfill_lock.wait(f"read receipt from {puppet.fbid}")
                 await portal.handle_facebook_seen(self, puppet, evt.read_to)
 
     @async_time(METRIC_MESSAGE_UNSENT)
     async def on_message_unsent(self, evt: mqtt_t.UnsendMessage) -> None:
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
         if portal and portal.mxid:
-            await portal.backfill_lock.wait(f"redaction of {evt.message_id}")
             puppet = await pu.Puppet.get_by_fbid(evt.user_id)
             await portal.handle_facebook_unsend(puppet, evt.message_id, timestamp=evt.timestamp)
 
@@ -1014,7 +1008,6 @@ class User(DBUser, BaseUser):
         if not portal or not portal.mxid:
             return
         puppet = await pu.Puppet.get_by_fbid(evt.reaction_sender_id)
-        await portal.backfill_lock.wait(f"reaction to {evt.message_id}")
         if evt.reaction is None:
             await portal.handle_facebook_reaction_remove(self, puppet, evt.message_id)
         else:
@@ -1055,7 +1048,7 @@ class User(DBUser, BaseUser):
     @async_time(METRIC_TYPING)
     async def on_typing(self, evt: mqtt_t.TypingNotification) -> None:
         portal = await po.Portal.get_by_fbid(evt.user_id, fb_receiver=self.fbid, create=False)
-        if portal and portal.mxid and not portal.backfill_lock.locked:
+        if portal and portal.mxid:
             puppet = await pu.Puppet.get_by_fbid(evt.user_id)
             await puppet.intent.set_typing(
                 portal.mxid, is_typing=bool(evt.typing_status), timeout=10000
@@ -1067,7 +1060,6 @@ class User(DBUser, BaseUser):
         if portal.mxid:
             sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
             users = [await pu.Puppet.get_by_fbid(user.id) for user in evt.users]
-            await portal.backfill_lock.wait("member add")
             await portal.handle_facebook_join(self, sender, users)
 
     @async_time(METRIC_MEMBER_REMOVED)
@@ -1076,7 +1068,6 @@ class User(DBUser, BaseUser):
         if portal.mxid:
             sender = await pu.Puppet.get_by_fbid(evt.metadata.sender)
             user = await pu.Puppet.get_by_fbid(evt.user_id)
-            await portal.backfill_lock.wait("member remove")
             await portal.handle_facebook_leave(self, sender, user)
 
     @async_time(METRIC_THREAD_CHANGE)
@@ -1099,7 +1090,6 @@ class User(DBUser, BaseUser):
         #     user = await pu.Puppet.get_by_fbid(evt.action_data["TARGET_ID"])
         #     make_admin = evt.action_data["ADMIN_EVENT"] == "add_admin"
         #     # TODO does the ADMIN_TYPE data matter?
-        #     await portal.backfill_lock.wait("admin change")
         #     await portal.handle_facebook_admin(self, sender, user, make_admin)
         else:
             self.log.trace("Unhandled thread change: %s", evt)
