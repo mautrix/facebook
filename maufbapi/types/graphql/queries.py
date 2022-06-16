@@ -98,6 +98,26 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs):
 
 
 @dataclass
+class MoreThreadsQuery(GraphQLQuery, SerializableAttrs):
+    doc_id: ClassVar[int] = 5459366437411218
+
+    after_time_ms: str
+
+    msg_count: int = 20
+    thread_count: int = 20
+    include_full_user_info: str = "true"
+    fetch_users_separately: str = "false"
+    filter_to_groups: str = "false"
+    include_message_info: str = "true"
+
+    profile_pic_medium_size: int = 220
+    profile_pic_large_size: int = 880
+    profile_pic_small_size: int = 138
+
+    nt_context: NTContext = attr.ib(factory=lambda: NTContext())
+
+
+@dataclass
 class MoreMessagesQuery(GraphQLQuery, SerializableAttrs):
     doc_id: ClassVar[int] = 5045216125512296
 
@@ -249,3 +269,14 @@ class UpdateThreadCopresence(GraphQLMutation, SerializableAttrs):
     thread_key: str
     presence_state: str = "IN_THREAD"
     capabilities: int = 1
+
+
+@dataclass
+class UsersQuery(GraphQLQuery, SerializableAttrs):
+    doc_id: ClassVar[int] = 5268862716509612
+
+    user_fbids: List[str]
+
+    profile_pic_large_size: int = 880
+    profile_pic_medium_size: int = 220
+    profile_pic_small_size: int = 138
