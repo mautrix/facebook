@@ -15,14 +15,26 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
 import time
 import unicodedata
 
+from aiohttp import ClientConnectionError
+
 from ..types import UploadResponse
 from .base import BaseAndroidAPI
+
+try:
+    from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
+except ImportError:
+
+    class ProxyError(Exception):
+        pass
+
+    ProxyConnectionError = ProxyTimeoutError = ProxyError
 
 
 class UploadAPI(BaseAndroidAPI):
@@ -38,6 +50,7 @@ class UploadAPI(BaseAndroidAPI):
         reply_to: str | None = None,
         caption: str | None = None,
         duration: int | None = None,
+        max_attempts: int = 5,
     ) -> UploadResponse:
         # Convert file name to ASCII with some basic accent removal
         ascii_file_name = (
@@ -105,9 +118,30 @@ class UploadAPI(BaseAndroidAPI):
 
         self.log.trace("Sending upload with headers: %s", headers)
         file_id = hashlib.md5(data).hexdigest() + str(offline_threading_id)
-        resp = await self.http.post(
-            self.rupload_url / path_type / file_id, headers=headers, data=data
-        )
+        attempt = 0
+        while True:
+            try:
+                resp = await self.http.post(
+                    self.rupload_url / path_type / file_id, headers=headers, data=data
+                )
+                break
+            except (
+                ProxyError,
+                ProxyTimeoutError,
+                ProxyConnectionError,
+                ClientConnectionError,
+                ConnectionError,
+                asyncio.TimeoutError,
+            ) as e:
+                wait = attempt * 2
+                attempt += 1
+                if attempt >= max_attempts:
+                    raise
+                self.log.warning(
+                    f"{type(e).__name__} while trying to upload media, "
+                    f"retrying in {wait} seconds: {e}"
+                )
+                await asyncio.sleep(wait)
         json_data = await self._handle_response(resp)
         self.log.trace("Upload response: %s %s", resp.status, json_data)
         return UploadResponse.deserialize(json_data)
