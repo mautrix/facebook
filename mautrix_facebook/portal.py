@@ -1447,6 +1447,24 @@ class Portal(DBPortal, BasePortal):
         message_text: str,
     ) -> MessageEventContent:
         filename = attachment.file_name
+
+        if filename is None:
+            msg = html = "Unsupported attachment"
+            msgtype = MessageType.NOTICE
+            if attachment.mime_type == "p2p_payment":
+                sa = attachment.parse_extensible().story_attachment
+                msg = sa.title + "\n" + sa.subtitle
+                subtitle = escape(sa.subtitle.replace("\n", "<br />"))
+                html = f"<b>{escape(sa.title)}</b><br>{subtitle}"
+                msgtype = MessageType.TEXT
+            else:
+                self.log.warning(
+                    f"Unsupported attachment in {msg_id} (mime: {attachment.mime_type})"
+                )
+            return TextMessageEventContent(
+                msgtype=msgtype, body=msg, format=Format.HTML, formatted_body=html
+            )
+
         if attachment.mime_type and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
@@ -1496,7 +1514,7 @@ class Portal(DBPortal, BasePortal):
             url = await source.client.get_file_url(self.fbid, msg_id, attachment.media_id)
             info = FileInfo()
         else:
-            msg = f"Unsupported attachment"
+            msg = "Unsupported attachment"
             self.log.warning(msg)
             return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
