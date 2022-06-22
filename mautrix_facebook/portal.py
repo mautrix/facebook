@@ -15,12 +15,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Pattern, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
 from collections import deque
 from html import escape
 from io import BytesIO
 import asyncio
 import base64
+import json
 import mimetypes
 import re
 import time
@@ -56,6 +57,7 @@ from mautrix.types import (
     VideoInfo,
 )
 from mautrix.util import ffmpeg, magic, variation_selector
+from mautrix.util.formatter import parse_html
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
 
@@ -1445,6 +1447,24 @@ class Portal(DBPortal, BasePortal):
         message_text: str,
     ) -> MessageEventContent:
         filename = attachment.file_name
+
+        if filename is None:
+            msg = html = "Unsupported attachment"
+            msgtype = MessageType.NOTICE
+            if attachment.mime_type == "p2p_payment":
+                sa = attachment.parse_extensible().story_attachment
+                msg = sa.title + "\n" + sa.subtitle
+                subtitle = escape(sa.subtitle.replace("\n", "<br />"))
+                html = f"<b>{escape(sa.title)}</b><br>{subtitle}"
+                msgtype = MessageType.TEXT
+            else:
+                self.log.warning(
+                    f"Unsupported attachment in {msg_id} (mime: {attachment.mime_type})"
+                )
+            return TextMessageEventContent(
+                msgtype=msgtype, body=msg, format=Format.HTML, formatted_body=html
+            )
+
         if attachment.mime_type and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
@@ -1494,7 +1514,7 @@ class Portal(DBPortal, BasePortal):
             url = await source.client.get_file_url(self.fbid, msg_id, attachment.media_id)
             info = FileInfo()
         else:
-            msg = f"Unsupported attachment"
+            msg = "Unsupported attachment"
             self.log.warning(msg)
             return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
@@ -2011,6 +2031,36 @@ class Portal(DBPortal, BasePortal):
             except ValueError:
                 pass
             await reaction.delete()
+
+    async def handle_facebook_poll(
+        self,
+        sender: p.Puppet,
+        thread_change: mqtt.ThreadChange,
+    ) -> None:
+        if not self.mxid:
+            return
+
+        if thread_change.action_data["event_type"] != "question_creation":
+            return
+
+        question_json = json.loads(thread_change.action_data.get("question_json"))
+        options_html = "".join(f"<li>{o['text']}</li>" for o in question_json.get("options"))
+        html = f"""
+            <b>Poll: {question_json.get("text")}</b><br>
+            Options:
+            <ul>{options_html}</ul>
+            Open Facebook Messenger to vote.
+        """.strip()
+
+        await self._send_message(
+            sender.intent_for(self),
+            TextMessageEventContent(
+                msgtype=MessageType.TEXT,
+                body=await parse_html(html),
+                format=Format.HTML,
+                formatted_body=html,
+            ),
+        )
 
     async def handle_facebook_join(
         self, source: u.User, sender: p.Puppet, users: list[p.Puppet]

@@ -1008,6 +1008,9 @@ class User(DBUser, BaseUser):
             target = int(evt.action_data["participant_id"])
             puppet = await pu.Puppet.get_by_fbid(target)
             await portal.sync_per_room_nick(puppet, evt.action_data["nickname"])
+        elif evt.action == mqtt_t.ThreadChangeAction.POLL:
+            puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+            await portal.handle_facebook_poll(puppet, evt)
 
         # TODO
         # elif evt.action == mqtt_t.ThreadChangeAction.ADMINS:
