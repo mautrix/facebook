@@ -15,9 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, Union, cast
-from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
+from collections import deque
 from html import escape
 from io import BytesIO
 import asyncio
@@ -34,14 +33,12 @@ from mautrix.appservice import DOUBLE_PUPPET_SOURCE_KEY, IntentAPI
 from mautrix.bridge import BasePortal, async_getter_lock
 from mautrix.errors import IntentError, MatrixError, MForbidden, MNotFound, SessionNotFound
 from mautrix.types import (
-    JSON,
     AudioInfo,
     BatchID,
     BatchSendEvent,
     BatchSendStateEvent,
     BeeperMessageStatusEventContent,
     ContentURI,
-    EncryptedEventContent,
     EncryptedFile,
     EventID,
     EventType,
@@ -66,7 +63,6 @@ from mautrix.types import (
 from mautrix.util import ffmpeg, magic, variation_selector
 from mautrix.util.formatter import parse_html
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
-from mautrix.util.simple_lock import SimpleLock
 
 from . import matrix as m, puppet as p, user as u
 from .config import Config
