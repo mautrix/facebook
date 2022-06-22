@@ -537,6 +537,12 @@ class ThreadChangeAction(ExtensibleEnum):
     #   'participant_id': '<user id>'
     NICKNAME = "change_thread_nickname"
 
+    # action_data:
+    #    'added_option_ids': '<option ids>' (this is a string with a list inside)
+    #    'removed_option_ids': '<option ids>' (this is a string with a list inside)
+    #    'question_json': JSON of the question
+    POLL = "group_poll"
+
 
 @autospec
 @dataclass(kw_only=True)

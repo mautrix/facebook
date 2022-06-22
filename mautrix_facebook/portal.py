@@ -15,12 +15,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Pattern, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
 from collections import deque
 from html import escape
 from io import BytesIO
 import asyncio
 import base64
+import json
 import mimetypes
 import re
 import time
@@ -56,6 +57,7 @@ from mautrix.types import (
     VideoInfo,
 )
 from mautrix.util import ffmpeg, magic, variation_selector
+from mautrix.util.formatter import parse_html
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 from mautrix.util.simple_lock import SimpleLock
 
@@ -2011,6 +2013,36 @@ class Portal(DBPortal, BasePortal):
             except ValueError:
                 pass
             await reaction.delete()
+
+    async def handle_facebook_poll(
+        self,
+        sender: p.Puppet,
+        thread_change: mqtt.ThreadChange,
+    ) -> None:
+        if not self.mxid:
+            return
+
+        if thread_change.action_data["event_type"] != "question_creation":
+            return
+
+        question_json = json.loads(thread_change.action_data.get("question_json"))
+        options_html = "".join(f"<li>{o['text']}</li>" for o in question_json.get("options"))
+        html = f"""
+            <b>Poll: {question_json.get("text")}</b><br>
+            Options:
+            <ul>{options_html}</ul>
+            Open Facebook Messenger to vote.
+        """.strip()
+
+        await self._send_message(
+            sender.intent_for(self),
+            TextMessageEventContent(
+                msgtype=MessageType.TEXT,
+                body=await parse_html(html),
+                format=Format.HTML,
+                formatted_body=html,
+            ),
+        )
 
     async def handle_facebook_join(
         self, source: u.User, sender: p.Puppet, users: list[p.Puppet]
