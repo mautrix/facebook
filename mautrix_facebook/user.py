@@ -325,7 +325,10 @@ class User(DBUser, BaseUser):
         await self.logout(remove_fbid=False, from_auth_error=True)
 
     async def fetch_logged_in_user(
-        self, client: AndroidAPI | None = None, action: str = "restore session"
+        self,
+        client: AndroidAPI | None = None,
+        action: str = "restore session",
+        refresh_proxy_on_failure: bool = False,
     ) -> None:
         if not client:
             client = self.client
@@ -352,6 +355,9 @@ class User(DBUser, BaseUser):
                     f"retrying in {wait} seconds: {e}"
                 )
                 await asyncio.sleep(wait)
+                if refresh_proxy_on_failure:
+                    self.proxy_handler.update_proxy_url()
+                    await self.on_proxy_update()
             except ResponseError:
                 if action != "restore session":
                     attempt += 1
@@ -458,7 +464,10 @@ class User(DBUser, BaseUser):
         await self.on_proxy_update()
         if fetch_user:
             self.log.debug("Fetching current user after MQTT disconnection")
-            await self.fetch_logged_in_user(action="fetch current user after MQTT disconnection")
+            await self.fetch_logged_in_user(
+                action="fetch current user after MQTT disconnection",
+                refresh_proxy_on_failure=True,  # safe because MQTT is dropped
+            )
         self.start_listen()
         self._is_refreshing = False
 
