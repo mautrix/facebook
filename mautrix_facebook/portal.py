@@ -1434,17 +1434,6 @@ class Portal(DBPortal, BasePortal):
                 # URL is present in message, don't repost
                 return None
             return TextMessageEventContent(msgtype=MessageType.TEXT, body=f"{sa.title}\n\n{url}")
-        elif sa.title and sa.subtitle:
-            body = f"Unsupported attachment: **{sa.title}**\n\n{sa.subtitle}"
-            html_title = escape(sa.title).replace("\n", "<br/>")
-            html_subtitle = escape(sa.subtitle).replace("\n", "<br/>")
-            html = (
-                f"<p>Unsupported attachment: <strong>{html_title}</strong></p>"
-                f"<p>{html_subtitle}</p>"
-            )
-            return TextMessageEventContent(
-                msgtype=MessageType.TEXT, body=body, format=Format.HTML, formatted_body=html
-            )
         else:
             self.log.debug("Unhandled story attachment: %s", sa.serialize())
             return None
