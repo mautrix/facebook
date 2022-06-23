@@ -1434,6 +1434,17 @@ class Portal(DBPortal, BasePortal):
                 # URL is present in message, don't repost
                 return None
             return TextMessageEventContent(msgtype=MessageType.TEXT, body=f"{sa.title}\n\n{url}")
+        elif sa.title and sa.subtitle:
+            body = f"Unsupported attachment: **{sa.title}**\n\n{sa.subtitle}"
+            html_title = escape(sa.title).replace("\n", "<br/>")
+            html_subtitle = escape(sa.subtitle).replace("\n", "<br/>")
+            html = (
+                f"<p>Unsupported attachment: <strong>{html_title}</strong></p>"
+                f"<p>{html_subtitle}</p>"
+            )
+            return TextMessageEventContent(
+                msgtype=MessageType.TEXT, body=body, format=Format.HTML, formatted_body=html
+            )
         else:
             self.log.debug("Unhandled story attachment: %s", sa.serialize())
             return None
@@ -1447,25 +1458,7 @@ class Portal(DBPortal, BasePortal):
         message_text: str,
     ) -> MessageEventContent:
         filename = attachment.file_name
-
-        if filename is None:
-            msg = html = "Unsupported attachment"
-            msgtype = MessageType.NOTICE
-            if attachment.mime_type == "p2p_payment":
-                sa = attachment.parse_extensible().story_attachment
-                msg = sa.title + "\n" + sa.subtitle
-                subtitle = escape(sa.subtitle.replace("\n", "<br />"))
-                html = f"<b>{escape(sa.title)}</b><br>{subtitle}"
-                msgtype = MessageType.TEXT
-            else:
-                self.log.warning(
-                    f"Unsupported attachment in {msg_id} (mime: {attachment.mime_type})"
-                )
-            return TextMessageEventContent(
-                msgtype=msgtype, body=msg, format=Format.HTML, formatted_body=html
-            )
-
-        if attachment.mime_type and "." not in filename:
+        if attachment.mime_type and filename is not None and "." not in filename:
             filename += mimetypes.guess_extension(attachment.mime_type)
         referer = "unknown"
         voice_message = False
@@ -1514,9 +1507,10 @@ class Portal(DBPortal, BasePortal):
             url = await source.client.get_file_url(self.fbid, msg_id, attachment.media_id)
             info = FileInfo()
         else:
-            msg = "Unsupported attachment"
-            self.log.warning(msg)
-            return TextMessageEventContent(msgtype=MessageType.NOTICE, body=msg)
+            self.log.warning(f"Unsupported attachment in {msg_id}")
+            return TextMessageEventContent(
+                msgtype=MessageType.NOTICE, body="Unsupported attachment"
+            )
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
             url,
             source,
