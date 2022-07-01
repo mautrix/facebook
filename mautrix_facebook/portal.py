@@ -1420,7 +1420,7 @@ class Portal(DBPortal, BasePortal):
             info.mimetype = additional_info.mimetype
             title = sa.title or sa.media.typename_str
             filename = f"{title}{mimetypes.guess_extension(info.mimetype)}"
-            return MediaMessageEventContent(
+            content = MediaMessageEventContent(
                 url=mxc,
                 file=decryption_info,
                 msgtype=msgtype,
@@ -1428,6 +1428,18 @@ class Portal(DBPortal, BasePortal):
                 info=info,
                 external_url=sa.url,
             )
+            # TODO only do this if captions are enabled in the config
+            if sa.description and sa.description.text != "msngr.com":
+                content["filename"] = content.body
+                content.body = sa.description.text
+                if sa.url:
+                    content.body += f"\n\n{sa.url}"
+                    content["format"] = str(Format.HTML)
+                    content["formatted_body"] = (
+                        f"<p>{escape(sa.description.text)}</p>"
+                        f"<p><a href='{sa.url}'>Open external link</a></p>"
+                    )
+            return content
         elif sa.url and sa.title:
             url = str(sa.clean_url)
             if message_text is not None and (url in message_text or sa.title in message_text):
