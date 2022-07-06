@@ -744,52 +744,18 @@ class Portal(DBPortal, BasePortal):
 
     async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
         assert source.client
-        # Get the thread information.
-        threads = await source.client.fetch_thread_info(backfill_request.portal_fbid)
-        if not threads:
-            return None
-        elif threads[0].thread_key.id != self.fbid:
-            self.log.warning(
-                "fetch_thread_info response contained different ID (%s) than expected (%s)",
-                threads[0].thread_key.id,
-                self.fbid,
-            )
-            self.log.debug(f"Number of threads in unexpected response: {len(threads)}")
-        thread = threads[0]
-
-        # Create or update the Matrix room
-        # FIXME this is duplicated in backfill_message_page
-        was_created = False
-        if not self.mxid:
-            await self.create_matrix_room(source, thread)
-            was_created = True
-        else:
-            # FIXME this shouldn't be here
-            await self.update_matrix_room(source, thread)
-        if was_created or not self.config["bridge.tag_only_on_create"]:
-            # FIXME this also probably shouldn't be here
-            await source.mute_room(self, thread.mute_until)
+        assert self.mxid
 
         # Actually backfill
         last_message_timestamp, insertion_event_ids = await self._backfill(
-            source, backfill_request, thread=thread
+            source, backfill_request
         )
         for insertion_event_id in insertion_event_ids:
             await self._send_post_backfill_dummy(last_message_timestamp, insertion_event_id)
 
-        if thread.unread_count == 0:
-            last_message = await DBMessage.get_most_recent(self.fbid, self.fb_receiver)
-            puppet = await source.get_puppet()
-            if last_message and puppet:
-                await puppet.intent_for(self).mark_read(self.mxid, last_message.mxid)
-
     async def _backfill(
-        self,
-        source: u.User,
-        backfill_request: Backfill,
-        thread: graphql.Thread,
+        self, source: u.User, backfill_request: Backfill
     ) -> tuple[int, list[EventID]]:
-        assert self.mxid and source.client
         self.log.debug("Backfill request: %s", backfill_request)
 
         num_pages = backfill_request.num_pages
@@ -808,10 +774,8 @@ class Portal(DBPortal, BasePortal):
             self.log.debug(
                 "There is no first message in the chat, starting with the messages on the thread"
             )
-            messages = thread.messages.nodes
-            if len(messages) == 0:
-                resp = await source.client.fetch_messages(self.fbid, int(time.time()))
-                messages = resp.nodes
+            resp = await source.client.fetch_messages(self.fbid, int(time.time()))
+            messages = resp.nodes
 
         if len(messages) == 0:
             return 0, []
@@ -826,7 +790,7 @@ class Portal(DBPortal, BasePortal):
         backfill_more = True
         for i in range(pages_to_backfill):
             oldest_bridged_msg_ts, insertion_event_id = await self.backfill_message_page(
-                source, thread, messages
+                source, messages
             )
 
             if insertion_event_id:
@@ -851,6 +815,7 @@ class Portal(DBPortal, BasePortal):
             else:
                 new_max_total_pages = backfill_request.max_total_pages - backfill_request.num_pages
                 if new_max_total_pages <= 0:
+                    # FIXME this doesn't do anything
                     backfill_more = False
 
             self.log.debug("Enqueueing more backfill")
@@ -873,9 +838,9 @@ class Portal(DBPortal, BasePortal):
     async def backfill_message_page(
         self,
         source: u.User,
-        thread: graphql.Thread,
         message_page: list[graphql.Message],
         forward: bool = False,
+        last_message: DBMessage | None = None,
     ) -> tuple[int, EventID | None]:
         """
         Backfills a page of messages to Matrix. The messages should be in order from oldest to
@@ -886,18 +851,6 @@ class Portal(DBPortal, BasePortal):
         assert source.client
         if len(message_page) == 0:
             return 0, None
-
-        # Create or update the Matrix room
-        was_created = False
-        if not self.mxid:
-            await self.create_matrix_room(source, thread)
-            was_created = True
-        else:
-            # FIXME this shouldn't be here
-            await self.update_matrix_room(source, thread)
-        if was_created or not self.config["bridge.tag_only_on_create"]:
-            # FIXME this also probably shouldn't be here
-            await source.mute_room(self, thread.mute_until)
 
         assert self.mxid
 
@@ -988,18 +941,19 @@ class Portal(DBPortal, BasePortal):
             return oldest_msg_timestamp, None
 
         if forward or self.next_batch_id is None:
-            # This is a forward backfill, or no backfills have happened yet.
             self.log.debug("Sending dummy event to avoid forward extremity errors")
-            prev_event_id = await self.az.intent.send_message_event(
+            await self.az.intent.send_message_event(
                 self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
             )
-        else:
-            assert self.first_event_id
-            prev_event_id = self.first_event_id
+        assert self.first_event_id
+        prev_event_id = self.first_event_id
+        if forward and last_message and last_message.mxid:
+            prev_event_id = last_message.mxid
 
         self.log.info(
-            "Sending %d historical messages to %s with batch ID: %s and previous event ID %s",
+            "Sending %d %s messages to %s with batch ID: %s and previous event ID %s",
             len(batch_messages),
+            "new" if forward else "historical",
             self.mxid,
             self.next_batch_id,
             prev_event_id,
@@ -1010,10 +964,12 @@ class Portal(DBPortal, BasePortal):
             batch_id=self.next_batch_id,
             events=batch_messages,
             state_events_at_start=state_events_at_start,
+            beeper_new_messages=forward,
         )
         await self._finish_batch(batch_send_resp.event_ids, message_infos)
-        self.log.debug("Got next batch ID %s for %s", batch_send_resp.next_batch_id, self.mxid)
-        self.next_batch_id = batch_send_resp.next_batch_id
+        if not forward:
+            self.log.debug("Got next batch ID %s for %s", batch_send_resp.next_batch_id, self.mxid)
+            self.next_batch_id = batch_send_resp.next_batch_id
         await self.save()
 
         return oldest_msg_timestamp, batch_send_resp.base_insertion_event_id

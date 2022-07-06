@@ -609,9 +609,20 @@ class User(DBUser, BaseUser):
         assert self.client
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
 
+        # Create or update the Matrix room
+        was_created = False
+        if not portal.mxid:
+            await portal.create_matrix_room(self, thread)
+            was_created = True
+        else:
+            await portal.update_matrix_room(self, thread)
+        if was_created or not self.config["bridge.tag_only_on_create"]:
+            await self.mute_room(portal, thread.mute_until)
+
         forward_messages = thread.messages.nodes
 
-        if last_message := await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver):
+        last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)
+        if last_message:
             original_number_of_messages = len(forward_messages)
             new_messages = [m for m in forward_messages if last_message.timestamp < m.timestamp]
             forward_messages = new_messages
@@ -640,7 +651,13 @@ class User(DBUser, BaseUser):
                 )
 
         if forward_messages:
-            await portal.backfill_message_page(self, thread, forward_messages, forward=True)
+            await portal.backfill_message_page(
+                self, forward_messages, forward=True, last_message=last_message
+            )
+            if thread.unread_count == 0 and (puppet := await self.get_puppet()):
+                last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)
+                if last_message:
+                    await puppet.intent_for(portal).mark_read(portal.mxid, last_message.mxid)
 
         await portal.enqueue_immediate_backfill(self, 0)
 
