@@ -16,17 +16,15 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import sys
 import time
 
 from mautrix.bridge import BaseMatrixHandler
-from mautrix.errors import MatrixError
 from mautrix.types import (
     Event,
     EventID,
     EventType,
-    MessageType,
     PresenceEvent,
-    PresenceEventContent,
     ReactionEvent,
     ReactionEventContent,
     ReceiptEvent,
@@ -34,12 +32,11 @@ from mautrix.types import (
     RelationType,
     RoomID,
     SingleReceiptEventContent,
-    TextMessageEventContent,
     TypingEvent,
     UserID,
 )
 
-from . import portal as po, puppet as pu, user as u
+from . import portal as po, user as u
 from .db import Message as DBMessage, ThreadType
 
 if TYPE_CHECKING:
@@ -53,6 +50,21 @@ class MatrixHandler(BaseMatrixHandler):
         self.user_id_prefix = f"@{prefix}"
         self.user_id_suffix = f"{suffix}:{homeserver}"
         super().__init__(bridge=bridge)
+
+    async def check_versions(self) -> None:
+        await super().check_versions()
+        if self.config["bridge.backfill.enable"] and not (
+            support := self.versions.supports("org.matrix.msc2716")
+        ):
+            self.log.fatal(
+                "Backfilling is enabled in bridge config, but "
+                + (
+                    "MSC2716 batch sending is not enabled on homeserver"
+                    if support is False
+                    else "homeserver does not support MSC2716 batch sending"
+                )
+            )
+            sys.exit(18)
 
     async def send_welcome_message(self, room_id: RoomID, inviter: u.User) -> None:
         await super().send_welcome_message(room_id, inviter)
