@@ -774,7 +774,7 @@ class Portal(DBPortal, BasePortal):
             self.log.debug(
                 "There is no first message in the chat, starting with the messages on the thread"
             )
-            resp = await source.client.fetch_messages(self.fbid, int(time.time()))
+            resp = await source.client.fetch_messages(self.fbid, int(time.time() * 1000))
             messages = resp.nodes
 
         if len(messages) == 0:
