@@ -642,17 +642,7 @@ class User(DBUser, BaseUser):
         if forward_messages:
             await portal.backfill_message_page(self, thread, forward_messages, forward=True)
 
-        if not await Backfill.get(self.mxid, portal.fbid, portal.fb_receiver):
-            await Backfill.new(
-                self.mxid,
-                0,
-                portal.fbid,
-                portal.fb_receiver,
-                self.config["bridge.backfill.incremental.max_pages"],
-                self.config["bridge.backfill.incremental.page_delay"],
-                self.config["bridge.backfill.incremental.post_batch_delay"],
-                self.config["bridge.backfill.incremental.max_total_pages"],
-            ).insert()
+        await portal.enqueue_immediate_backfill(self, 0)
 
     async def mute_room(self, portal: po.Portal, mute_until: int | None) -> None:
         if not self.config["bridge.mute_bridging"] or not portal or not portal.mxid:
