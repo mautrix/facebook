@@ -729,6 +729,19 @@ class Portal(DBPortal, BasePortal):
     # endregion
     # region Backfill
 
+    async def enqueue_immediate_backfill(self, source: u.User, priority: int) -> None:
+        if not await Backfill.get(source.mxid, self.fbid, self.fb_receiver):
+            await Backfill.new(
+                source.mxid,
+                priority,
+                self.fbid,
+                self.fb_receiver,
+                self.config["bridge.backfill.incremental.max_pages"],
+                self.config["bridge.backfill.incremental.page_delay"],
+                self.config["bridge.backfill.incremental.post_batch_delay"],
+                self.config["bridge.backfill.incremental.max_total_pages"],
+            ).insert()
+
     async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
         assert source.client
         # Get the thread information.
@@ -745,13 +758,16 @@ class Portal(DBPortal, BasePortal):
         thread = threads[0]
 
         # Create or update the Matrix room
+        # FIXME this is duplicated in backfill_message_page
         was_created = False
         if not self.mxid:
             await self.create_matrix_room(source, thread)
             was_created = True
         else:
+            # FIXME this shouldn't be here
             await self.update_matrix_room(source, thread)
         if was_created or not self.config["bridge.tag_only_on_create"]:
+            # FIXME this also probably shouldn't be here
             await source.mute_room(self, thread.mute_until)
 
         # Actually backfill
@@ -877,8 +893,10 @@ class Portal(DBPortal, BasePortal):
             await self.create_matrix_room(source, thread)
             was_created = True
         else:
+            # FIXME this shouldn't be here
             await self.update_matrix_room(source, thread)
         if was_created or not self.config["bridge.tag_only_on_create"]:
+            # FIXME this also probably shouldn't be here
             await source.mute_room(self, thread.mute_until)
 
         assert self.mxid
@@ -980,8 +998,9 @@ class Portal(DBPortal, BasePortal):
             prev_event_id = self.first_event_id
 
         self.log.info(
-            "Sending %d historical messages. Batch ID: %s, Previous Event ID %s",
+            "Sending %d historical messages to %s with batch ID: %s and previous event ID %s",
             len(batch_messages),
+            self.mxid,
             self.next_batch_id,
             prev_event_id,
         )
