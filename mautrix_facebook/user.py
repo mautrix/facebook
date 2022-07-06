@@ -27,6 +27,7 @@ from maufbapi import AndroidAPI, AndroidMQTT, AndroidState, ProxyHandler
 from maufbapi.http import InvalidAccessToken, ResponseError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
 from maufbapi.types import graphql, mqtt as mqtt_t
+from maufbapi.types.graphql.responses import Message
 from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.errors import MNotFound
 from mautrix.types import (
@@ -604,8 +605,24 @@ class User(DBUser, BaseUser):
 
         await self.update_direct_chats()
 
+    def _message_is_bridgable(self, message: Message) -> bool:
+        if "source:messenger_growth:friending_admin_bump" in message.tags_list:
+            return False
+        if "source:generic_admin_text" in message.tags_list:
+            return False
+        return True
+
     async def _sync_thread(self, thread: graphql.Thread):
         self.log.debug(f"Syncing thread {thread.thread_key}")
+
+        # If the thread only contains unbridgable messages, then don't create a portal for it.
+        forward_messages = [m for m in thread.messages.nodes if self._message_is_bridgable(m)]
+        if not forward_messages and not thread.messages.page_info.has_previous_page:
+            self.log.debug(
+                f"Thread {thread.thread_key} only contains unbridgable messages, skipping"
+            )
+            return
+
         assert self.client
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
 
@@ -618,8 +635,6 @@ class User(DBUser, BaseUser):
             await portal.update_matrix_room(self, thread)
         if was_created or not self.config["bridge.tag_only_on_create"]:
             await self.mute_room(portal, thread.mute_until)
-
-        forward_messages = thread.messages.nodes
 
         last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)
         if last_message:
