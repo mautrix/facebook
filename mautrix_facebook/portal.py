@@ -1774,6 +1774,18 @@ class Portal(DBPortal, BasePortal):
                 # URL is present in message, don't repost
                 return None
             return TextMessageEventContent(msgtype=MessageType.TEXT, body=f"{sa.title}\n\n{url}")
+        elif sa.title_with_entities:
+            body = sa.title_with_entities.text
+            formatted_body = f"<p><strong>{escape(body)}</strong></p>"
+            if sa.description:
+                body += f"\n\n{sa.description.text}"
+                formatted_body += f"<p>{escape(sa.description.text)}</p>"
+            return TextMessageEventContent(
+                msgtype=MessageType.TEXT,
+                body=body,
+                format=Format.HTML,
+                formatted_body=formatted_body,
+            )
         else:
             self.log.debug("Unhandled story attachment: %s", sa.serialize())
             return None
