@@ -809,15 +809,14 @@ class Portal(DBPortal, BasePortal):
                     break
                 messages = resp.nodes
 
-        if backfill_more:
-            if backfill_request.max_total_pages == -1:
-                new_max_total_pages = -1
-            else:
-                new_max_total_pages = backfill_request.max_total_pages - backfill_request.num_pages
-                if new_max_total_pages <= 0:
-                    # FIXME this doesn't do anything
-                    backfill_more = False
+        if backfill_request.max_total_pages == -1:
+            new_max_total_pages = -1
+        else:
+            new_max_total_pages = backfill_request.max_total_pages - backfill_request.num_pages
+            if new_max_total_pages <= 0:
+                backfill_more = False
 
+        if backfill_more:
             self.log.debug("Enqueueing more backfill")
             await Backfill.new(
                 source.mxid,
