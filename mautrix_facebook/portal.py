@@ -951,7 +951,7 @@ class Portal(DBPortal, BasePortal):
             prev_event_id = last_message.mxid
 
         self.log.info(
-            "Sending %d %s messages to %s with batch ID: %s and previous event ID %s",
+            "Sending %d %s messages to %s with batch ID %s and previous event ID %s",
             len(batch_messages),
             "new" if forward else "historical",
             self.mxid,
