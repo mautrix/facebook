@@ -957,7 +957,7 @@ class Portal(DBPortal, BasePortal):
             self.next_batch_id,
             prev_event_id,
         )
-        batch_send_resp = await self.az.intent.batch_send(
+        batch_send_resp = await self.main_intent.batch_send(
             self.mxid,
             prev_event_id,
             batch_id=self.next_batch_id,
