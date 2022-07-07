@@ -19,7 +19,7 @@ from . import upgrade_table
 
 
 @upgrade_table.register(description="Add the backfill queue table")
-async def upgrade_v7(conn: Connection) -> None:
+async def upgrade_v8(conn: Connection) -> None:
     await conn.execute(
         """
         CREATE TABLE backfill_queue (
