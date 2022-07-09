@@ -1,4 +1,4 @@
-FROM docker.io/alpine:3.15
+FROM docker.io/alpine:3.16
 
 ARG TARGETARCH=amd64
 
@@ -10,7 +10,7 @@ RUN apk add --no-cache \
       py3-ruamel.yaml \
       py3-commonmark \
       py3-paho-mqtt \
-      py3-prometheus-client \
+      #py3-prometheus-client \
       # encryption
       py3-olm \
       py3-cffi \
@@ -34,13 +34,13 @@ COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
 WORKDIR /opt/mautrix-facebook
 RUN apk add --virtual .build-deps python3-dev libffi-dev build-base \
- && pip3 install -r requirements.txt -r optional-requirements.txt \
+ && pip3 install --no-cache-dir -r requirements.txt -r optional-requirements.txt \
  && apk del .build-deps
 
 COPY . /opt/mautrix-facebook
-RUN apk add --no-cache git && pip3 install .[e2be] && apk del git \
+RUN apk add --no-cache git && pip3 install --no-cache-dir .[e2be] && apk del git \
   # This doesn't make the image smaller, but it's needed so that the `version` command works properly
-  && cp mautrix_facebook/example-config.yaml . && rm -rf mautrix_facebook
+  && cp mautrix_facebook/example-config.yaml . && rm -rf mautrix_facebook .git build
 
 ENV UID=1337 GID=1337
 VOLUME /data
