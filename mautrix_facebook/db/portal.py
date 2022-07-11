@@ -62,6 +62,7 @@ class Portal:
     relay_user_id: UserID | None
     first_event_id: EventID | None
     next_batch_id: BatchID | None
+    historical_base_insertion_event_id: EventID | None
 
     @classmethod
     def _from_row(cls, row: Record | None) -> Portal | None:
@@ -86,6 +87,7 @@ class Portal:
             "relay_user_id",
             "first_event_id",
             "next_batch_id",
+            "historical_base_insertion_event_id",
         )
     )
 
@@ -129,12 +131,13 @@ class Portal:
             self.relay_user_id,
             self.first_event_id,
             self.next_batch_id,
+            self.historical_base_insertion_event_id,
         )
 
     async def insert(self) -> None:
         q = f"""
         INSERT INTO portal ({self.column_names})
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         """
         await self.db.execute(q, *self._values)
 
@@ -146,7 +149,8 @@ class Portal:
         q = """
             UPDATE portal SET fb_type=$3, mxid=$4, name=$5, photo_id=$6, avatar_url=$7,
                               encrypted=$8, name_set=$9, avatar_set=$10, relay_user_id=$11,
-                              first_event_id=$12, next_batch_id=$13
+                              first_event_id=$12, next_batch_id=$13,
+                              historical_base_insertion_event_id=$14
             WHERE fbid=$1 AND fb_receiver=$2
         """
         await self.db.execute(q, *self._values)

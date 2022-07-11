@@ -666,8 +666,11 @@ class User(DBUser, BaseUser):
                 )
 
         if forward_messages:
-            await portal.backfill_message_page(
+            last_message_timestamp, base_insertion_event_id = await portal.backfill_message_page(
                 self, forward_messages, forward=True, last_message=last_message
+            )
+            await portal.send_post_backfill_dummy(
+                last_message_timestamp, base_insertion_event_id=base_insertion_event_id
             )
             if thread.unread_count == 0 and (puppet := await self.get_puppet()):
                 last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)

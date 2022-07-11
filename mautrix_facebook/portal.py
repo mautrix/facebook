@@ -104,7 +104,8 @@ StateBridge = EventType.find("m.bridge", EventType.Class.STATE)
 StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STATE)
 
 PortalCreateDummy = EventType.find("fi.mau.dummy.portal_created", EventType.Class.MESSAGE)
-HistorySyncMarker = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
+HistorySyncMarkerMessage = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
+HistorySyncMarkerState = EventType.find("org.matrix.msc2716.marker", EventType.Class.STATE)
 
 ConvertedMessage = tuple[EventType, MessageEventContent]
 
@@ -142,6 +143,7 @@ class Portal(DBPortal, BasePortal):
         relay_user_id: UserID | None = None,
         first_event_id: EventID | None = None,
         next_batch_id: BatchID | None = None,
+        historical_base_insertion_event_id: EventID | None = None,
     ) -> None:
         super().__init__(
             fbid,
@@ -157,6 +159,7 @@ class Portal(DBPortal, BasePortal):
             relay_user_id,
             first_event_id,
             next_batch_id,
+            historical_base_insertion_event_id,
         )
         self.log = self.log.getChild(self.fbid_log)
 
@@ -747,15 +750,11 @@ class Portal(DBPortal, BasePortal):
         assert self.mxid
 
         # Actually backfill
-        last_message_timestamp, insertion_event_ids = await self._backfill(
-            source, backfill_request
-        )
-        for insertion_event_id in insertion_event_ids:
-            await self._send_post_backfill_dummy(last_message_timestamp, insertion_event_id)
+        last_message_timestamp = await self._backfill(source, backfill_request)
+        await self.send_post_backfill_dummy(last_message_timestamp)
 
-    async def _backfill(
-        self, source: u.User, backfill_request: Backfill
-    ) -> tuple[int, list[EventID]]:
+    async def _backfill(self, source: u.User, backfill_request: Backfill) -> int:
+        assert source.client
         self.log.debug("Backfill request: %s", backfill_request)
 
         num_pages = backfill_request.num_pages
@@ -778,10 +777,9 @@ class Portal(DBPortal, BasePortal):
             messages = resp.nodes
 
         if len(messages) == 0:
-            return 0, []
+            return 0
 
         last_message_timestamp = messages[-1].timestamp
-        insertion_event_ids: list[EventID] = []
 
         pages_to_backfill = backfill_request.num_pages
         if backfill_request.max_total_pages > -1:
@@ -789,12 +787,13 @@ class Portal(DBPortal, BasePortal):
 
         backfill_more = True
         for i in range(pages_to_backfill):
-            oldest_bridged_msg_ts, insertion_event_id = await self.backfill_message_page(
+            oldest_bridged_msg_ts, base_insertion_event_id = await self.backfill_message_page(
                 source, messages
             )
 
-            if insertion_event_id:
-                insertion_event_ids.append(insertion_event_id)
+            if base_insertion_event_id:
+                self.historical_base_insertion_event_id = base_insertion_event_id
+                await self.save()
 
             if i < pages_to_backfill - 1:
                 # Sleep before fetching another page of messages.
@@ -832,7 +831,7 @@ class Portal(DBPortal, BasePortal):
             self.log.debug("No more messages to backfill")
 
         await asyncio.sleep(backfill_request.post_batch_delay)
-        return last_message_timestamp, insertion_event_ids
+        return last_message_timestamp
 
     async def backfill_message_page(
         self,
@@ -845,7 +844,8 @@ class Portal(DBPortal, BasePortal):
         Backfills a page of messages to Matrix. The messages should be in order from oldest to
         newest.
 
-        Returns: the timestamp of the oldest bridged message
+        Returns: the timestamp of the oldest bridged message and the base insertion event ID if it
+            exists.
         """
         assert source.client
         if len(message_page) == 0:
@@ -1004,16 +1004,29 @@ class Portal(DBPortal, BasePortal):
         except Exception:
             self.log.exception("Failed to store batch message IDs")
 
-    async def _send_post_backfill_dummy(
-        self, last_message_timestamp: int, insertion_event_id: EventID
+    async def send_post_backfill_dummy(
+        self,
+        last_message_timestamp: int,
+        base_insertion_event_id: EventID | None = None,
     ):
         assert self.mxid
-        event_id = await self.az.intent.send_message_event(
+
+        if not base_insertion_event_id:
+            base_insertion_event_id = self.historical_base_insertion_event_id
+
+        if not base_insertion_event_id:
+            self.log.debug(
+                "No base insertion event ID in database or from batch send response. Not sending"
+                " dummy event."
+            )
+            return
+
+        event_id = await self.main_intent.send_message_event(
             self.mxid,
-            event_type=HistorySyncMarker,
+            event_type=HistorySyncMarkerMessage,
             content={
-                "org.matrix.msc2716.marker.insertion": insertion_event_id,
-                "m.marker.insertion": insertion_event_id,
+                "org.matrix.msc2716.marker.insertion": base_insertion_event_id,
+                "m.marker.insertion": base_insertion_event_id,
             },
         )
         await DBMessage(
@@ -1027,6 +1040,18 @@ class Portal(DBPortal, BasePortal):
             fb_sender=0,
             fb_txn_id=None,
         ).insert()
+
+        await self.main_intent.send_state_event(
+            self.mxid,
+            event_type=HistorySyncMarkerState,
+            # Use the current timestamp as the state key as that is guaranteed to be unique
+            # per-batch.
+            state_key=str(time.time()),
+            content={
+                "org.matrix.msc2716.marker.insertion": base_insertion_event_id,
+                "m.marker.insertion": base_insertion_event_id,
+            },
+        )
 
     # endregion
     # region Matrix event handling
