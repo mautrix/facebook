@@ -1687,52 +1687,24 @@ class Portal(DBPortal, BasePortal):
                 body=str(sa.clean_url),
                 formatted_body=f'<a href="{escaped_url}">{escaped_url}</a>',
             )
-        elif sa.media:
-            msgtype = {
-                "Image": MessageType.IMAGE,
-                "Video": MessageType.VIDEO,
-            }.get(sa.media.typename_str)
-            if sa.media.playable_url and msgtype == MessageType.VIDEO:
+        elif (
+            sa.media
+            and sa.media.typename_str in ("Image", "Video")
+            and (sa.media.playable_url or sa.media.image_natural)
+        ):
+            if sa.media.typename_str == "Video":
+                msgtype = MessageType.VIDEO
                 info = VideoInfo()
                 url = sa.media.playable_url
-            elif sa.media.image_natural and msgtype == MessageType.IMAGE:
+            elif sa.media.typename_str == "Image":
+                msgtype = MessageType.IMAGE
                 url = sa.media.image_natural.uri
                 info = ImageInfo(
                     width=sa.media.image_natural.width,
                     height=sa.media.image_natural.height,
                 )
             else:
-                self.log.trace("Unsupported story media attachment: %s", sa.serialize())
-                body = "Unsupported shared media attachment"
-                html = body
-                if sa.title:
-                    body = f"{body}: **{sa.title}**"
-                    html = f"{html}: <strong>{escape(sa.title)}</strong>"
-                html = f"<p>{html}</p>"
-                if sa.description and sa.description.text != "msngr.com":
-                    body += f"\n\n>{sa.description.text}"
-                    html += f"<blockquote>{escape(sa.description.text)}</blockquote>"
-                if sa.url:
-                    body += f"\n\n{sa.url}"
-                    html += f"<p><a href='{sa.url}'>Open external link</a></p>"
-                elif sa.action_links:
-                    urls = [item.url for item in sa.action_links if item.url]
-                    if len(urls) > 0:
-                        sa.url = urls[0]
-                        body += f"\n\n" + " - ".join(urls)
-                        html_parts = [
-                            f"""<a href="{item.url}">{item.title}</a>"""
-                            for item in sa.action_links
-                            if item.url
-                        ]
-                        html += f"""<p>{" - ".join(html_parts)}</p>"""
-                return TextMessageEventContent(
-                    msgtype=MessageType.TEXT,
-                    format=Format.HTML,
-                    external_url=sa.url,
-                    body=body,
-                    formatted_body=html,
-                )
+                raise RuntimeError("Unexpected typename_str in extensible media handler")
             try:
                 mxc, additional_info, decryption_info = await self._reupload_fb_file(
                     url, source, intent, encrypt=self.encrypted, find_size=False
@@ -1768,23 +1740,39 @@ class Portal(DBPortal, BasePortal):
                         f"<p><a href='{sa.url}'>Open external link</a></p>"
                     )
             return content
-        elif sa.url and sa.title:
-            url = str(sa.clean_url)
-            if message_text is not None and (url in message_text or sa.title in message_text):
+        elif sa.url or sa.title or (sa.description and sa.description.text) or sa.action_links:
+            url = str(sa.clean_url) if sa.url else None
+            if message_text and ((url and url in message_text) or sa.title in message_text):
                 # URL is present in message, don't repost
                 return None
-            return TextMessageEventContent(msgtype=MessageType.TEXT, body=f"{sa.title}\n\n{url}")
-        elif sa.title_with_entities:
-            body = sa.title_with_entities.text
-            formatted_body = f"<p><strong>{escape(body)}</strong></p>"
-            if sa.description:
-                body += f"\n\n{sa.description.text}"
-                formatted_body += f"<p>{escape(sa.description.text)}</p>"
+            text_parts = []
+            html_parts = []
+            if sa.title:
+                text_parts.append(f"**{sa.title}**")
+                html_parts.append(f"<p><strong>{escape(sa.title)}</strong></p>")
+            if sa.description and sa.description.text and sa.description.text != "msngr.com":
+                text_parts.append(sa.description.text)
+                html_parts.append(f"<p>{escape(sa.description.text)}</p>")
+            if url:
+                text_parts.append(url)
+                html_parts.append(f"<p>{escape(url)}</p>")
+            elif sa.action_links:
+                urls = [item.url for item in sa.action_links if item.url]
+                if len(urls) > 0:
+                    sa.url = urls[0]
+                    text_parts.append(" - ".join(urls))
+                    html_action_links = [
+                        f"""<a href="{item.url}">{item.title}</a>"""
+                        for item in sa.action_links
+                        if item.url
+                    ]
+                    html_parts.append(f"""<p>{" - ".join(html_action_links)}</p>""")
             return TextMessageEventContent(
                 msgtype=MessageType.TEXT,
-                body=body,
+                body="\n\n".join(text_parts),
                 format=Format.HTML,
-                formatted_body=formatted_body,
+                formatted_body="".join(html_parts),
+                external_url=sa.url,
             )
         else:
             self.log.debug("Unhandled story attachment: %s", sa.serialize())
