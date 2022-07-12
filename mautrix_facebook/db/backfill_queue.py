@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from asyncpg import Record
 from attr import dataclass
@@ -42,6 +42,7 @@ class Backfill:
     max_total_pages: int
     dispatch_time: datetime | None
     completed_at: datetime | None
+    cooldown_timeout: datetime | None
 
     @staticmethod
     def new(
@@ -66,6 +67,7 @@ class Backfill:
             max_total_pages=max_total_pages,
             dispatch_time=None,
             completed_at=None,
+            cooldown_timeout=None,
         )
 
     @classmethod
@@ -85,6 +87,7 @@ class Backfill:
         "max_total_pages",
         "dispatch_time",
         "completed_at",
+        "cooldown_timeout",
     ]
     columns_str = ",".join(columns)
 
@@ -100,6 +103,10 @@ class Backfill:
                     dispatch_time < current_timestamp - interval '15 minutes'
                     AND completed_at IS NULL
                 )
+            )
+            AND (
+                cooldown_timeout IS NULL
+                OR cooldown_timeout < current_timestamp
             )
         ORDER BY priority, queue_id
         LIMIT 1
@@ -151,6 +158,7 @@ class Backfill:
             self.max_total_pages,
             self.dispatch_time,
             self.completed_at,
+            self.cooldown_timeout,
         )
         self.queue_id = row["queue_id"]
 
@@ -161,3 +169,10 @@ class Backfill:
     async def mark_done(self) -> None:
         q = "UPDATE backfill_queue SET completed_at=$1 WHERE queue_id=$2"
         await self.db.execute(q, datetime.now(), self.queue_id)
+
+    async def set_cooldown_timeout(self, timeout) -> None:
+        """
+        Set the backfill request to cooldown for ``timeout`` seconds.
+        """
+        q = "UPDATE backfill_queue SET cooldown_timeout=$1 WHERE queue_id=$2"
+        await self.db.execute(q, datetime.now() + timedelta(seconds=timeout), self.queue_id)

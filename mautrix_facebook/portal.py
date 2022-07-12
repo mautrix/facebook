@@ -787,15 +787,19 @@ class Portal(DBPortal, BasePortal):
 
         backfill_more = True
         for i in range(pages_to_backfill):
-            oldest_bridged_msg_ts, base_insertion_event_id = await self.backfill_message_page(
-                source, messages
-            )
+            (
+                num_bridged,
+                oldest_bridged_msg_ts,
+                base_insertion_event_id,
+            ) = await self.backfill_message_page(source, messages)
 
             if base_insertion_event_id:
                 self.historical_base_insertion_event_id = base_insertion_event_id
                 await self.save()
 
-            if i < pages_to_backfill - 1:
+            # If nothing was bridged, then we want to check and see if there are messages before
+            # this page, or if the only thing left in the chat is unbridgable messages.
+            if num_bridged == 0 or i < pages_to_backfill - 1:
                 # Sleep before fetching another page of messages.
                 await asyncio.sleep(backfill_request.page_delay)
 
@@ -839,17 +843,17 @@ class Portal(DBPortal, BasePortal):
         message_page: list[graphql.Message],
         forward: bool = False,
         last_message: DBMessage | None = None,
-    ) -> tuple[int, EventID | None]:
+    ) -> tuple[int, int, EventID | None]:
         """
         Backfills a page of messages to Matrix. The messages should be in order from oldest to
         newest.
 
-        Returns: the timestamp of the oldest bridged message and the base insertion event ID if it
-            exists.
+        Returns: a tuple containing the number of messages that were actually bridged, the
+            timestamp of the oldest bridged message and the base insertion event ID if it exists.
         """
         assert source.client
         if len(message_page) == 0:
-            return 0, None
+            return 0, 0, None
 
         assert self.mxid
 
@@ -937,7 +941,7 @@ class Portal(DBPortal, BasePortal):
         if not batch_messages:
             # Still return the oldest message's timestamp, since none of the messages were
             # bridgeable, we want to skip further back in history to find some that are bridgable.
-            return oldest_msg_timestamp, None
+            return 0, oldest_msg_timestamp, None
 
         if forward or self.next_batch_id is None:
             self.log.debug("Sending dummy event to avoid forward extremity errors")
@@ -971,7 +975,11 @@ class Portal(DBPortal, BasePortal):
             self.next_batch_id = batch_send_resp.next_batch_id
         await self.save()
 
-        return oldest_msg_timestamp, batch_send_resp.base_insertion_event_id
+        return (
+            len(batch_send_resp.event_ids),
+            oldest_msg_timestamp,
+            batch_send_resp.base_insertion_event_id,
+        )
 
     def _can_double_puppet_backfill(self, custom_mxid: UserID) -> bool:
         if not self.config["bridge.backfill.double_puppet_backfill"]:

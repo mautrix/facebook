@@ -25,6 +25,7 @@ from aiohttp import ClientConnectionError
 
 from maufbapi import AndroidAPI, AndroidMQTT, AndroidState, ProxyHandler
 from maufbapi.http import InvalidAccessToken, ResponseError
+from maufbapi.http.errors import GraphQLError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
 from maufbapi.types import graphql, mqtt as mqtt_t
 from maufbapi.types.graphql.responses import Message
@@ -539,8 +540,18 @@ class User(DBUser, BaseUser):
                 await req.mark_dispatched()
                 await portal.backfill(self, req)
                 await req.mark_done()
+            except GraphQLError as e:
+                code = e.data.get("code")
+                if code == 3252001:
+                    # Rate limit exceeded. Make sure we don't try to backfill this portal again for
+                    # a while.
+                    await req.set_cooldown_timeout(60)
+                else:
+                    await req.set_cooldown_timeout(10)
             except Exception:
                 self.log.exception("Failed to backfill portal %s", req.portal_fbid)
+                # Don't try again to backfill this portal for a few seconds.
+                await req.set_cooldown_timeout(10)
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
@@ -666,7 +677,11 @@ class User(DBUser, BaseUser):
                 )
 
         if forward_messages:
-            last_message_timestamp, base_insertion_event_id = await portal.backfill_message_page(
+            (
+                _,
+                last_message_timestamp,
+                base_insertion_event_id,
+            ) = await portal.backfill_message_page(
                 self, forward_messages, forward=True, last_message=last_message
             )
             await portal.send_post_backfill_dummy(
