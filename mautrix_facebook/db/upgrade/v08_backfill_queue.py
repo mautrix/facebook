@@ -34,6 +34,7 @@ async def upgrade_v8(conn: Connection) -> None:
             max_total_pages     INTEGER NOT NULL,
             dispatch_time       TIMESTAMP,
             completed_at        TIMESTAMP,
+            cooldown_timeout    TIMESTAMP,
 
             FOREIGN KEY (user_mxid) REFERENCES "user"(mxid) ON DELETE CASCADE ON UPDATE CASCADE,
             FOREIGN KEY (portal_fbid, portal_fb_receiver)

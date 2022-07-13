@@ -22,3 +22,4 @@ from . import upgrade_table
 async def upgrade_v9(conn: Connection) -> None:
     await conn.execute("ALTER TABLE portal ADD COLUMN first_event_id TEXT")
     await conn.execute("ALTER TABLE portal ADD COLUMN next_batch_id TEXT")
+    await conn.execute("ALTER TABLE portal ADD COLUMN historical_base_insertion_event_id TEXT")
