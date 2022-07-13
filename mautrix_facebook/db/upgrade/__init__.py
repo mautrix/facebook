@@ -12,6 +12,4 @@ from . import (
     v07_store_reaction_timestamp,
     v08_backfill_queue,
     v09_portal_infinite_backfill,
-    v10_portal_historical_base_insertion_event_id,
-    v11_portal_cooldown_timer,
 )
