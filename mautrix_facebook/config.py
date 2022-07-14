@@ -85,8 +85,12 @@ class Config(BaseBridgeConfig):
         copy("bridge.backfill.double_puppet_backfill")
         if "bridge.initial_chat_sync" in self:
             initial_chat_sync = self["bridge.initial_chat_sync"]
-            base["bridge.backfill.max_initial_conversations"] = initial_chat_sync
-            base["bridge.backfill.max_incremental_conversations"] = initial_chat_sync
+            base["bridge.backfill.max_initial_conversations"] = self.get(
+                "bridge.backfill.max_initial_conversations", initial_chat_sync
+            )
+            base["bridge.backfill.max_incremental_conversations"] = self.get(
+                "bridge.backfill.max_incremental_conversations", initial_chat_sync
+            )
         else:
             copy("bridge.backfill.max_initial_conversations")
             copy("bridge.backfill.max_incremental_conversations")
