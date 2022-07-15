@@ -105,7 +105,6 @@ StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STAT
 
 PortalCreateDummy = EventType.find("fi.mau.dummy.portal_created", EventType.Class.MESSAGE)
 HistorySyncMarkerMessage = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
-HistorySyncMarkerState = EventType.find("org.matrix.msc2716.marker", EventType.Class.STATE)
 
 ConvertedMessage = tuple[EventType, MessageEventContent]
 
@@ -1048,18 +1047,6 @@ class Portal(DBPortal, BasePortal):
             fb_sender=0,
             fb_txn_id=None,
         ).insert()
-
-        await self.main_intent.send_state_event(
-            self.mxid,
-            event_type=HistorySyncMarkerState,
-            # Use the current timestamp as the state key as that is guaranteed to be unique
-            # per-batch.
-            state_key=str(time.time()),
-            content={
-                "org.matrix.msc2716.marker.insertion": base_insertion_event_id,
-                "m.marker.insertion": base_insertion_event_id,
-            },
-        )
 
     # endregion
     # region Matrix event handling
