@@ -100,7 +100,7 @@ class Backfill:
             AND (
                 dispatch_time IS NULL
                 OR (
-                    dispatch_time < current_timestamp - interval '15 minutes'
+                    dispatch_time < $2
                     AND completed_at IS NULL
                 )
             )
@@ -111,7 +111,9 @@ class Backfill:
         ORDER BY priority, queue_id
         LIMIT 1
         """
-        return cls._from_row(await cls.db.fetchrow(q, user_mxid))
+        return cls._from_row(
+            await cls.db.fetchrow(q, user_mxid, datetime.now() - timedelta(minutes=15))
+        )
 
     @classmethod
     async def get(

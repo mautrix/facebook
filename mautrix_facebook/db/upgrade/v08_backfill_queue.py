@@ -13,17 +13,20 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from mautrix.util.async_db import Connection
+from mautrix.util.async_db import Connection, Scheme
 
 from . import upgrade_table
 
 
 @upgrade_table.register(description="Add the backfill queue table")
-async def upgrade_v8(conn: Connection) -> None:
+async def upgrade_v8(conn: Connection, scheme: Scheme) -> None:
+    gen = ""
+    if scheme in (Scheme.POSTGRES, Scheme.COCKROACH):
+        gen = "GENERATED ALWAYS AS IDENTITY"
     await conn.execute(
-        """
+        f"""
         CREATE TABLE backfill_queue (
-            queue_id            INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+            queue_id            INTEGER PRIMARY KEY {gen},
             user_mxid           TEXT,
             priority            INTEGER NOT NULL,
             portal_fbid         BIGINT,
