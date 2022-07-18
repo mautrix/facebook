@@ -543,9 +543,10 @@ class User(DBUser, BaseUser):
             except GraphQLError as e:
                 code = e.data.get("code")
                 if code == 3252001:
-                    # Rate limit exceeded. Make sure we don't try to backfill this portal again for
-                    # a while.
-                    await req.set_cooldown_timeout(60)
+                    # Rate limit exceeded. Stop trying to backfill for a minute, and make sure
+                    # that this portal isn't backfilled for five minutes.
+                    await req.set_cooldown_timeout(60 * 5)
+                    await asyncio.sleep(60)
                 else:
                     await req.set_cooldown_timeout(10)
             except Exception:

@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Optional, Pattern, cast
 from collections import deque
 from html import escape
 from io import BytesIO
@@ -745,14 +745,15 @@ class Portal(DBPortal, BasePortal):
             ).insert()
 
     async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
-        assert source.client
-        assert self.mxid
+        try:
+            last_message_timestamp = await self._backfill(source, backfill_request)
+            if last_message_timestamp is not None:
+                await self.send_post_backfill_dummy(last_message_timestamp)
+        finally:
+            # Always sleep after the backfill request is finished processing, even if it errors.
+            await asyncio.sleep(backfill_request.post_batch_delay)
 
-        # Actually backfill
-        last_message_timestamp = await self._backfill(source, backfill_request)
-        await self.send_post_backfill_dummy(last_message_timestamp)
-
-    async def _backfill(self, source: u.User, backfill_request: Backfill) -> int:
+    async def _backfill(self, source: u.User, backfill_request: Backfill) -> Optional[int]:
         assert source.client
         self.log.debug("Backfill request: %s", backfill_request)
 
@@ -770,13 +771,13 @@ class Portal(DBPortal, BasePortal):
             messages = resp.nodes
         else:
             self.log.debug(
-                "There is no first message in the chat, starting with the messages on the thread"
+                "There is no first message in the chat, starting with the most recent messages"
             )
             resp = await source.client.fetch_messages(self.fbid, int(time.time() * 1000))
             messages = resp.nodes
 
         if len(messages) == 0:
-            return 0
+            return None
 
         last_message_timestamp = messages[-1].timestamp
 
@@ -833,7 +834,6 @@ class Portal(DBPortal, BasePortal):
         else:
             self.log.debug("No more messages to backfill")
 
-        await asyncio.sleep(backfill_request.post_batch_delay)
         return last_message_timestamp
 
     async def backfill_message_page(
