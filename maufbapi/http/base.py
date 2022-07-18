@@ -278,8 +278,8 @@ class BaseAndroidAPI:
         if error:
             self.log.trace("Got error object in response data: %s", error)
             error_class = (
-                error_code_map.get(error["code"])
-                or error_class_map.get(error["type"])
+                error_code_map.get(error.get("code"))
+                or error_class_map.get(error.get("type"))
                 or ResponseError
             )
             raise error_class(error)
