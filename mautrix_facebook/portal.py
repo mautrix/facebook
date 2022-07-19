@@ -899,13 +899,13 @@ class Portal(DBPortal, BasePortal):
             last_message_timestamp = max(last_message_timestamp, message.timestamp)
 
             puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
-            intent = puppet.intent_for(self)
-            can_double_puppet_backfill = puppet.is_real_user and self._can_double_puppet_backfill(
-                puppet.custom_mxid
-            )
-            if not can_double_puppet_backfill:
-                if puppet.is_real_user:
-                    self.log.warning("%s can't double puppet backfill :(", puppet.custom_mxid)
+            if puppet:
+                intent = puppet.intent_for(self)
+                if not puppet.name:
+                    await puppet.update_info(source)
+            else:
+                intent = self.main_intent
+            if intent.api.is_real_user and not self._can_double_puppet_backfill(intent.mxid):
                 intent = puppet.default_mxid_intent
 
             # Convert the message
