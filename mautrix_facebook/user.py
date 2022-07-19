@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, TypeVar, cast
+from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, Optional, TypeVar, cast
 import asyncio
 import hashlib
 import hmac
@@ -612,7 +612,17 @@ class User(DBUser, BaseUser):
             return
         elif sync_count < 0:
             sync_count = None
+
+        sync_delay = self.config["bridge.backfill.min_sync_thread_delay"]
+        last_thread_sync = 0.0
         async for thread in self.client.iter_thread_list(resp, local_limit=sync_count):
+            now = time.monotonic()
+            if last_thread_sync is not None and now < last_thread_sync + sync_delay:
+                delay = last_thread_sync + sync_delay - now
+                self.log.debug("Thread sync is happening too quickly. Waiting for %ds", delay)
+                await asyncio.sleep(delay)
+
+            last_thread_sync = now
             await self._sync_thread(thread)
 
         await self.update_direct_chats()

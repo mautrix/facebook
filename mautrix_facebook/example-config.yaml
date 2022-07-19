@@ -193,6 +193,9 @@ bridge:
         # The maximum number of conversations that should be synced when the
         # bridge gets restarted.
         max_incremental_conversations: 20
+        # The minimum amount of time to wait between syncing each thread. This
+        # helps avoid situations where you sync too quickly.
+        min_sync_thread_delay: 5
 
         # Settings for backfills.
         #
