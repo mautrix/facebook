@@ -576,21 +576,34 @@ class User(DBUser, BaseUser):
         }
 
     async def run_with_sync_lock(self, func: Callable[[], Awaitable]):
-        try:
-            with self._sync_lock:
-                await func()
-        except InvalidAccessToken as e:
-            await self.send_bridge_notice(
-                f"Got authentication error from Messenger:\n\n> {e!s}\n\n",
-                important=True,
-                state_event=BridgeStateEvent.BAD_CREDENTIALS,
-                error_code="fb-auth-error",
-                error_message=str(e),
-            )
-            await self.logout(remove_fbid=False, from_auth_error=True)
-        except Exception as e:
-            self.log.exception("Failed to sync threads")
-            await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
+        with self._sync_lock:
+            retry_count = 0
+            while retry_count < 5:
+                try:
+                    retry_count += 1
+                    await func()
+
+                    # The sync was successful. Exit the loop.
+                    return
+                except InvalidAccessToken as e:
+                    await self.send_bridge_notice(
+                        f"Got authentication error from Messenger:\n\n> {e!s}\n\n",
+                        important=True,
+                        state_event=BridgeStateEvent.BAD_CREDENTIALS,
+                        error_code="fb-auth-error",
+                        error_message=str(e),
+                    )
+                    await self.logout(remove_fbid=False, from_auth_error=True)
+                    return
+                except Exception:
+                    self.log.exception(
+                        "Failed to sync threads. Waiting 30 seconds before retrying sync."
+                    )
+                    await asyncio.sleep(30)
+
+            # If we get here, it means that the sync has failed five times. If this happens, most
+            # likely something very bad has happened.
+            self.log.error("Failed to sync threads five times. Will not retry.")
 
     @async_time(METRIC_SYNC_THREADS)
     async def sync_recent_threads(self, from_login: bool = False):
