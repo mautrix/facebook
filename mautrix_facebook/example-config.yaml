@@ -184,15 +184,12 @@ bridge:
         # (because the bridge can't use the double puppet access token with batch sending).
         # This only affects double puppets on the local server, double puppets on other servers will never be used.
         double_puppet_backfill: false
-        # The maximum number of initial conversations that should be synced.
+        # The maximum number of conversations that should be synced.
         # Other conversations will be backfilled on demand when the start PM
         # provisioning endpoint is used or when a message comes in from that
         # chat.
         # If set to -1, all conversations will by synced.
-        max_initial_conversations: 20
-        # The maximum number of conversations that should be synced when the
-        # bridge gets restarted.
-        max_incremental_conversations: 20
+        max_conversations: 20
         # The minimum amount of time to wait between syncing each thread. This
         # helps avoid situations where you sync too quickly.
         min_sync_thread_delay: 5
@@ -233,8 +230,9 @@ bridge:
     # and missed message backfilling when reconnecting.
     # Set to 0 to always re-sync, or -1 to never re-sync automatically.
     resync_max_disconnected_time: 5
-    # Should the bridge do a resync on startup?
-    sync_on_startup: true
+    # The maximum number of conversations that should be synced when we get a
+    # message sync error. In general, 1 page (20) is sufficient.
+    max_startup_thread_sync_count: 20
     # Whether or not temporary disconnections should send notices to the notice room.
     # If this is false, disconnections will never send messages and connections will only send
     # messages if it was disconnected for more than resync_max_disconnected_time seconds.
