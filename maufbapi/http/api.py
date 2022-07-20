@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import AsyncIterable
 from uuid import uuid4
+import asyncio
 import time
 
 from yarl import URL
@@ -51,6 +52,7 @@ from ..types import (
 )
 from ..types.graphql import OwnInfo, PageInfo, Thread, ThreadMessageID
 from .base import BaseAndroidAPI
+from .errors import ResponseError
 from .login import LoginAPI
 from .post_login import PostLoginAPI
 from .upload import UploadAPI
@@ -100,7 +102,45 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         thread_counter = 0
         while True:
             self.log.debug(f"Fetching more threads from before {timestamp}")
-            resp = await self.fetch_more_threads(timestamp - 1, thread_count=self._page_size)
+            page_size = self._page_size
+
+            try:
+                resp = await self.fetch_more_threads(timestamp - 1, thread_count=page_size)
+            except ResponseError as e:
+                self.log.warning(
+                    f"Failed to fetch batch of {page_size} after {timestamp - 1}. Error: {e}"
+                )
+                await asyncio.sleep(10)
+
+                if page_size == 1:
+                    # We are already going one at a time, so we know that the next thread is the
+                    # broken one. Find a point where we can start fetching again. Note that this
+                    # may cause some threads to be missed, but since failures of this sort are
+                    # probably rare, that's an acceptable tradeoff.
+                    day_ms = 24 * 60 * 60 * 1000
+                    backoff_days = 1
+                    possibly_good = timestamp - (backoff_days * day_ms)
+                    while possibly_good > 1262304000000:  # 2010-01-01
+                        self.log.debug(f"Checking if timestamp {possibly_good} works")
+                        try:
+                            resp = await self.fetch_more_threads(possibly_good, thread_count=1)
+                            page_size = self._page_size
+                            break
+                        except ResponseError as e:
+                            self.log.debug(f"Timestamp {possibly_good} still doesn't work: {e}")
+                            if backoff_days < 16:
+                                backoff_days *= 2
+                            possibly_good -= backoff_days * day_ms
+                            await asyncio.sleep(10)
+                    else:  # nobreak
+                        self.log.info(
+                            "No good timestamp before the beginning of Messenger's existence"
+                        )
+                        return
+
+                page_size = 1  # Go one at a time until we find the thread that is broken.
+                continue
+
             for thread in resp.nodes:
                 yield thread
                 timestamp = min(timestamp, thread.updated_timestamp)
@@ -108,7 +148,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                 if local_limit and thread_counter >= local_limit:
                     return
 
-            if len(resp.nodes) < self._page_size:
+            if len(resp.nodes) < page_size:
                 return
 
     async def fetch_thread_info(self, *thread_ids: str | int, **kwargs) -> list[Thread]:
