@@ -85,15 +85,11 @@ class Config(BaseBridgeConfig):
         copy("bridge.backfill.double_puppet_backfill")
         if "bridge.initial_chat_sync" in self:
             initial_chat_sync = self["bridge.initial_chat_sync"]
-            base["bridge.backfill.max_initial_conversations"] = self.get(
-                "bridge.backfill.max_initial_conversations", initial_chat_sync
-            )
-            base["bridge.backfill.max_incremental_conversations"] = self.get(
-                "bridge.backfill.max_incremental_conversations", initial_chat_sync
+            base["bridge.backfill.max_conversations"] = self.get(
+                "bridge.backfill.max_conversations", initial_chat_sync
             )
         else:
-            copy("bridge.backfill.max_initial_conversations")
-            copy("bridge.backfill.max_incremental_conversations")
+            copy("bridge.backfill.max_conversations")
         copy("bridge.backfill.min_sync_thread_delay")
         copy("bridge.backfill.incremental.max_pages")
         copy("bridge.backfill.incremental.max_total_pages")
@@ -108,7 +104,7 @@ class Config(BaseBridgeConfig):
             copy("bridge.periodic_reconnect.always")
             copy("bridge.periodic_reconnect.min_connected_time")
         copy("bridge.resync_max_disconnected_time")
-        copy("bridge.sync_on_startup")
+        copy("bridge.max_startup_thread_sync_count")
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")
         if "bridge.refresh_on_reconnection_fail" in self:

@@ -37,6 +37,8 @@ class User:
     notice_room: RoomID | None
     seq_id: int | None
     connect_token_hash: bytes | None
+    oldest_backfilled_thread_ts: int | None
+    total_backfilled_portals: int | None
 
     @property
     def _state_json(self) -> str | None:
@@ -50,7 +52,18 @@ class User:
         state = data.pop("state", None)
         return cls(**data, state=AndroidState.parse_json(state) if state else None)
 
-    _columns = "mxid, fbid, state, notice_room, seq_id, connect_token_hash"
+    _columns = ",".join(
+        (
+            "mxid",
+            "fbid",
+            "state",
+            "notice_room",
+            "seq_id",
+            "connect_token_hash",
+            "oldest_backfilled_thread_ts",
+            "total_backfilled_portals",
+        )
+    )
 
     @classmethod
     async def all_logged_in(cls) -> list[User]:
@@ -79,12 +92,14 @@ class User:
             self.notice_room,
             self.seq_id,
             self.connect_token_hash,
+            self.oldest_backfilled_thread_ts,
+            self.total_backfilled_portals,
         )
 
     async def insert(self) -> None:
-        q = """
-            INSERT INTO "user" (mxid, fbid, state, notice_room, seq_id, connect_token_hash)
-            VALUES ($1, $2, $3, $4, $5, $6)
+        q = f"""
+            INSERT INTO "user" ({self._columns})
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """
         await self.db.execute(q, *self._values)
 
@@ -93,7 +108,9 @@ class User:
 
     async def save(self) -> None:
         q = """
-            UPDATE "user" SET fbid=$2, state=$3, notice_room=$4, seq_id=$5, connect_token_hash=$6
+            UPDATE "user"
+            SET fbid=$2, state=$3, notice_room=$4, seq_id=$5, connect_token_hash=$6,
+                oldest_backfilled_thread_ts=$7, total_backfilled_portals=$8
             WHERE mxid=$1
         """
         await self.db.execute(q, *self._values)

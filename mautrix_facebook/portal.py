@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Optional, Pattern, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
 from collections import deque
 from html import escape
 from io import BytesIO
@@ -753,7 +753,7 @@ class Portal(DBPortal, BasePortal):
             # Always sleep after the backfill request is finished processing, even if it errors.
             await asyncio.sleep(backfill_request.post_batch_delay)
 
-    async def _backfill(self, source: u.User, backfill_request: Backfill) -> Optional[int]:
+    async def _backfill(self, source: u.User, backfill_request: Backfill) -> int | None:
         assert source.client
         self.log.debug("Backfill request: %s", backfill_request)
 
@@ -823,7 +823,7 @@ class Portal(DBPortal, BasePortal):
             self.log.debug("Enqueueing more backfill")
             await Backfill.new(
                 source.mxid,
-                0,
+                backfill_request.priority,
                 self.fbid,
                 self.fb_receiver,
                 backfill_request.num_pages,
@@ -917,8 +917,7 @@ class Portal(DBPortal, BasePortal):
             if intent.mxid not in current_members:
                 add_member(puppet, intent.mxid)
 
-            index = 0
-            for event_type, content in converted:
+            for index, (event_type, content) in enumerate(converted):
                 if self.encrypted and self.matrix.e2ee:
                     event_type, content = await self.matrix.e2ee.encrypt(
                         self.mxid, event_type, content
@@ -927,7 +926,6 @@ class Portal(DBPortal, BasePortal):
                     content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
 
                 message_infos.append((message, index))
-                index += 1
                 batch_messages.append(
                     BatchSendEvent(
                         content=content,

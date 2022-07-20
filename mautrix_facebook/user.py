@@ -15,7 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, Optional, TypeVar, cast
+from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, Callable, TypeVar, cast
+from functools import partial
 import asyncio
 import hashlib
 import hmac
@@ -28,7 +29,7 @@ from maufbapi.http import InvalidAccessToken, ResponseError
 from maufbapi.http.errors import GraphQLError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
 from maufbapi.types import graphql, mqtt as mqtt_t
-from maufbapi.types.graphql.responses import Message
+from maufbapi.types.graphql.responses import Message, Thread, ThreadListResponse
 from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.errors import MNotFound
 from mautrix.types import (
@@ -136,6 +137,8 @@ class User(DBUser, BaseUser):
         notice_room: RoomID | None = None,
         seq_id: int | None = None,
         connect_token_hash: bytes | None = None,
+        oldest_backfilled_thread_ts: int | None = None,
+        total_backfilled_portals: int | None = None,
     ) -> None:
         super().__init__(
             mxid=mxid,
@@ -144,6 +147,8 @@ class User(DBUser, BaseUser):
             notice_room=notice_room,
             seq_id=seq_id,
             connect_token_hash=connect_token_hash,
+            oldest_backfilled_thread_ts=oldest_backfilled_thread_ts,
+            total_backfilled_portals=total_backfilled_portals,
         )
         BaseUser.__init__(self)
         self.notice_room = notice_room
@@ -491,6 +496,8 @@ class User(DBUser, BaseUser):
         self.mqtt = None
         self.seq_id = None
         self.connect_token_hash = None
+        self.total_backfilled_portals = None
+        self.oldest_backfilled_thread_ts = None
 
         if self.fbid and remove_fbid:
             await UserPortal.delete_all(self.fbid)
@@ -502,7 +509,7 @@ class User(DBUser, BaseUser):
         await self.save()
         return ok
 
-    async def post_login(self, is_startup: bool, from_initial_login: bool = False) -> None:
+    async def post_login(self, is_startup: bool, from_login: bool = False) -> None:
         self.log.info("Running post-login actions")
         self._add_to_cache()
 
@@ -510,7 +517,7 @@ class User(DBUser, BaseUser):
             puppet = await pu.Puppet.get_by_fbid(self.fbid)
 
             if puppet.custom_mxid != self.mxid and puppet.can_auto_login(self.mxid):
-                self.log.info(f"Automatically enabling custom puppet")
+                self.log.info("Automatically enabling custom puppet")
                 await puppet.switch_mxid(access_token="auto", mxid=self.mxid)
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
@@ -520,10 +527,17 @@ class User(DBUser, BaseUser):
         # to try and avoid getting banned.
         self.backfill_tasks.append(asyncio.create_task(self._handle_backfill_requests_loop()))
 
-        if self.config["bridge.sync_on_startup"] or not is_startup or not self.seq_id:
-            await self.sync_threads(start_listen=True, from_initial_login=from_initial_login)
+        if (
+            self.config["bridge.max_startup_thread_sync_count"] > 0
+            or not is_startup
+            or not self.seq_id
+        ):
+            await self.sync_recent_threads(from_login=from_login)
         else:
             self.start_listen()
+
+        if self.config["bridge.backfill.enable"]:
+            await self.backfill_threads()
 
     async def _handle_backfill_requests_loop(self) -> None:
         while True:
@@ -561,24 +575,10 @@ class User(DBUser, BaseUser):
             if portal.mxid
         }
 
-    @async_time(METRIC_SYNC_THREADS)
-    async def sync_threads(
-        self, start_listen: bool = False, from_initial_login: bool = False
-    ) -> bool:
-        if (
-            self._prev_thread_sync + 10 > time.monotonic()
-            and self.mqtt
-            and self.mqtt.seq_id is not None
-        ):
-            self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
-            if start_listen:
-                self.start_listen()
-            return True
-        self._prev_thread_sync = time.monotonic()
+    async def run_with_sync_lock(self, func: Callable[[], Awaitable]):
         try:
             with self._sync_lock:
-                await self._sync_threads(start_listen, from_initial_login=from_initial_login)
-            return True
+                await func()
         except InvalidAccessToken as e:
             await self.send_bridge_notice(
                 f"Got authentication error from Messenger:\n\n> {e!s}\n\n",
@@ -591,41 +591,108 @@ class User(DBUser, BaseUser):
         except Exception as e:
             self.log.exception("Failed to sync threads")
             await self.push_bridge_state(BridgeStateEvent.UNKNOWN_ERROR, message=str(e))
-        return False
 
-    async def _sync_threads(self, start_listen: bool, from_initial_login: bool = False) -> None:
+    @async_time(METRIC_SYNC_THREADS)
+    async def sync_recent_threads(self, from_login: bool = False):
+        if (
+            self._prev_thread_sync + 10 > time.monotonic()
+            and self.mqtt
+            and self.mqtt.seq_id is not None
+        ):
+            self.log.debug("Previous thread sync was less than 10 seconds ago, not re-syncing")
+            self.start_listen()
+            return
+        self._prev_thread_sync = time.monotonic()
+
+        await self.run_with_sync_lock(partial(self._sync_recent_threads, from_login))
+
+    async def _sync_recent_threads(self, increment_total_backfilled_portals: bool = False):
         assert self.client
-        sync_count = (
-            self.config["bridge.backfill.max_initial_conversations"]
-            if from_initial_login
-            else self.config["bridge.backfill.max_incremental_conversations"]
+        sync_count = min(
+            self.config["bridge.backfill.max_conversations"],
+            self.config["bridge.max_startup_thread_sync_count"],
         )
         self.log.debug(f"Fetching {sync_count} threads, 20 at a time...")
+
+        # We need to get the sequence ID before we start the listener task.
         resp = await self.client.fetch_thread_list()
         self.seq_id = int(resp.sync_sequence_id)
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
         await self.save_seq_id()
-        if start_listen:
-            self.start_listen()
+        self.start_listen()
+
+        local_limit: int | None = sync_count
         if sync_count == 0:
             return
         elif sync_count < 0:
-            sync_count = None
+            local_limit = None
 
+        await self._sync_threads_with_delay(
+            self.client.iter_thread_list(resp, local_limit=local_limit),
+            stop_when_threads_have_no_messages_to_backfill=True,
+            increment_total_backfilled_portals=increment_total_backfilled_portals,
+        )
+
+        await self.update_direct_chats()
+
+    async def backfill_threads(self):
+        await self.run_with_sync_lock(self._backfill_threads)
+
+    async def _backfill_threads(self):
+        assert self.client
+        if not self.config["bridge.backfill.enable"]:
+            return
+
+        max_conversations = self.config["bridge.backfill.max_conversations"]
+        if (
+            max_conversations
+            and max_conversations > 0
+            and (self.total_backfilled_portals or 0) >= max_conversations
+        ):
+            self.log.info("Backfill max_conversations count reached, not syncing any more portals")
+            return
+        local_limit = (
+            max_conversations - (self.total_backfilled_portals or 0)
+            if max_conversations and max_conversations >= 0
+            else None
+        )
+
+        timestamp = self.oldest_backfilled_thread_ts or int(time.time() * 1000)
+        await self._sync_threads_with_delay(
+            self.client.iter_thread_list_from(timestamp, local_limit=local_limit),
+            increment_total_backfilled_portals=True,
+        )
+        await self.update_direct_chats()
+
+    async def _sync_threads_with_delay(
+        self,
+        threads: AsyncIterable[Thread],
+        increment_total_backfilled_portals: bool = False,
+        stop_when_threads_have_no_messages_to_backfill: bool = False,
+    ):
         sync_delay = self.config["bridge.backfill.min_sync_thread_delay"]
-        last_thread_sync = 0.0
-        async for thread in self.client.iter_thread_list(resp, local_limit=sync_count):
+        last_thread_sync_ts = 0.0
+        async for thread in threads:
             now = time.monotonic()
-            if last_thread_sync is not None and now < last_thread_sync + sync_delay:
-                delay = last_thread_sync + sync_delay - now
+            if last_thread_sync_ts is not None and now < last_thread_sync_ts + sync_delay:
+                delay = last_thread_sync_ts + sync_delay - now
                 self.log.debug("Thread sync is happening too quickly. Waiting for %ds", delay)
                 await asyncio.sleep(delay)
 
-            last_thread_sync = now
-            await self._sync_thread(thread)
+            last_thread_sync_ts = now
+            had_new_messages = await self._sync_thread(thread)
+            if not had_new_messages and stop_when_threads_have_no_messages_to_backfill:
+                self.log.debug("Got to threads with no new messages. Stopping sync.")
+                return
 
-        await self.update_direct_chats()
+            if increment_total_backfilled_portals:
+                self.total_backfilled_portals = (self.total_backfilled_portals or 0) + 1
+            self.oldest_backfilled_thread_ts = min(
+                thread.updated_timestamp,
+                self.oldest_backfilled_thread_ts or int(time.time() * 1000),
+            )
+            await self.save()
 
     def _message_is_bridgable(self, message: Message) -> bool:
         if "source:messenger_growth:friending_admin_bump" in message.tags_list:
@@ -634,7 +701,11 @@ class User(DBUser, BaseUser):
             return False
         return True
 
-    async def _sync_thread(self, thread: graphql.Thread):
+    async def _sync_thread(self, thread: graphql.Thread) -> bool:
+        """
+        Sync a specific thread. Returns whether the thread had messages after the last message in
+        the database before the sync.
+        """
         self.log.debug(f"Syncing thread {thread.thread_key}")
 
         # If the thread only contains unbridgable messages, then don't create a portal for it.
@@ -643,7 +714,7 @@ class User(DBUser, BaseUser):
             self.log.debug(
                 f"Thread {thread.thread_key} only contains unbridgable messages, skipping"
             )
-            return
+            return False
 
         assert self.client
         portal = await po.Portal.get_by_thread(thread.thread_key, self.fbid)
@@ -703,7 +774,8 @@ class User(DBUser, BaseUser):
                 if last_message:
                     await puppet.intent_for(portal).mark_read(portal.mxid, last_message.mxid)
 
-        await portal.enqueue_immediate_backfill(self, 0)
+        await portal.enqueue_immediate_backfill(self, 1)
+        return len(forward_messages) > 0
 
     async def mute_room(self, portal: po.Portal, mute_until: int | None) -> None:
         if not self.config["bridge.mute_bridging"] or not portal or not portal.mxid:
@@ -1001,7 +1073,7 @@ class User(DBUser, BaseUser):
             self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
         self.stop_backfill_tasks()
-        asyncio.create_task(self.post_login(is_startup=True, from_initial_login=True))
+        asyncio.create_task(self.post_login(is_startup=True, from_login=True))
 
     @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: mqtt_t.Message | mqtt_t.ExtendedMessage) -> None:
@@ -1155,7 +1227,7 @@ class User(DBUser, BaseUser):
         else:
             self.log.error(f"Message sync error: {evt.value}, resyncing...")
             await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
-            await self.sync_threads(start_listen=True)
+            await self.sync_recent_threads()
 
     def on_connection_not_authorized(self) -> None:
         self.log.debug("Stopping listener and reloading session after MQTT not authorized error")
