@@ -984,9 +984,9 @@ class Portal(DBPortal, BasePortal):
                 f"Failed to handle Matrix redaction {redaction_event_id}: {e}",
                 exc_info=not isinstance(e, NotImplementedError),
             )
-            await self._send_bridge_error(sender, e, event_id, EventType.ROOM_REDACTION)
+            await self._send_bridge_error(sender, e, redaction_event_id, EventType.ROOM_REDACTION)
         else:
-            await self._send_bridge_success(sender, event_id, EventType.ROOM_REDACTION)
+            await self._send_bridge_success(sender, redaction_event_id, EventType.ROOM_REDACTION)
 
     async def _handle_matrix_redaction(self, sender: u.User, event_id: EventID) -> None:
         sender, _ = await self.get_relay_sender(sender, f"redaction {event_id}")
