@@ -24,12 +24,6 @@ from mautrix.util.config import ConfigUpdateHelper, ForbiddenDefault, ForbiddenK
 
 
 class Config(BaseBridgeConfig):
-    def __getitem__(self, key: str) -> Any:
-        try:
-            return os.environ[f"MAUTRIX_FACEBOOK_{key.replace('.', '_').upper()}"]
-        except KeyError:
-            return super().__getitem__(key)
-
     @property
     def forbidden_defaults(self) -> list[ForbiddenDefault]:
         return [
@@ -47,8 +41,6 @@ class Config(BaseBridgeConfig):
         super().do_update(helper)
 
         copy, copy_dict, base = helper
-
-        copy("homeserver.asmux")
 
         if self["appservice.bot_avatar"] == "mxc://maunium.net/ddtNPZSKMNqaUzqrHuWvUADv":
             base["appservice.bot_avatar"] = "mxc://maunium.net/ygtkteZsXnGJLJHRchUwYWak"
