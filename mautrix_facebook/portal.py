@@ -871,6 +871,11 @@ class Portal(DBPortal, BasePortal):
             assert self.mxid
             if mxid in added_members:
                 return
+            if self.config.get("homeserver.software", "standard") == "hungry":
+                # Hungryserv doesn't expect or check state events at start.
+                added_members.add(mxid)
+                return
+
             content_args = {"avatar_url": puppet.photo_mxc, "displayname": puppet.name}
             state_events_at_start.extend(
                 [
@@ -905,7 +910,7 @@ class Portal(DBPortal, BasePortal):
                     await puppet.update_info(source)
             else:
                 intent = self.main_intent
-            if intent.api.is_real_user and not self._can_double_puppet_backfill(intent.mxid):
+            if puppet.is_real_user and not self._can_double_puppet_backfill(intent.mxid):
                 intent = puppet.default_mxid_intent
 
             # Convert the message
@@ -982,10 +987,11 @@ class Portal(DBPortal, BasePortal):
         if not self.config["bridge.backfill.double_puppet_backfill"]:
             return False
 
-        # Batch sending can only use local users, so don't allow double puppets on other servers.
-        if custom_mxid[custom_mxid.index(":") + 1 :] != self.config["homeserver.domain"]:
-            return False
-        return True
+        # Batch sending can only use local users if on non-hungryserv homeservers, so don't allow
+        # double puppets on other servers.
+        return self.config.get("homeserver.software", "standard") == "hungry" or (
+            custom_mxid[custom_mxid.index(":") + 1 :] == self.config["homeserver.domain"]
+        )
 
     async def _finish_batch(
         self, event_ids: list[EventID], message_infos: list[tuple[graphql.Message, int]]
