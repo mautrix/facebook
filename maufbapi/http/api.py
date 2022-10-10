@@ -100,9 +100,9 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         if local_limit and local_limit <= 0:
             return
         thread_counter = 0
+        page_size = self._page_size
         while True:
-            self.log.debug(f"Fetching more threads from before {timestamp}")
-            page_size = self._page_size
+            self.log.debug(f"Fetching {page_size} more threads from before {timestamp}")
 
             try:
                 resp = await self.fetch_more_threads(timestamp - 1, thread_count=page_size)
@@ -124,22 +124,25 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                         self.log.debug(f"Checking if timestamp {possibly_good} works")
                         try:
                             resp = await self.fetch_more_threads(possibly_good, thread_count=1)
-                            page_size = self._page_size
+                            self.log.debug(f"Timestamp {possibly_good} worked.")
                             break
                         except ResponseError as e:
-                            self.log.debug(f"Timestamp {possibly_good} still doesn't work: {e}")
                             if backoff_days < 16:
                                 backoff_days *= 2
                             possibly_good -= backoff_days * day_ms
+                            self.log.debug(
+                                f"Timestamp {possibly_good} still doesn't work: {e}. "
+                                f"Will retry with {possibly_good}"
+                            )
                             await asyncio.sleep(10)
                     else:  # nobreak
                         self.log.info(
                             "No good timestamp before the beginning of Messenger's existence"
                         )
                         return
-
-                page_size = 1  # Go one at a time until we find the thread that is broken.
-                continue
+                else:
+                    page_size = 1  # Go one at a time until we find the thread that is broken.
+                    continue
 
             for thread in resp.nodes:
                 yield thread
@@ -150,6 +153,11 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
 
             if len(resp.nodes) < page_size:
                 return
+
+            # Reset the page size because if we made it here, we know that the previous fetch
+            # worked properly.
+            self.log.debug(f"Resetting page size to {self._page_size}")
+            page_size = self._page_size
 
     async def fetch_thread_info(self, *thread_ids: str | int, **kwargs) -> list[Thread]:
         resp = await self.graphql(
