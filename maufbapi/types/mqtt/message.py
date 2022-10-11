@@ -328,6 +328,19 @@ class UnsendMessage(ThriftObject):
 
 
 @autospec
+@dataclass(kw_only=True)
+class PowerUpMessageWrap(ThriftObject):
+    message: Message
+
+
+@autospec
+@dataclass(kw_only=True)
+class PowerUpMessage(ThriftObject):
+    powerup_type: int = field(TType.I32)
+    wrapped: PowerUpMessageWrap
+
+
+@autospec
 @dataclass
 class ExtendedAddMemberParticipant(ThriftObject):
     addee_user_id: int = field(TType.I64)
@@ -441,7 +454,7 @@ class MessageSyncClientEvent(ThriftObject):
     # 92: deltaGlobalNewFriendBumpSetting
     # 93: deltaMessagingReachabilitySettingUpdate
     # 94: deltaGlobalReplyReminderSetting
-    # 95: deltaMessagePowerUp
+    powerup_message: PowerUpMessage = field(index=95, default=None)  # 95: deltaMessagePowerUp
     # 96: deltaRtcRoomData
     # 97: deltaBiiMSavedRepliesData
     # 98: deltaGlobalMessageReminderSetting
@@ -682,6 +695,9 @@ class MessageSyncEvent(ThriftObject):
                     inner_item.reaction,
                     inner_item.extended_message,
                     inner_item.unsend_message,
+                    inner_item.powerup_message.wrapped.message
+                    if inner_item.powerup_message
+                    else None,
                 ]
         return [part for part in parts if part is not None]
 
