@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, Callable, TypeVar, cast
+from datetime import datetime, timedelta
 from functools import partial
 import asyncio
 import hashlib
@@ -782,7 +783,16 @@ class User(DBUser, BaseUser):
             await portal.send_post_backfill_dummy(
                 last_message_timestamp, base_insertion_event_id=base_insertion_event_id
             )
-            if thread.unread_count == 0 and (puppet := await self.get_puppet()):
+            if (
+                thread.unread_count == 0
+                or (
+                    (hours := self.config["bridge.backfill.unread_hours_threshold"]) > 0
+                    and (
+                        datetime.fromtimestamp(last_message_timestamp / 1000)
+                        < datetime.now() - timedelta(hours=hours)
+                    )
+                )
+            ) and (puppet := await self.get_puppet()):
                 last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)
                 if last_message:
                     await puppet.intent_for(portal).mark_read(portal.mxid, last_message.mxid)
