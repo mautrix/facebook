@@ -200,6 +200,16 @@ bridge:
         # of hours ago will have their unread status synced from Facebook.
         unread_hours_threshold: 0
 
+        # Settings for how quickly to backoff when rate-limits are encountered
+        # while backfilling.
+        backoff:
+            # How many seconds to wait after getting rate limited during a
+            # thread list fetch.
+            thread_list: 300
+            # How many seconds to wait after getting rate limited during a
+            # message history fetch.
+            message_history: 300
+
         # Settings for backfills.
         #
         # During initial/incremental sync, the entirety of the thread that is

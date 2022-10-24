@@ -92,6 +92,8 @@ class Config(BaseBridgeConfig):
             copy("bridge.backfill.max_conversations")
         copy("bridge.backfill.min_sync_thread_delay")
         copy("bridge.backfill.unread_hours_threshold")
+        copy("bridge.backfill.backoff.thread_list")
+        copy("bridge.backfill.backoff.message_history")
         copy("bridge.backfill.incremental.max_pages")
         copy("bridge.backfill.incremental.max_total_pages")
         copy("bridge.backfill.incremental.page_delay")
