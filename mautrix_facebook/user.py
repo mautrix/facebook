@@ -27,7 +27,7 @@ from aiohttp import ClientConnectionError
 
 from maufbapi import AndroidAPI, AndroidMQTT, AndroidState, ProxyHandler
 from maufbapi.http import InvalidAccessToken, ResponseError
-from maufbapi.http.errors import GraphQLError
+from maufbapi.http.errors import GraphQLError, RateLimitExceeded
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
 from maufbapi.types import graphql, mqtt as mqtt_t
 from maufbapi.types.graphql.responses import Message, Thread, ThreadListResponse
@@ -555,15 +555,8 @@ class User(DBUser, BaseUser):
                 await req.mark_dispatched()
                 await portal.backfill(self, req)
                 await req.mark_done()
-            except GraphQLError as e:
-                code = e.data.get("code")
-                if code == 3252001:
-                    # Rate limit exceeded. Stop trying to backfill for a minute, and make sure
-                    # that this portal isn't backfilled for five minutes.
-                    await req.set_cooldown_timeout(60 * 5)
-                    await asyncio.sleep(60)
-                else:
-                    await req.set_cooldown_timeout(10)
+            except GraphQLError:
+                await req.set_cooldown_timeout(60)
             except Exception:
                 self.log.exception("Failed to backfill portal %s", req.portal_fbid)
                 # Don't try again to backfill this portal for a few seconds.

@@ -52,7 +52,7 @@ from ..types import (
 )
 from ..types.graphql import OwnInfo, PageInfo, Thread, ThreadMessageID
 from .base import BaseAndroidAPI
-from .errors import ResponseError
+from .errors import RateLimitExceeded, ResponseError
 from .login import LoginAPI
 from .post_login import PostLoginAPI
 from .upload import UploadAPI
@@ -106,6 +106,8 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
 
             try:
                 resp = await self.fetch_more_threads(timestamp - 1, thread_count=page_size)
+            except RateLimitExceeded as e:
+                raise
             except ResponseError as e:
                 self.log.warning(
                     f"Failed to fetch batch of {page_size} after {timestamp - 1}. Error: {e}"
@@ -129,11 +131,11 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                         except ResponseError as e:
                             if backoff_days < 16:
                                 backoff_days *= 2
-                            possibly_good -= backoff_days * day_ms
                             self.log.debug(
                                 f"Timestamp {possibly_good} still doesn't work: {e}. "
-                                f"Will retry with {possibly_good}"
+                                f"Will retry with {possibly_good - backoff_days * day_ms}"
                             )
+                            possibly_good -= backoff_days * day_ms
                             await asyncio.sleep(10)
                     else:  # nobreak
                         self.log.info(

@@ -275,6 +275,8 @@ class BaseAndroidAPI:
             body = body[batch_index][1].get("body", {})
         error = body.get("error", None)
         errors = body.get("errors", [])
+        if len(errors) == 1:
+            error = errors[0]
         if error:
             self.log.trace("Got error object in response data: %s", error)
             error_class = (

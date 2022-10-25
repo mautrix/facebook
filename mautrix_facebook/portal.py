@@ -28,6 +28,7 @@ import time
 
 from yarl import URL
 
+from maufbapi.http.errors import RateLimitExceeded
 from maufbapi.types import graphql, mqtt
 from mautrix.appservice import DOUBLE_PUPPET_SOURCE_KEY, IntentAPI
 from mautrix.bridge import BasePortal, async_getter_lock
@@ -765,16 +766,25 @@ class Portal(DBPortal, BasePortal):
             source.mxid,
         )
 
-        if first_message := await DBMessage.get_first_in_chat(self.fbid, self.fb_receiver):
-            self.log.debug("There is a first message in the chat, fetching messages before it")
-            resp = await source.client.fetch_messages(self.fbid, first_message.timestamp - 1)
-            messages = resp.nodes
-        else:
-            self.log.debug(
-                "There is no first message in the chat, starting with the most recent messages"
+        try:
+            if first_message := await DBMessage.get_first_in_chat(self.fbid, self.fb_receiver):
+                self.log.debug("There is a first message in the chat, fetching messages before it")
+                resp = await source.client.fetch_messages(self.fbid, first_message.timestamp - 1)
+                messages = resp.nodes
+            else:
+                self.log.debug(
+                    "There is no first message in the chat, starting with the most recent messages"
+                )
+                resp = await source.client.fetch_messages(self.fbid, int(time.time() * 1000))
+                messages = resp.nodes
+        except RateLimitExceeded:
+            backoff = self.config.get("bridge.backfill.backoff.message_history")
+            self.log.warning(
+                f"Backfilling failed due to rate limit. Waiting for {backoff} seconds before "
+                "resuming."
             )
-            resp = await source.client.fetch_messages(self.fbid, int(time.time() * 1000))
-            messages = resp.nodes
+            await asyncio.sleep(backoff)
+            raise
 
         if len(messages) == 0:
             return None
@@ -786,12 +796,14 @@ class Portal(DBPortal, BasePortal):
             pages_to_backfill = min(pages_to_backfill, backfill_request.max_total_pages)
 
         backfill_more = True
+        pages_backfilled = 0
         for i in range(pages_to_backfill):
             (
                 num_bridged,
                 oldest_bridged_msg_ts,
                 base_insertion_event_id,
             ) = await self.backfill_message_page(source, messages)
+            pages_backfilled += 1
 
             if base_insertion_event_id:
                 self.historical_base_insertion_event_id = base_insertion_event_id
@@ -804,7 +816,20 @@ class Portal(DBPortal, BasePortal):
                 await asyncio.sleep(backfill_request.page_delay)
 
                 # Fetch more messages
-                resp = await source.client.fetch_messages(self.fbid, oldest_bridged_msg_ts - 1)
+                try:
+                    resp = await source.client.fetch_messages(self.fbid, oldest_bridged_msg_ts - 1)
+                except RateLimitExceeded:
+                    backoff = self.config.get("bridge.backfill.backoff.message_history")
+                    self.log.warning(
+                        f"Backfilling failed due to rate limit. Waiting for {backoff} seconds "
+                        "before resuming."
+                    )
+                    await asyncio.sleep(backoff)
+
+                    # If we hit the rate limit, then we will want to give up for now, but enqueue
+                    # additional backfill to do later.
+                    break
+
                 if not resp.nodes:
                     # There were no more messages, we are at the beginning of history, so just
                     # break.
@@ -815,7 +840,7 @@ class Portal(DBPortal, BasePortal):
         if backfill_request.max_total_pages == -1:
             new_max_total_pages = -1
         else:
-            new_max_total_pages = backfill_request.max_total_pages - backfill_request.num_pages
+            new_max_total_pages = backfill_request.max_total_pages - pages_backfilled
             if new_max_total_pages <= 0:
                 backfill_more = False
 
