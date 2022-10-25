@@ -77,7 +77,10 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         )
 
     async def iter_thread_list(
-        self, initial_resp: ThreadListResponse | None = None, local_limit: int | None = None
+        self,
+        initial_resp: ThreadListResponse | None = None,
+        local_limit: int | None = None,
+        rate_limit_exceeded_backoff: float = 60.0,
     ) -> AsyncIterable[Thread]:
         if not initial_resp:
             initial_resp = await self.fetch_thread_list(thread_count=self._page_size)
@@ -91,11 +94,18 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                 return
 
         local_limit = local_limit - thread_counter if local_limit else None
-        async for thread in self.iter_thread_list_from(after_ts, local_limit=local_limit):
+        async for thread in self.iter_thread_list_from(
+            after_ts,
+            local_limit=local_limit,
+            rate_limit_exceeded_backoff=rate_limit_exceeded_backoff,
+        ):
             yield thread
 
     async def iter_thread_list_from(
-        self, timestamp: int, local_limit: int | None = None
+        self,
+        timestamp: int,
+        local_limit: int | None = None,
+        rate_limit_exceeded_backoff: float = 60.0,
     ) -> AsyncIterable[Thread]:
         if local_limit and local_limit <= 0:
             return
@@ -106,8 +116,12 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
 
             try:
                 resp = await self.fetch_more_threads(timestamp - 1, thread_count=page_size)
-            except RateLimitExceeded as e:
-                raise
+            except RateLimitExceeded:
+                self.log.warning(
+                    "Fetching more threads failed due to rate limit. Waiting for "
+                    f"{rate_limit_exceeded_backoff} seconds before resuming."
+                )
+                await asyncio.sleep(rate_limit_exceeded_backoff)
             except ResponseError as e:
                 self.log.warning(
                     f"Failed to fetch batch of {page_size} after {timestamp - 1}. Error: {e}"

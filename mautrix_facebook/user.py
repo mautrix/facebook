@@ -666,8 +666,13 @@ class User(DBUser, BaseUser):
         )
 
         timestamp = self.oldest_backfilled_thread_ts or int(time.time() * 1000)
+        backoff = self.config.get("bridge.backfill.backoff.message_history")
         await self._sync_threads_with_delay(
-            self.client.iter_thread_list_from(timestamp, local_limit=local_limit),
+            self.client.iter_thread_list_from(
+                timestamp,
+                local_limit=local_limit,
+                rate_limit_exceeded_backoff=backoff,
+            ),
             increment_total_backfilled_portals=True,
         )
         await self.update_direct_chats()
