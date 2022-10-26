@@ -778,7 +778,7 @@ class Portal(DBPortal, BasePortal):
                 resp = await source.client.fetch_messages(self.fbid, int(time.time() * 1000))
                 messages = resp.nodes
         except RateLimitExceeded:
-            backoff = self.config.get("bridge.backfill.backoff.message_history")
+            backoff = self.config.get("bridge.backfill.backoff.message_history", 300)
             self.log.warning(
                 f"Backfilling failed due to rate limit. Waiting for {backoff} seconds before "
                 "resuming."
@@ -819,7 +819,7 @@ class Portal(DBPortal, BasePortal):
                 try:
                     resp = await source.client.fetch_messages(self.fbid, oldest_bridged_msg_ts - 1)
                 except RateLimitExceeded:
-                    backoff = self.config.get("bridge.backfill.backoff.message_history")
+                    backoff = self.config.get("bridge.backfill.backoff.message_history", 300)
                     self.log.warning(
                         f"Backfilling failed due to rate limit. Waiting for {backoff} seconds "
                         "before resuming."

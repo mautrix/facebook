@@ -666,7 +666,7 @@ class User(DBUser, BaseUser):
         )
 
         timestamp = self.oldest_backfilled_thread_ts or int(time.time() * 1000)
-        backoff = self.config.get("bridge.backfill.backoff.message_history")
+        backoff = self.config.get("bridge.backfill.backoff.thread_list", 300)
         await self._sync_threads_with_delay(
             self.client.iter_thread_list_from(
                 timestamp,

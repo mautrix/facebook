@@ -80,7 +80,6 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         self,
         initial_resp: ThreadListResponse | None = None,
         local_limit: int | None = None,
-        rate_limit_exceeded_backoff: float = 60.0,
     ) -> AsyncIterable[Thread]:
         if not initial_resp:
             initial_resp = await self.fetch_thread_list(thread_count=self._page_size)
@@ -94,11 +93,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                 return
 
         local_limit = local_limit - thread_counter if local_limit else None
-        async for thread in self.iter_thread_list_from(
-            after_ts,
-            local_limit=local_limit,
-            rate_limit_exceeded_backoff=rate_limit_exceeded_backoff,
-        ):
+        async for thread in self.iter_thread_list_from(after_ts, local_limit=local_limit):
             yield thread
 
     async def iter_thread_list_from(
