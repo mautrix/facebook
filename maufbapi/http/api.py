@@ -136,6 +136,11 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                         try:
                             resp = await self.fetch_more_threads(possibly_good, thread_count=1)
                             self.log.debug(f"Timestamp {possibly_good} worked.")
+
+                            # Reset the page size because if we made it here, we know that the
+                            # fetch worked properly, so we can go back to fetching full pages.
+                            self.log.debug(f"Resetting page size to {self._page_size}")
+                            page_size = self._page_size
                             break
                         except ResponseError as e:
                             if backoff_days < 16:
@@ -164,11 +169,6 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
 
             if len(resp.nodes) < page_size:
                 return
-
-            # Reset the page size because if we made it here, we know that the previous fetch
-            # worked properly.
-            self.log.debug(f"Resetting page size to {self._page_size}")
-            page_size = self._page_size
 
     async def fetch_thread_info(self, *thread_ids: str | int, **kwargs) -> list[Thread]:
         resp = await self.graphql(
