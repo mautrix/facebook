@@ -555,12 +555,14 @@ class User(DBUser, BaseUser):
                 await req.mark_dispatched()
                 await portal.backfill(self, req)
                 await req.mark_done()
-            except GraphQLError:
-                await req.set_cooldown_timeout(60)
-            except Exception:
+            except Exception as e:
                 self.log.exception("Failed to backfill portal %s", req.portal_fbid)
-                # Don't try again to backfill this portal for a few seconds.
-                await req.set_cooldown_timeout(10)
+
+                if isinstance(e, ResponseError):
+                    self.log.warning("ResponseError: %s %s", e, str(e.data))
+
+                # Don't try again to backfill this portal for a minute.
+                await req.set_cooldown_timeout(60)
 
     async def get_direct_chats(self) -> dict[UserID, list[RoomID]]:
         return {
