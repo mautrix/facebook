@@ -787,6 +787,7 @@ class Portal(DBPortal, BasePortal):
             raise
 
         if len(messages) == 0:
+            self.log.debug("No messages to backfill.")
             return None
 
         last_message_timestamp = messages[-1].timestamp
