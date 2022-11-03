@@ -709,10 +709,15 @@ class User(DBUser, BaseUser):
             await self.save()
 
     def _message_is_bridgable(self, message: Message) -> bool:
-        if "source:messenger_growth:friending_admin_bump" in message.tags_list:
-            return False
-        if "source:generic_admin_text" in message.tags_list:
-            return False
+        for tag in message.tags_list:
+            if tag.startswith("source:messenger_growth"):
+                # This excludes messages like the following:
+                # - X just joined messenger
+                # - You are now connected on Messenger
+                return False
+            if tag == "source:generic_admin_text":
+                return False
+        self.log.debug(f"Message tags: {message.tags_list}")
         return True
 
     async def _sync_thread(self, thread: graphql.Thread) -> bool:
