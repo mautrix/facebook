@@ -170,7 +170,7 @@ class Puppet(DBPuppet, BasePuppet):
         info = {
             "displayname": None,
             "id": info.id,
-            "name": info.name,
+            "name": info.name or "Facebook user",
             "phonetic_name": sn.phonetic_name if sn else None,
             "own_nickname": info.nickname_for_viewer,
             **(sn.to_dict() if sn else {}),
