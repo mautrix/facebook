@@ -238,7 +238,7 @@ class BaseAndroidAPI:
             headers=headers,
         )
         await self._decompress_zstd(resp)
-        self.log.trace(f"GraphQL {req} response: {await resp.text()}")
+        self.log.trace(f"GraphQL {req} response {resp.status}: {await resp.text()}")
         if response_type is None:
             self._handle_response_headers(resp)
             return None
