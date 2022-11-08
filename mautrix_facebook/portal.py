@@ -996,6 +996,7 @@ class Portal(DBPortal, BasePortal):
             events=batch_messages,
             state_events_at_start=state_events_at_start,
             beeper_new_messages=forward,
+            beeper_mark_read_by=source.mxid,
         )
         await self._finish_batch(batch_send_resp.event_ids, message_infos)
         if not forward:
