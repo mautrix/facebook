@@ -275,24 +275,29 @@ class BaseAndroidAPI:
             body = body[batch_index][1].get("body", {})
         error = body.get("error", None)
         errors = body.get("errors", [])
-        if len(errors) == 1:
-            error = errors[0]
         if error:
             self.log.trace("Got error object in response data: %s", error)
-            error_class = (
-                error_code_map.get(error.get("code"))
-                or error_class_map.get(error.get("type"))
-                or ResponseError
-            )
-            raise error_class(error)
+            self._handle_error(error)
         elif errors:
             self.log.warning("Got list of errors in response data: %s", errors)
             if resp.status >= 400 or not body.get("data"):
+                if len(errors) == 1:
+                    self.log.trace("Got single error object in list: %s", errors[0])
+                    self._handle_error(errors[0])
+
                 try:
                     raise GraphQLError(errors[0], errors[1:])
                 except KeyError as e:
                     raise Exception("Unknown response error") from e
         return body
+
+    def _handle_error(self, error: JSON):
+        error_class = (
+            error_code_map.get(error.get("code"))
+            or error_class_map.get(error.get("type"))
+            or ResponseError
+        )
+        raise error_class(error)
 
     def _handle_response_headers(self, resp: ClientResponse) -> None:
         # TODO if needed
