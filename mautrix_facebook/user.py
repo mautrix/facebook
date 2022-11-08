@@ -715,6 +715,9 @@ class User(DBUser, BaseUser):
                 # - X just joined messenger
                 # - You are now connected on Messenger
                 return False
+            if tag == "source:titan:web":
+                # Older "You are now connected on Messenger" messages
+                return False
             if tag == "source:generic_admin_text":
                 return False
         self.log.debug(f"Message tags: {message.tags_list}")
