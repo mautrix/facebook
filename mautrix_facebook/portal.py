@@ -849,7 +849,8 @@ class Portal(DBPortal, BasePortal):
             self.log.debug("Enqueueing more backfill")
             await Backfill.new(
                 source.mxid,
-                backfill_request.priority,
+                # Always enqueue subsequent backfills at the lowest priority
+                2,
                 self.fbid,
                 self.fb_receiver,
                 backfill_request.num_pages,
