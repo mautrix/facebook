@@ -1603,6 +1603,9 @@ class Portal(DBPortal, BasePortal):
             if not mxid:
                 # Failed to create
                 return
+
+            if self.config["bridge.backfill.enable"]:
+                await self.enqueue_immediate_backfill(source, 0)
         if not await self._bridge_own_message_pm(source, sender, f"message {msg_id}"):
             return
         intent = sender.intent_for(self)
