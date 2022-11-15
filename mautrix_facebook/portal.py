@@ -869,6 +869,7 @@ class Portal(DBPortal, BasePortal):
         message_page: list[graphql.Message],
         forward: bool = False,
         last_message: DBMessage | None = None,
+        mark_read: bool = False,
     ) -> tuple[int, int, EventID | None]:
         """
         Backfills a page of messages to Matrix. The messages should be in order from oldest to
@@ -997,7 +998,7 @@ class Portal(DBPortal, BasePortal):
             events=batch_messages,
             state_events_at_start=state_events_at_start,
             beeper_new_messages=forward,
-            beeper_mark_read_by=source.mxid,
+            beeper_mark_read_by=source.mxid if mark_read else None,
         )
         await self._finish_batch(batch_send_resp.event_ids, message_infos)
         if not forward:

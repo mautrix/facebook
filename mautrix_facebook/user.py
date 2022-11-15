@@ -781,26 +781,28 @@ class User(DBUser, BaseUser):
                 )
 
         if forward_messages:
+            mark_read = thread.unread_count == 0 or (
+                (hours := self.config["bridge.backfill.unread_hours_threshold"]) > 0
+                and (
+                    datetime.fromtimestamp(last_message_timestamp / 1000)
+                    < datetime.now() - timedelta(hours=hours)
+                )
+            )
             (
                 _,
                 last_message_timestamp,
                 base_insertion_event_id,
             ) = await portal.backfill_message_page(
-                self, forward_messages, forward=True, last_message=last_message
+                self,
+                forward_messages,
+                forward=True,
+                last_message=last_message,
+                mark_read=mark_read,
             )
             await portal.send_post_backfill_dummy(
                 last_message_timestamp, base_insertion_event_id=base_insertion_event_id
             )
-            if (
-                thread.unread_count == 0
-                or (
-                    (hours := self.config["bridge.backfill.unread_hours_threshold"]) > 0
-                    and (
-                        datetime.fromtimestamp(last_message_timestamp / 1000)
-                        < datetime.now() - timedelta(hours=hours)
-                    )
-                )
-            ) and (puppet := await self.get_puppet()):
+            if mark_read and (puppet := await self.get_puppet()):
                 last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)
                 if last_message:
                     await puppet.intent_for(portal).mark_read(portal.mxid, last_message.mxid)
