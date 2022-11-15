@@ -1,3 +1,12 @@
+# v0.4.1 (2022-11-15)
+
+* Improved unsupported message fallbacks and added support for more message
+  types from Facebook.
+  * Powerup messages, descriptions in story attachments, facebook pay messages
+    and group join links among other things should be bridged now.
+* Added support for dynamically fetching a proxy URL.
+* Added option to bypass startup script in docker image.
+
 # v0.4.0 (2022-04-06)
 
 * Dropped Python 3.7 support.

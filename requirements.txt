@@ -1,6 +1,6 @@
 aiohttp>=3,<4
 yarl>=1,<2
-asyncpg>=0.20,<0.27
+asyncpg>=0.20,<0.28
 ruamel.yaml>=0.15.94,<0.18
 commonmark>=0.8,<0.10
 python-magic>=0.4,<0.5
