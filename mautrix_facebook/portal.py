@@ -906,7 +906,7 @@ class Portal(DBPortal, BasePortal):
             assert self.mxid
             if mxid in added_members:
                 return
-            if self.config.get("homeserver.software", "standard") == "hungry":
+            if self.bridge.homeserver_software.is_hungry:
                 # Hungryserv doesn't expect or check state events at start.
                 added_members.add(mxid)
                 return
@@ -980,7 +980,7 @@ class Portal(DBPortal, BasePortal):
             # bridgeable, we want to skip further back in history to find some that are bridgable.
             return 0, oldest_msg_timestamp, None
 
-        if self.config.get("homeserver.software", "standard") != "hungry" and (
+        if not self.bridge.homeserver_software.is_hungry and (
             forward or self.next_batch_id is None
         ):
             self.log.debug("Sending dummy event to avoid forward extremity errors")
@@ -1023,7 +1023,7 @@ class Portal(DBPortal, BasePortal):
 
         # Batch sending can only use local users if on non-hungryserv homeservers, so don't allow
         # double puppets on other servers.
-        return self.config.get("homeserver.software", "standard") == "hungry" or (
+        return self.bridge.homeserver_software.is_hungry or (
             custom_mxid[custom_mxid.index(":") + 1 :] == self.config["homeserver.domain"]
         )
 
