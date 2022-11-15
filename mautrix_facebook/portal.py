@@ -980,7 +980,9 @@ class Portal(DBPortal, BasePortal):
             # bridgeable, we want to skip further back in history to find some that are bridgable.
             return 0, oldest_msg_timestamp, None
 
-        if forward or self.next_batch_id is None:
+        if self.config.get("homeserver.software", "standard") != "hungry" and (
+            forward or self.next_batch_id is None
+        ):
             self.log.debug("Sending dummy event to avoid forward extremity errors")
             await self.az.intent.send_message_event(
                 self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
