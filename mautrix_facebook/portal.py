@@ -882,6 +882,13 @@ class Portal(DBPortal, BasePortal):
         if len(message_page) == 0:
             return 0, 0, None
 
+        if forward:
+            assert last_message and last_message.mxid
+            prev_event_id = last_message.mxid
+        else:
+            assert self.first_event_id
+            prev_event_id = self.first_event_id
+
         assert self.mxid
 
         oldest_message_in_page = message_page[0]
@@ -978,10 +985,6 @@ class Portal(DBPortal, BasePortal):
             await self.az.intent.send_message_event(
                 self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
             )
-        assert self.first_event_id
-        prev_event_id = self.first_event_id
-        if forward and last_message and last_message.mxid:
-            prev_event_id = last_message.mxid
 
         self.log.info(
             "Sending %d %s messages to %s with batch ID %s and previous event ID %s",
