@@ -816,7 +816,8 @@ class User(DBUser, BaseUser):
                 if last_message:
                     await puppet.intent_for(portal).mark_read(portal.mxid, last_message.mxid)
 
-        await portal.enqueue_immediate_backfill(self, 1)
+        if self.config["bridge.backfill.msc2716"]:
+            await portal.enqueue_immediate_backfill(self, 1)
         return len(forward_messages) > 0
 
     async def mute_room(self, portal: po.Portal, mute_until: int | None) -> None:

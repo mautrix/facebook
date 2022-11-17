@@ -82,6 +82,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.federate_rooms")
         copy("bridge.allow_invites")
         copy("bridge.backfill.enable")
+        copy("bridge.backfill.msc2716")
         copy("bridge.backfill.double_puppet_backfill")
         if "bridge.initial_chat_sync" in self:
             initial_chat_sync = self["bridge.initial_chat_sync"]

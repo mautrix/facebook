@@ -733,6 +733,7 @@ class Portal(DBPortal, BasePortal):
     # region Backfill
 
     async def enqueue_immediate_backfill(self, source: u.User, priority: int) -> None:
+        assert self.config["bridge.backfill.msc2716"]
         if not await Backfill.get(source.mxid, self.fbid, self.fb_receiver):
             await Backfill.new(
                 source.mxid,
@@ -886,6 +887,7 @@ class Portal(DBPortal, BasePortal):
             assert last_message and last_message.mxid
             prev_event_id = last_message.mxid
         else:
+            assert self.config["bridge.backfill.msc2716"]
             assert self.first_event_id
             prev_event_id = self.first_event_id
 
@@ -906,7 +908,10 @@ class Portal(DBPortal, BasePortal):
             assert self.mxid
             if mxid in added_members:
                 return
-            if self.bridge.homeserver_software.is_hungry:
+            if (
+                self.bridge.homeserver_software.is_hungry
+                or not self.config["bridge.backfill.msc2716"]
+            ):
                 # Hungryserv doesn't expect or check state events at start.
                 added_members.add(mxid)
                 return
@@ -933,6 +938,7 @@ class Portal(DBPortal, BasePortal):
             added_members.add(mxid)
 
         message_infos: list[tuple[graphql.Message, int]] = []
+        intents: list[IntentAPI] = []
         last_message_timestamp = 0
 
         for message in message_page:
@@ -974,6 +980,7 @@ class Portal(DBPortal, BasePortal):
                         timestamp=message.timestamp,
                     )
                 )
+                intents.append(intent)
 
         if not batch_messages:
             # Still return the oldest message's timestamp, since none of the messages were
@@ -996,35 +1003,48 @@ class Portal(DBPortal, BasePortal):
             self.next_batch_id,
             prev_event_id,
         )
-        batch_send_resp = await self.main_intent.batch_send(
-            self.mxid,
-            prev_event_id,
-            batch_id=self.next_batch_id,
-            events=batch_messages,
-            state_events_at_start=state_events_at_start,
-            beeper_new_messages=forward,
-            beeper_mark_read_by=source.mxid if mark_read else None,
-        )
-        await self._finish_batch(batch_send_resp.event_ids, message_infos)
+        base_insertion_event_id = None
+        if self.config["bridge.backfill.msc2716"]:
+            batch_send_resp = await self.main_intent.batch_send(
+                self.mxid,
+                prev_event_id,
+                batch_id=self.next_batch_id,
+                events=batch_messages,
+                state_events_at_start=state_events_at_start,
+                beeper_new_messages=forward,
+                beeper_mark_read_by=source.mxid if mark_read else None,
+            )
+            base_insertion_event_id = batch_send_resp.base_insertion_event_id
+            event_ids = batch_send_resp.event_ids
+        else:
+            batch_send_resp = None
+            event_ids = [
+                await intent.send_message_event(
+                    self.mxid, evt.type, evt.content, timestamp=evt.timestamp
+                )
+                for evt, intent in zip(reversed(batch_messages), reversed(intents))
+            ]
+        await self._finish_batch(event_ids, message_infos)
         if not forward:
+            assert batch_send_resp
             self.log.debug("Got next batch ID %s for %s", batch_send_resp.next_batch_id, self.mxid)
             self.next_batch_id = batch_send_resp.next_batch_id
         await self.save()
 
         return (
-            len(batch_send_resp.event_ids),
+            len(event_ids),
             oldest_msg_timestamp,
-            batch_send_resp.base_insertion_event_id,
+            base_insertion_event_id,
         )
 
     def _can_double_puppet_backfill(self, custom_mxid: UserID) -> bool:
-        if not self.config["bridge.backfill.double_puppet_backfill"]:
-            return False
-
-        # Batch sending can only use local users if on non-hungryserv homeservers, so don't allow
-        # double puppets on other servers.
-        return self.bridge.homeserver_software.is_hungry or (
-            custom_mxid[custom_mxid.index(":") + 1 :] == self.config["homeserver.domain"]
+        return self.config["bridge.backfill.double_puppet_backfill"] and (
+            # Hungryserv can batch send any users
+            self.bridge.homeserver_software.is_hungry
+            # Non-MSC2716 backfill can use any double puppet
+            or not self.config["bridge.backfill.msc2716"]
+            # Local users can be double puppeted even with MSC2716
+            or (custom_mxid[custom_mxid.index(":") + 1 :] == self.config["homeserver.domain"])
         )
 
     async def _finish_batch(
@@ -1612,7 +1632,9 @@ class Portal(DBPortal, BasePortal):
                 return
 
             if self.config["bridge.backfill.enable"]:
-                await self.enqueue_immediate_backfill(source, 0)
+                if self.config["bridge.backfill.msc2716"]:
+                    await self.enqueue_immediate_backfill(source, 0)
+                # TODO backfill immediate page without MSC2716
         if not await self._bridge_own_message_pm(source, sender, f"message {msg_id}"):
             return
         intent = sender.intent_for(self)

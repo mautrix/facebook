@@ -65,6 +65,9 @@ async def search(evt: CommandEvent) -> None:
     help_text="Backfill the current chat",
 )
 async def backfill(evt: CommandEvent) -> None:
+    if not evt.config["bridge.backfill.msc2716"]:
+        await evt.reply("MSC2716 backfill is not enabled on this bridge")
+        return
     portal: po.Portal = await po.Portal.get_by_mxid(evt.room_id)
     await portal.enqueue_immediate_backfill(evt.sender, 0)
     await evt.reply("Enqueued backfill for portal")

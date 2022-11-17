@@ -169,20 +169,22 @@ bridge:
     federate_rooms: true
     # Settings for backfilling messages from Facebook.
     backfill:
-        # Whether to enable backfilling at all.
+        # Allow backfilling at all?
+        enable: true
+        # Use MSC2716 for backfilling? If this is disabled, backfilling only happens when syncing threads,
+        # and the incremental settings below don't apply.
         #
-        # This requires a server with MSC2716 support, which is currently an
-        # experimental feature in synapse. It can be enabled by setting
-        # experimental_features -> msc2716_enabled to true in homeserver.yaml.
-        #
-        # Note that prior to Synapse 1.49, there were some bugs with the
-        # implementation, especially if using event persistence workers. There
-        # are also still some issues in Synapse's federation implementation.
-        enable: false
+        # This requires a server with MSC2716 support, which is currently an experimental feature in Synapse.
+        # It can be enabled by setting experimental_features -> msc2716_enabled to true in homeserver.yaml.
+        msc2716: false
         # Use double puppets for backfilling?
-        # In order to use this, the double puppets must be in the appservice's user ID namespace
+        #
+        # If using MSC2716, the double puppets must be in the appservice's user ID namespace
         # (because the bridge can't use the double puppet access token with batch sending).
-        # This only affects double puppets on the local server, double puppets on other servers will never be used.
+        #
+        # Even without MSC2716, bridging old messages with correct timestamps requires the double
+        # puppets to be in an appservice namespace, or the server to be modified to allow
+        # overriding timestamps anyway.
         double_puppet_backfill: false
         # The maximum number of conversations that should be synced.
         # Other conversations will be backfilled on demand when the start PM
