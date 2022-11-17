@@ -67,4 +67,4 @@ async def search(evt: CommandEvent) -> None:
 async def backfill(evt: CommandEvent) -> None:
     portal: po.Portal = await po.Portal.get_by_mxid(evt.room_id)
     await portal.enqueue_immediate_backfill(evt.sender, 0)
-    await evt.reply("Backfilling portal...")
+    await evt.reply("Enqueued backfill for portal")
