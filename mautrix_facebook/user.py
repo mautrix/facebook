@@ -803,10 +803,15 @@ class User(DBUser, BaseUser):
                 last_message=last_message,
                 mark_read=mark_read,
             )
-            await portal.send_post_backfill_dummy(
-                last_message_timestamp, base_insertion_event_id=base_insertion_event_id
-            )
-            if mark_read and (puppet := await self.get_puppet()):
+            if not self.bridge.homeserver_software.is_hungry:
+                await portal.send_post_backfill_dummy(
+                    last_message_timestamp, base_insertion_event_id=base_insertion_event_id
+                )
+            if (
+                mark_read
+                and not self.bridge.homeserver_software.is_hungry
+                and (puppet := await self.get_puppet())
+            ):
                 last_message = await DBMessage.get_most_recent(portal.fbid, portal.fb_receiver)
                 if last_message:
                     await puppet.intent_for(portal).mark_read(portal.mxid, last_message.mxid)
