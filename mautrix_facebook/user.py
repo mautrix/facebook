@@ -803,6 +803,11 @@ class User(DBUser, BaseUser):
                     f"{len(new_messages)}/{original_number_of_messages} messages are after most "
                     "recent message."
                 )
+        elif not portal.first_event_id:
+            self.log.debug(
+                f"Skipping backfilling {portal.fbid_log} as the first event ID is not known"
+            )
+            return False
 
         if forward_messages:
             last_message_timestamp = (
