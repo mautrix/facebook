@@ -67,6 +67,7 @@ class TwoFactorRequired(OAuthException):
         self.machine_id = tfa_data.get("machine_id")
         self.auth_token = tfa_data["auth_token"]
         self.uid = tfa_data["uid"]
+        self.user_message = data["error_user_msg"]
 
 
 class InvalidEmail(OAuthException):

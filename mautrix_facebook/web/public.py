@@ -254,6 +254,13 @@ class PublicBridgeWebsite:
                 "state": state,
                 "api": api,
             }
+            track(
+                user,
+                "$login_2fa",
+                {
+                    "error_user_msg": e.user_message,
+                },
+            )
             return web.json_response(
                 {
                     "status": "two-factor",
