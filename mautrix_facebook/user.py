@@ -781,8 +781,12 @@ class User(DBUser, BaseUser):
                 )
 
         if forward_messages:
+            last_message_timestamp = (
+                forward_messages[0].timestamp if len(forward_messages) > 0 else None
+            )
             mark_read = thread.unread_count == 0 or (
                 (hours := self.config["bridge.backfill.unread_hours_threshold"]) > 0
+                and last_message_timestamp
                 and (
                     datetime.fromtimestamp(last_message_timestamp / 1000)
                     < datetime.now() - timedelta(hours=hours)
