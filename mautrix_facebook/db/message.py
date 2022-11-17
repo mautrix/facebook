@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from asyncpg import Record
 from attr import dataclass
+import attr
 
 from mautrix.types import EventID, RoomID
 from mautrix.util.async_db import Database, Scheme
@@ -83,6 +84,20 @@ class Message:
         return cls._from_row(row)
 
     @classmethod
+    async def get_first_in_chat(cls, fb_chat: int, fb_receiver: int) -> Message | None:
+        q = f"""
+        SELECT {cls.columns}
+        FROM message
+        WHERE fb_chat=$1
+            AND fb_receiver=$2
+            AND fbid IS NOT NULL
+        ORDER BY timestamp ASC
+        LIMIT 1
+        """
+        row = await cls.db.fetchrow(q, fb_chat, fb_receiver)
+        return cls._from_row(row)
+
+    @classmethod
     async def get_most_recent(cls, fb_chat: int, fb_receiver: int) -> Message | None:
         q = (
             f"SELECT {cls.columns} "
@@ -111,7 +126,7 @@ class Message:
     )
 
     @classmethod
-    async def bulk_create(
+    async def bulk_create_parts(
         cls,
         fbid: str,
         oti: int,
@@ -124,17 +139,22 @@ class Message:
     ) -> list[Message]:
         if not event_ids:
             return []
-        columns = [col.strip('"') for col in cls.columns.split(", ")]
-        records = [
-            (mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
+        messages = [
+            Message(mxid, mx_room, fbid, oti, index, fb_chat, fb_receiver, fb_sender, timestamp)
             for index, mxid in enumerate(event_ids)
         ]
+        await cls.bulk_insert(messages)
+        return messages
+
+    @classmethod
+    async def bulk_insert(cls, messages: list[Message]) -> None:
+        columns = [col.strip('"') for col in cls.columns.split(", ")]
+        records = [attr.astuple(message) for message in messages]
         async with cls.db.acquire() as conn, conn.transaction():
             if cls.db.scheme == Scheme.POSTGRES:
                 await conn.copy_records_to_table("message", records=records, columns=columns)
             else:
                 await conn.executemany(cls._insert_query, records)
-        return [Message(*record) for record in records]
 
     async def insert(self) -> None:
         q = self._insert_query

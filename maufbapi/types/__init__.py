@@ -12,7 +12,9 @@ from .graphql import (
     MessageReactionMutation,
     MessageUndoSend,
     MessageUnsendResponse,
+    MinimalThreadListResponse,
     MoreMessagesQuery,
+    MoreThreadsQuery,
     NTContext,
     ReactionAction,
     SearchEntitiesNamedQuery,
@@ -25,6 +27,7 @@ from .graphql import (
     ThreadNameMutation,
     ThreadQuery,
     ThreadQueryResponse,
+    UsersQuery,
 )
 from .login import LoginResponse, MobileConfig, PasswordKeyResponse
 from .media import UploadErrorData, UploadResponse

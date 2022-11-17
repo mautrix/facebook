@@ -82,11 +82,16 @@ class GraphMethodException(ResponseError):
     pass
 
 
+class RateLimitExceeded(ResponseError):
+    pass
+
+
 error_code_map = {
     190: InvalidAccessToken,
     400: InvalidEmail,
     401: IncorrectPassword,
     406: TwoFactorRequired,
+    3252001: RateLimitExceeded,
 }
 _error_classes = (OAuthException, GraphMethodException)
 error_class_map = {clazz.__name__: clazz for clazz in _error_classes}

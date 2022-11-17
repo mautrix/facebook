@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2021 Tulir Asokan
+# Copyright (C) 2022 Tulir Asokan, Sumner Evans
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,14 +13,13 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import NamedTuple
+from mautrix.util.async_db import Connection
 
-from mautrix.bridge.commands import HelpSection
+from . import upgrade_table
 
-HelpCacheKey = NamedTuple("FBHelpCacheKey", is_management=bool, is_admin=bool, is_logged_in=bool)
 
-SECTION_AUTH = HelpSection("Authentication", 10, "")
-SECTION_CONNECTION = HelpSection("Connection management", 15, "")
-SECTION_CREATING_PORTALS = HelpSection("Creating portals", 20, "")
-SECTION_PORTAL_MANAGEMENT = HelpSection("Portal management", 30, "")
-SECTION_ADMIN = HelpSection("Administration", 50, "")
+@upgrade_table.register(description="Add columns to store infinite backfill pointers for portals")
+async def upgrade_v9(conn: Connection) -> None:
+    await conn.execute("ALTER TABLE portal ADD COLUMN first_event_id TEXT")
+    await conn.execute("ALTER TABLE portal ADD COLUMN next_batch_id TEXT")
+    await conn.execute("ALTER TABLE portal ADD COLUMN historical_base_insertion_event_id TEXT")

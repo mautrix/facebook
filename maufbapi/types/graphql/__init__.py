@@ -8,6 +8,7 @@ from .queries import (
     MessageReactionMutation,
     MessageUndoSend,
     MoreMessagesQuery,
+    MoreThreadsQuery,
     NTContext,
     ReactionAction,
     SearchEntitiesNamedQuery,
@@ -17,6 +18,7 @@ from .queries import (
     ThreadNameMutation,
     ThreadNameMutationSource,
     ThreadQuery,
+    UsersQuery,
 )
 from .responses import (
     Attachment,
@@ -40,6 +42,7 @@ from .responses import (
     MinimalMessage,
     MinimalParticipant,
     MinimalSticker,
+    MinimalThreadListResponse,
     MontageReplyData,
     OwnInfo,
     PageInfo,

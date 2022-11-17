@@ -106,9 +106,7 @@ class Puppet(DBPuppet, BasePuppet):
         )
 
     def intent_for(self, portal: p.Portal) -> IntentAPI:
-        if portal.fbid == self.fbid or (
-            portal.backfill_lock.locked and self.config["bridge.backfill.invite_own_puppet"]
-        ):
+        if portal.fbid == self.fbid:
             return self.default_mxid_intent
         return self.intent
 
@@ -172,7 +170,7 @@ class Puppet(DBPuppet, BasePuppet):
         info = {
             "displayname": None,
             "id": info.id,
-            "name": info.name,
+            "name": info.name or "Facebook user",
             "phonetic_name": sn.phonetic_name if sn else None,
             "own_nickname": info.nickname_for_viewer,
             **(sn.to_dict() if sn else {}),

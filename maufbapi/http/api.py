@@ -15,7 +15,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+from typing import AsyncIterable
 from uuid import uuid4
+import asyncio
+import time
 
 from yarl import URL
 import attr
@@ -33,7 +36,9 @@ from ..types import (
     MessageReactionMutation,
     MessageUndoSend,
     MessageUnsendResponse,
+    MinimalThreadListResponse,
     MoreMessagesQuery,
+    MoreThreadsQuery,
     ReactionAction,
     SearchEntitiesNamedQuery,
     SearchEntitiesResponse,
@@ -47,6 +52,7 @@ from ..types import (
 )
 from ..types.graphql import OwnInfo, PageInfo, Thread, ThreadMessageID
 from .base import BaseAndroidAPI
+from .errors import RateLimitExceeded, ResponseError
 from .login import LoginAPI
 from .post_login import PostLoginAPI
 from .upload import UploadAPI
@@ -54,6 +60,7 @@ from .upload import UploadAPI
 
 class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
     _file_url_cache: dict[ThreadMessageID, FileAttachmentURLResponse]
+    _page_size = 20
 
     async def fetch_thread_list(self, **kwargs) -> ThreadListResponse:
         return await self.graphql(
@@ -61,6 +68,107 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             response_type=ThreadListResponse,
             path=["data", "viewer", "message_threads"],
         )
+
+    async def fetch_more_threads(self, after_time_ms: int, **kwargs) -> MinimalThreadListResponse:
+        return await self.graphql(
+            MoreThreadsQuery(after_time_ms=str(after_time_ms), **kwargs),
+            path=["data", "viewer", "message_threads"],
+            response_type=MinimalThreadListResponse,
+        )
+
+    async def iter_thread_list(
+        self,
+        initial_resp: ThreadListResponse | None = None,
+        local_limit: int | None = None,
+    ) -> AsyncIterable[Thread]:
+        if not initial_resp:
+            initial_resp = await self.fetch_thread_list(thread_count=self._page_size)
+        after_ts = int(time.time() * 1000)
+        thread_counter = 0
+        for thread in initial_resp.nodes:
+            yield thread
+            after_ts = min(after_ts, thread.updated_timestamp)
+            thread_counter += 1
+            if local_limit and thread_counter >= local_limit:
+                return
+
+        local_limit = local_limit - thread_counter if local_limit else None
+        async for thread in self.iter_thread_list_from(after_ts, local_limit=local_limit):
+            yield thread
+
+    async def iter_thread_list_from(
+        self,
+        timestamp: int,
+        local_limit: int | None = None,
+        rate_limit_exceeded_backoff: float = 60.0,
+    ) -> AsyncIterable[Thread]:
+        if local_limit and local_limit <= 0:
+            return
+        thread_counter = 0
+        page_size = self._page_size
+        while True:
+            self.log.debug(f"Fetching {page_size} more threads from before {timestamp}")
+
+            try:
+                resp = await self.fetch_more_threads(timestamp - 1, thread_count=page_size)
+            except RateLimitExceeded:
+                self.log.warning(
+                    "Fetching more threads failed due to rate limit. Waiting for "
+                    f"{rate_limit_exceeded_backoff} seconds before resuming."
+                )
+                await asyncio.sleep(rate_limit_exceeded_backoff)
+            except ResponseError as e:
+                self.log.warning(
+                    f"Failed to fetch batch of {page_size} after {timestamp - 1}. Error: {e}"
+                )
+                await asyncio.sleep(10)
+
+                if page_size == 1:
+                    # We are already going one at a time, so we know that the next thread is the
+                    # broken one. Find a point where we can start fetching again. Note that this
+                    # may cause some threads to be missed, but since failures of this sort are
+                    # probably rare, that's an acceptable tradeoff.
+                    day_ms = 24 * 60 * 60 * 1000
+                    backoff_days = 1
+                    possibly_good = timestamp - (backoff_days * day_ms)
+                    while possibly_good > 1262304000000:  # 2010-01-01
+                        self.log.debug(f"Checking if timestamp {possibly_good} works")
+                        try:
+                            resp = await self.fetch_more_threads(possibly_good, thread_count=1)
+                            self.log.debug(f"Timestamp {possibly_good} worked.")
+
+                            # Reset the page size because if we made it here, we know that the
+                            # fetch worked properly, so we can go back to fetching full pages.
+                            self.log.debug(f"Resetting page size to {self._page_size}")
+                            page_size = self._page_size
+                            break
+                        except ResponseError as e:
+                            if backoff_days < 16:
+                                backoff_days *= 2
+                            self.log.debug(
+                                f"Timestamp {possibly_good} still doesn't work: {e}. "
+                                f"Will retry with {possibly_good - backoff_days * day_ms}"
+                            )
+                            possibly_good -= backoff_days * day_ms
+                            await asyncio.sleep(10)
+                    else:  # nobreak
+                        self.log.info(
+                            "No good timestamp before the beginning of Messenger's existence"
+                        )
+                        return
+                else:
+                    page_size = 1  # Go one at a time until we find the thread that is broken.
+                    continue
+
+            for thread in resp.nodes:
+                yield thread
+                timestamp = min(timestamp, thread.updated_timestamp)
+                thread_counter += 1
+                if local_limit and thread_counter >= local_limit:
+                    return
+
+            if len(resp.nodes) < page_size:
+                return
 
     async def fetch_thread_info(self, *thread_ids: str | int, **kwargs) -> list[Thread]:
         resp = await self.graphql(

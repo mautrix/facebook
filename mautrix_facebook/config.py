@@ -63,7 +63,6 @@ class Config(BaseBridgeConfig):
         copy("bridge.displayname_preference")
         copy("bridge.command_prefix")
 
-        copy("bridge.initial_chat_sync")
         copy("bridge.invite_own_puppet_to_pm")
         copy("bridge.sync_with_custom_puppets")
         copy("bridge.sync_direct_chat_list")
@@ -82,10 +81,23 @@ class Config(BaseBridgeConfig):
         copy("bridge.message_status_events")
         copy("bridge.federate_rooms")
         copy("bridge.allow_invites")
-        copy("bridge.backfill.invite_own_puppet")
-        copy("bridge.backfill.initial_limit")
-        copy("bridge.backfill.missed_limit")
-        copy("bridge.backfill.disable_notifications")
+        copy("bridge.backfill.enable")
+        copy("bridge.backfill.double_puppet_backfill")
+        if "bridge.initial_chat_sync" in self:
+            initial_chat_sync = self["bridge.initial_chat_sync"]
+            base["bridge.backfill.max_conversations"] = self.get(
+                "bridge.backfill.max_conversations", initial_chat_sync
+            )
+        else:
+            copy("bridge.backfill.max_conversations")
+        copy("bridge.backfill.min_sync_thread_delay")
+        copy("bridge.backfill.unread_hours_threshold")
+        copy("bridge.backfill.backoff.thread_list")
+        copy("bridge.backfill.backoff.message_history")
+        copy("bridge.backfill.incremental.max_pages")
+        copy("bridge.backfill.incremental.max_total_pages")
+        copy("bridge.backfill.incremental.page_delay")
+        copy("bridge.backfill.incremental.post_batch_delay")
         if "bridge.periodic_reconnect_interval" in self:
             base["bridge.periodic_reconnect.interval"] = self["bridge.periodic_reconnect_interval"]
             base["bridge.periodic_reconnect.mode"] = self["bridge.periodic_reconnect_mode"]
@@ -95,7 +107,7 @@ class Config(BaseBridgeConfig):
             copy("bridge.periodic_reconnect.always")
             copy("bridge.periodic_reconnect.min_connected_time")
         copy("bridge.resync_max_disconnected_time")
-        copy("bridge.sync_on_startup")
+        copy("bridge.max_startup_thread_sync_count")
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")
         if "bridge.refresh_on_reconnection_fail" in self:
