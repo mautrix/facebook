@@ -89,7 +89,23 @@ async def ping(evt: CommandEvent) -> None:
     needs_auth=True,
     management_only=True,
     help_section=SECTION_CONNECTION,
-    help_text="Resync chats and reconnect to MQTT",
+    help_text=(
+        "Resync chats and reconnect to MQTT. If --full is provided, the bridge will also resync "
+        "older chats in the background (up to max_conversations in config)"
+    ),
+    help_args="[--full]",
 )
 async def refresh(evt: CommandEvent) -> None:
+    if "--full" in evt.args:
+        evt.sender.oldest_backfilled_thread_ts = None
+        evt.sender.total_backfilled_portals = None
+        evt.sender.thread_sync_completed = False
+        max_conversations = evt.config["bridge.backfill.max_conversations"]
+        background_sync = True
+    else:
+        max_conversations = 0
+        background_sync = False
     await evt.sender.refresh(force_notice=True)
+    if background_sync:
+        limit = f"Up to {max_conversations}" if max_conversations >= 0 else "All"
+        await evt.reply(f"{limit} old chats will be synced in the background")

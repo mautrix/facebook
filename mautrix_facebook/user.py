@@ -110,7 +110,8 @@ class User(DBUser, BaseUser):
     client: AndroidAPI | None
     mqtt: AndroidMQTT | None
     listen_task: asyncio.Task | None
-    backfill_tasks: list[asyncio.Task] = []
+    _backfill_loop_task: asyncio.Task | None
+    _thread_sync_task: asyncio.Task | None
     seq_id: int | None
 
     _notice_room_lock: asyncio.Lock
@@ -140,6 +141,7 @@ class User(DBUser, BaseUser):
         connect_token_hash: bytes | None = None,
         oldest_backfilled_thread_ts: int | None = None,
         total_backfilled_portals: int | None = None,
+        thread_sync_completed: bool = False,
     ) -> None:
         super().__init__(
             mxid=mxid,
@@ -150,6 +152,7 @@ class User(DBUser, BaseUser):
             connect_token_hash=connect_token_hash,
             oldest_backfilled_thread_ts=oldest_backfilled_thread_ts,
             total_backfilled_portals=total_backfilled_portals,
+            thread_sync_completed=thread_sync_completed,
         )
         BaseUser.__init__(self)
         self.notice_room = notice_room
@@ -167,6 +170,8 @@ class User(DBUser, BaseUser):
         self._connection_time = time.monotonic()
         self._prev_thread_sync = -10
         self._prev_reconnect_fail_refresh = time.monotonic()
+        self._thread_sync_task = None
+        self._backfill_loop_task = None
         self._sync_lock = SimpleLock(
             "Waiting for thread sync to finish before handling %s", log=self.log
         )
@@ -499,6 +504,7 @@ class User(DBUser, BaseUser):
         self.connect_token_hash = None
         self.total_backfilled_portals = None
         self.oldest_backfilled_thread_ts = None
+        self.thread_sync_completed = False
 
         if self.fbid and remove_fbid:
             await UserPortal.delete_all(self.fbid)
@@ -511,7 +517,7 @@ class User(DBUser, BaseUser):
         return ok
 
     async def post_login(self, is_startup: bool, from_login: bool = False) -> None:
-        self.log.info("Running post-login actions")
+        self.log.info(f"Running post-login actions ({is_startup=}, {from_login=}, {self.seq_id=})")
         self._add_to_cache()
 
         try:
@@ -526,19 +532,19 @@ class User(DBUser, BaseUser):
         # Backfill requests are handled synchronously so as not to overload the homeserver.
         # Users can configure their backfill stages to be more or less aggressive with backfilling
         # to try and avoid getting banned.
-        self.backfill_tasks.append(asyncio.create_task(self._handle_backfill_requests_loop()))
+        if not self._backfill_loop_task or self._backfill_loop_task.done():
+            self._backfill_loop_task = asyncio.create_task(self._handle_backfill_requests_loop())
 
-        if (
-            self.config["bridge.max_startup_thread_sync_count"] > 0
-            or not is_startup
-            or not self.seq_id
-        ):
+        if not is_startup or not self.seq_id:
             await self.sync_recent_threads(from_login=from_login)
         else:
             self.start_listen()
 
         if self.config["bridge.backfill.enable"]:
-            await self.backfill_threads()
+            if self._thread_sync_task and not self._thread_sync_task.done():
+                self.log.warning("Cancelling existing background thread sync task")
+                self._thread_sync_task.cancel()
+            self._thread_sync_task = asyncio.create_task(self.backfill_threads())
 
     async def _handle_backfill_requests_loop(self) -> None:
         while True:
@@ -641,29 +647,32 @@ class User(DBUser, BaseUser):
             self.client.iter_thread_list(resp, local_limit=local_limit),
             stop_when_threads_have_no_messages_to_backfill=True,
             increment_total_backfilled_portals=increment_total_backfilled_portals,
+            local_limit=local_limit,
         )
 
         await self.update_direct_chats()
 
     async def backfill_threads(self):
-        await self.run_with_sync_lock(self._backfill_threads)
+        try:
+            await self.run_with_sync_lock(self._backfill_threads)
+        except Exception:
+            self.log.exception("Error in thread backfill loop")
 
     async def _backfill_threads(self):
         assert self.client
         if not self.config["bridge.backfill.enable"]:
             return
 
-        max_conversations = self.config["bridge.backfill.max_conversations"]
-        if (
-            max_conversations
-            and max_conversations > 0
-            and (self.total_backfilled_portals or 0) >= max_conversations
-        ):
+        max_conversations = self.config["bridge.backfill.max_conversations"] or 0
+        if 0 <= max_conversations <= (self.total_backfilled_portals or 0):
             self.log.info("Backfill max_conversations count reached, not syncing any more portals")
+            return
+        elif self.thread_sync_completed:
+            self.log.debug("Thread backfill is marked as completed, not syncing more portals")
             return
         local_limit = (
             max_conversations - (self.total_backfilled_portals or 0)
-            if max_conversations and max_conversations >= 0
+            if max_conversations >= 0
             else None
         )
 
@@ -676,6 +685,7 @@ class User(DBUser, BaseUser):
                 rate_limit_exceeded_backoff=backoff,
             ),
             increment_total_backfilled_portals=True,
+            local_limit=local_limit,
         )
         await self.update_direct_chats()
 
@@ -684,10 +694,13 @@ class User(DBUser, BaseUser):
         threads: AsyncIterable[Thread],
         increment_total_backfilled_portals: bool = False,
         stop_when_threads_have_no_messages_to_backfill: bool = False,
+        local_limit: int | None = None,
     ):
         sync_delay = self.config["bridge.backfill.min_sync_thread_delay"]
         last_thread_sync_ts = 0.0
+        found_thread_count = 0
         async for thread in threads:
+            found_thread_count += 1
             now = time.monotonic()
             if last_thread_sync_ts is not None and now < last_thread_sync_ts + sync_delay:
                 delay = last_thread_sync_ts + sync_delay - now
@@ -707,6 +720,18 @@ class User(DBUser, BaseUser):
                 self.oldest_backfilled_thread_ts or int(time.time() * 1000),
             )
             await self.save()
+        if local_limit is None or found_thread_count < local_limit:
+            if local_limit is None:
+                self.log.info(
+                    "Reached end of thread list with no limit, marking thread sync as completed"
+                )
+            else:
+                self.log.info(
+                    f"Reached end of thread list (got {found_thread_count} with "
+                    f"limit {local_limit}), marking thread sync as completed"
+                )
+            self.thread_sync_completed = True
+        await self.save()
 
     def _message_is_bridgable(self, message: Message) -> bool:
         for tag in message.tags_list:
@@ -720,7 +745,6 @@ class User(DBUser, BaseUser):
                 return False
             if tag == "source:generic_admin_text":
                 return False
-        self.log.debug(f"Message tags: {message.tags_list}")
         return True
 
     async def _sync_thread(self, thread: graphql.Thread) -> bool:
@@ -1093,10 +1117,12 @@ class User(DBUser, BaseUser):
         self.listen_task = None
 
     def stop_backfill_tasks(self) -> None:
-        for t in self.backfill_tasks:
-            if not t.cancelled():
-                t.cancel()
-        self.backfill_tasks = []
+        if self._backfill_loop_task:
+            self._backfill_loop_task.cancel()
+            self._backfill_loop_task = None
+        if self._thread_sync_task:
+            self._thread_sync_task.cancel()
+            self._thread_sync_task = None
 
     async def on_logged_in(self, state: AndroidState) -> None:
         self.log.debug(f"Successfully logged in as {state.session.uid}")

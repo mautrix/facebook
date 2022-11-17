@@ -39,6 +39,7 @@ class User:
     connect_token_hash: bytes | None
     oldest_backfilled_thread_ts: int | None
     total_backfilled_portals: int | None
+    thread_sync_completed: bool
 
     @property
     def _state_json(self) -> str | None:
@@ -62,6 +63,7 @@ class User:
             "connect_token_hash",
             "oldest_backfilled_thread_ts",
             "total_backfilled_portals",
+            "thread_sync_completed",
         )
     )
 
@@ -94,12 +96,13 @@ class User:
             self.connect_token_hash,
             self.oldest_backfilled_thread_ts,
             self.total_backfilled_portals,
+            self.thread_sync_completed,
         )
 
     async def insert(self) -> None:
         q = f"""
             INSERT INTO "user" ({self._columns})
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """
         await self.db.execute(q, *self._values)
 
@@ -108,10 +111,10 @@ class User:
 
     async def save(self) -> None:
         q = """
-            UPDATE "user"
-            SET fbid=$2, state=$3, notice_room=$4, seq_id=$5, connect_token_hash=$6,
-                oldest_backfilled_thread_ts=$7, total_backfilled_portals=$8
-            WHERE mxid=$1
+        UPDATE "user"
+        SET fbid=$2, state=$3, notice_room=$4, seq_id=$5, connect_token_hash=$6,
+            oldest_backfilled_thread_ts=$7, total_backfilled_portals=$8, thread_sync_completed=$9
+        WHERE mxid=$1
         """
         await self.db.execute(q, *self._values)
 

@@ -12,5 +12,6 @@ from . import (
     v07_store_reaction_timestamp,
     v08_backfill_queue,
     v09_portal_infinite_backfill,
-    v10_per_user_thread_sync_status,
+    v10_user_thread_sync_status,
+    v11_user_thread_sync_done_flag,
 )
