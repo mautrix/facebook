@@ -884,8 +884,8 @@ class Portal(DBPortal, BasePortal):
             return 0, 0, None
 
         if forward:
-            assert last_message and last_message.mxid
-            prev_event_id = last_message.mxid
+            assert (last_message and last_message.mxid) or self.first_event_id
+            prev_event_id = last_message.mxid if last_message else self.first_event_id
         else:
             assert self.config["bridge.backfill.msc2716"]
             assert self.first_event_id
