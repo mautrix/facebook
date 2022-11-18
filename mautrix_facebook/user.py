@@ -496,7 +496,7 @@ class User(DBUser, BaseUser):
             await self.push_bridge_state(BridgeStateEvent.LOGGED_OUT)
         self._track_metric(METRIC_LOGGED_IN, False)
         self.state = None
-        self._is_logged_in = False
+        self._is_logged_in = None
         self.is_connected = None
         self.client = None
         self.mqtt = None
@@ -1143,6 +1143,7 @@ class User(DBUser, BaseUser):
         try:
             self._logged_in_info = await self.client.fetch_logged_in_user(post_login=True)
             self._logged_in_info_time = time.monotonic()
+            self._is_logged_in = True
         except Exception:
             self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
