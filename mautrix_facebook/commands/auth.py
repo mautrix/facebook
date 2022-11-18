@@ -181,10 +181,16 @@ async def enter_2fa_code(evt: CommandEvent) -> None:
         await evt.reply(f"Failed to log in: {e}")
 
 
-@command_handler(needs_auth=True, help_section=SECTION_AUTH, help_text="Log out of Facebook")
+@command_handler(help_section=SECTION_AUTH, help_text="Log out of Facebook")
 async def logout(evt: CommandEvent) -> None:
-    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid)
+    seems_logged_in = bool(evt.sender.client)
+    puppet = await pu.Puppet.get_by_fbid(evt.sender.fbid) if evt.sender.fbid else None
     await evt.sender.logout()
-    if puppet.is_real_user:
+    if puppet and puppet.is_real_user:
         await puppet.switch_mxid(None, None)
-    await evt.reply("Successfully logged out")
+    if seems_logged_in:
+        await evt.reply("Successfully logged out")
+    else:
+        await evt.reply(
+            "You didn't seem to be logged in, but auth state was cleared again just to be safe"
+        )
