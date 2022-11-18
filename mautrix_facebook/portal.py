@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, Tuple, cast
 from collections import deque
 from html import escape
 from io import BytesIO
@@ -107,7 +107,7 @@ StateHalfShotBridge = EventType.find("uk.half-shot.bridge", EventType.Class.STAT
 PortalCreateDummy = EventType.find("fi.mau.dummy.portal_created", EventType.Class.MESSAGE)
 HistorySyncMarkerMessage = EventType.find("org.matrix.msc2716.marker", EventType.Class.MESSAGE)
 
-ConvertedMessage = tuple[EventType, MessageEventContent]
+ConvertedMessage = Tuple[EventType, MessageEventContent]
 
 
 class Portal(DBPortal, BasePortal):
