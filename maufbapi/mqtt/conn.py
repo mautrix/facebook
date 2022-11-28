@@ -610,7 +610,7 @@ class AndroidMQTT:
         )
         fut = self._loop.create_future()
         timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._cancel_later, fut)
-        fut.add_done_callback(timeout_handle.cancel)
+        fut.add_done_callback(lambda _: timeout_handle.cancel())
         self._publish_waiters[info.mid] = fut
         return fut
 
@@ -626,7 +626,7 @@ class AndroidMQTT:
             self._response_waiters[response] = fut
             await self.publish(topic, payload, prefix)
             timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._cancel_later, fut)
-            fut.add_done_callback(timeout_handle.cancel)
+            fut.add_done_callback(lambda _: timeout_handle.cancel())
             return await fut
 
     @staticmethod
