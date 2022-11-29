@@ -362,7 +362,7 @@ class ActionLink(SerializableAttrs):
 
 
 @dataclass
-class ClickThroughAction(SerializableAttrs):
+class CallToAction(SerializableAttrs):
     # attachment_fbid: str
     # message_id: str
     # thread_key: str
@@ -377,7 +377,7 @@ class ClickThroughAction(SerializableAttrs):
 class XMATemplateExtra(SerializableAttrs):
     # preview_image_decoration_type: str
     # max_title_lines: int
-    default_cta: Optional[ClickThroughAction] = None
+    default_cta: Optional[CallToAction] = None
 
 
 @dataclass
