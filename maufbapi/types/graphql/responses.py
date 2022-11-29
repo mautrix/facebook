@@ -112,6 +112,7 @@ class ReachabilityStatus(ExtensibleEnum):
 class ParticipantType(ExtensibleEnum):
     USER = "User"
     PAGE = "Page"
+    INSTAGRAM = "InstagramMessagingUser"
 
 
 @dataclass(kw_only=True)
