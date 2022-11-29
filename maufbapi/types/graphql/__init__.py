@@ -50,6 +50,7 @@ from .responses import (
     ParticipantID,
     ParticipantList,
     ParticipantNode,
+    ParticipantType,
     Picture,
     Reaction,
     ReadReceipt,

@@ -21,7 +21,7 @@ import asyncio
 
 from yarl import URL
 
-from maufbapi.types.graphql import Participant, Picture
+from maufbapi.types.graphql import Participant, ParticipantType, Picture
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet, async_getter_lock
 from mautrix.types import ContentURI, RoomID, SyncToken, UserID
@@ -157,7 +157,14 @@ class Puppet(DBPuppet, BasePuppet):
         try:
             changed = await self._update_name(info)
             if update_avatar:
-                changed = await self._update_photo(source, info.profile_pic_large) or changed
+                changed = (
+                    await self._update_photo(
+                        source,
+                        info.profile_pic_large,
+                        allow_graph=info.typename != ParticipantType.INSTAGRAM,
+                    )
+                    or changed
+                )
             if changed:
                 await self.save()
         except Exception:
@@ -219,7 +226,9 @@ class Puppet(DBPuppet, BasePuppet):
             data, mime_type=mime, async_upload=cls.config["homeserver.async_media"]
         )
 
-    async def _update_photo(self, source: u.User, photo: Picture) -> bool:
+    async def _update_photo(
+        self, source: u.User, photo: Picture, allow_graph: bool = True
+    ) -> bool:
         photo_id = p.Portal.get_photo_id(photo)
         if photo_id != self.photo_id or not self.avatar_set:
             self.photo_id = photo_id
@@ -229,7 +238,7 @@ class Puppet(DBPuppet, BasePuppet):
                     self.default_mxid_intent,
                     photo.uri,
                     self.fbid,
-                    use_graph=(photo.height or 0) < 500,
+                    use_graph=allow_graph and (photo.height or 0) < 500,
                 )
             else:
                 self.photo_mxc = ContentURI("")
