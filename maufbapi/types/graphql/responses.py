@@ -361,6 +361,25 @@ class ActionLink(SerializableAttrs):
 
 
 @dataclass
+class ClickThroughAction(SerializableAttrs):
+    # attachment_fbid: str
+    # message_id: str
+    # thread_key: str
+    # title: str
+    type: Optional[str] = None  # xma_open_native
+    action_url: Optional[str] = None
+    native_url: Optional[str] = None
+    # target_id: str
+
+
+@dataclass
+class XMATemplateExtra(SerializableAttrs):
+    # preview_image_decoration_type: str
+    # max_title_lines: int
+    default_cta: Optional[ClickThroughAction] = None
+
+
+@dataclass
 class StoryAttachment(SerializableAttrs):
     title: str
     url: Optional[str] = None
@@ -374,6 +393,9 @@ class StoryAttachment(SerializableAttrs):
     deduplication_key: Optional[str] = None
     media: Optional[StoryMediaAttachment] = None
     action_links: List[ActionLink] = None
+    xma_tpl_extra: Optional[XMATemplateExtra] = field(
+        default=None, json="messenger_generic_xma_template_extra_info"
+    )
 
     @property
     def clean_url(self) -> URL:
@@ -383,6 +405,17 @@ class StoryAttachment(SerializableAttrs):
         elif url.scheme == "fbrpc" and url.host == "facebook" and url.path == "/nativethirdparty":
             url = URL(url.query["target_url"])
         return url
+
+    @property
+    def xma_tpl_url(self) -> Optional[URL]:
+        if not self.xma_tpl_extra or not self.xma_tpl_extra.default_cta:
+            return None
+        url = (
+            self.xma_tpl_extra.default_cta.native_url or self.xma_tpl_extra.default_cta.action_url
+        )
+        if not url:
+            return None
+        return URL(url).with_query(None)
 
     @property
     def is_likely_bridgeable(self) -> bool:

@@ -1825,6 +1825,8 @@ class Portal(DBPortal, BasePortal):
             return content
         elif sa.url or sa.title or (sa.description and sa.description.text) or sa.action_links:
             url = str(sa.clean_url) if sa.url else None
+            if not url:
+                url = str(sa.xma_tpl_url)
             if message_text and ((url and url in message_text) or sa.title in message_text):
                 # URL is present in message, don't repost
                 return None
