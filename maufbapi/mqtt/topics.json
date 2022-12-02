@@ -208,5 +208,6 @@
     "/launch_media_on_portal": 270,
     "/t_trace": 273,
     "/t_rtc_log": 274,
-    "/t_disable_rtc_multi_topic_auto_subscription": 275
+    "/t_disable_rtc_multi_topic_auto_subscription": 275,
+    "/ig_large_scale_fire_and_forget_sync": 279
 }
