@@ -56,7 +56,7 @@ class AndroidDevice(SerializableAttrs):
     software: str = "12"
     architecture: str = "arm64-v8a:null"
     dimensions: str = "{density=2.75,width=1080,height=2028}"
-    user_agent: str = "Dalvik/2.1.0 (Linux; U; Android 12; Pixel 3 SP1A.210812.016.C2)"
+    user_agent: str = "Dalvik/2.1.0 (Linux; U; Android 12; Pixel 3 Build/SP1A.210812.016.C2)"
 
     connection_type: str = "WIFI"
     connection_quality: str = "EXCELLENT"
