@@ -117,6 +117,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                     f"{rate_limit_exceeded_backoff} seconds before resuming."
                 )
                 await asyncio.sleep(rate_limit_exceeded_backoff)
+                continue
             except ResponseError as e:
                 self.log.warning(
                     f"Failed to fetch batch of {page_size} after {timestamp - 1}. Error: {e}"
