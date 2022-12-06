@@ -30,7 +30,8 @@ class GraphQLQuery(ABC, Serializable):
     caller_class: ClassVar[str] = "graphservice"
     analytics_tags: ClassVar[List[str]] = ["GraphServices"]
     include_client_country_code: ClassVar[bool] = False
-    doc_id: ClassVar[int]
+    client_doc_id: ClassVar[int] = None
+    doc_id: ClassVar[Optional[int]] = None
 
 
 class GraphQLMutation(GraphQLQuery, ABC):
@@ -39,18 +40,19 @@ class GraphQLMutation(GraphQLQuery, ABC):
 
 @dataclass
 class NTContext(SerializableAttrs):
-    styles_id: str = "632609037bc0e06f1115e7af19c2feae"
+    styles_id: str = "f0533d91def8d61a3313ed598b05d1c6"
     using_white_navbar: bool = True
     pixel_ratio: int = 3
-    bloks_version: str = "b1ddbd8ab663f5139265edaa2524450988475f61c5fcd3b06eb7fa9fb1033586"
+    bloks_version: str = "fc56cdee608566949092d23ea9734b8278cc3cf04203956a29db3898eca10b9e"
+    is_push_on: bool = True
 
 
 @dataclass
 class ThreadQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 5123202644403703
+    client_doc_id: ClassVar[int] = 261428482816184255718129058618
 
     thread_ids: List[str]
-    msg_count: int = 20
+    msg_count: int = 20  # 100
 
     blur: int = 0
 
@@ -69,11 +71,12 @@ class ThreadQuery(GraphQLQuery, SerializableAttrs):
     small_preview_height: int = 358
     profile_pic_large_size: int = 880
     profile_pic_small_size: int = 138
+    scale: str = "3"
 
 
 @dataclass
 class ThreadListQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4669664453079908
+    client_doc_id: ClassVar[int] = 42489038484109023297878016725
 
     msg_count: int = 20
     thread_count: int = 20
@@ -95,11 +98,12 @@ class ThreadListQuery(GraphQLQuery, SerializableAttrs):
     profile_pic_small_size: int = 138
     theme_background_size: int = 2048
     theme_icon_size_large: int = 138
+    scale: str = "3"
 
 
 @dataclass
 class MoreThreadsQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 5459366437411218
+    client_doc_id: ClassVar[int] = 101371284010298159468949651434
 
     after_time_ms: str
 
@@ -113,13 +117,14 @@ class MoreThreadsQuery(GraphQLQuery, SerializableAttrs):
     profile_pic_medium_size: int = 220
     profile_pic_large_size: int = 880
     profile_pic_small_size: int = 138
+    scale: str = "3"
 
     nt_context: NTContext = attr.ib(factory=lambda: NTContext())
 
 
 @dataclass
 class MoreMessagesQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 5045216125512296
+    client_doc_id: ClassVar[int] = 26340105474757789559325557719
 
     before_time_ms: str
     thread_id: str
@@ -136,6 +141,7 @@ class MoreMessagesQuery(GraphQLQuery, SerializableAttrs):
     medium_preview_height: int = 481
     small_preview_width: int = 716
     small_preview_height: int = 358
+    scale: str = "3"
 
 
 class ThreadNameMutationSource(SerializableEnum):
@@ -144,7 +150,7 @@ class ThreadNameMutationSource(SerializableEnum):
 
 @dataclass
 class ThreadNameMutation(GraphQLMutation, SerializableAttrs):
-    doc_id: ClassVar[int] = 4678460715515343
+    client_doc_id: ClassVar[int] = 245687281615266693919061310962
 
     new_thread_name: str
     thread_id: str
@@ -155,7 +161,7 @@ class ThreadNameMutation(GraphQLMutation, SerializableAttrs):
 
 @dataclass
 class FetchStickersWithPreviewsQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4028336233932975
+    client_doc_id: ClassVar[int] = 401999615114001344821502923121
     caller_class: ClassVar[str] = "NewMessageHandlerHelper"
     include_client_country_code: ClassVar[bool] = True
 
@@ -170,7 +176,7 @@ class FetchStickersWithPreviewsQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class MessageUndoSend(GraphQLMutation, SerializableAttrs):
-    doc_id: ClassVar[int] = 1015037405287590
+    client_doc_id: ClassVar[int] = 651600610198736392087694690
     analytics_tags: ClassVar[List[str]] = _analytics_tags_2
 
     message_id: str
@@ -185,7 +191,7 @@ class ReactionAction(SerializableEnum):
 
 @dataclass
 class MessageReactionMutation(GraphQLMutation, SerializableAttrs):
-    doc_id: ClassVar[int] = 4581961245172668
+    client_doc_id: ClassVar[int] = 3059927964988005121571400082
     analytics_tags: ClassVar[List[str]] = _analytics_tags_2
 
     message_id: str
@@ -197,7 +203,7 @@ class MessageReactionMutation(GraphQLMutation, SerializableAttrs):
 
 @dataclass
 class DownloadImageFragment(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 3063616537053520
+    client_doc_id: ClassVar[int] = 2226154139486245861670820706
 
     fbid: str
     img_size: str = "0"
@@ -205,7 +211,7 @@ class DownloadImageFragment(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 2015407048575350
+    client_doc_id: ClassVar[int] = 2985653443947768641342601552
 
     fbid: str
     thread_id: str
@@ -213,7 +219,7 @@ class FbIdToCursorQuery(GraphQLQuery, SerializableAttrs):
 
 @dataclass
 class SubsequentMediaQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4376490155778570
+    client_doc_id: ClassVar[int] = 42018352655156159811465888541
 
     thread_id: str
     cursor_id: Optional[str] = None
@@ -231,14 +237,14 @@ class ThreadMessageID(SerializableAttrs):
 
 @dataclass
 class FileAttachmentUrlQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 3200288700012393
+    client_doc_id: ClassVar[int] = 172089622313141855796265222507
 
     thread_msg_id: ThreadMessageID
 
 
 @dataclass
 class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 4883329948399448
+    client_doc_id: ClassVar[int] = 412264286114708880472128431895
 
     search_query: str
     session_id: Optional[str] = None
@@ -262,18 +268,8 @@ class SearchEntitiesNamedQuery(GraphQLQuery, SerializableAttrs):
 
 
 @dataclass
-class UpdateThreadCopresence(GraphQLMutation, SerializableAttrs):
-    doc_id: ClassVar[int] = 3020568468070941
-    analytics_tags: ClassVar[List[str]] = _analytics_tags_2
-
-    thread_key: str
-    presence_state: str = "IN_THREAD"
-    capabilities: int = 1
-
-
-@dataclass
 class UsersQuery(GraphQLQuery, SerializableAttrs):
-    doc_id: ClassVar[int] = 5268862716509612
+    client_doc_id: ClassVar[int] = 12889174649061980331350648993
 
     user_fbids: List[str]
 

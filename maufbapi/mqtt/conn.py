@@ -183,10 +183,10 @@ class AndroidMQTT:
 
     def _form_client_id(self, force_password: bool = False) -> bytes:
         subscribe_topics = [
-            "/t_assist_rp",
+            "/t_p",
             "/t_rtc",
-            "/webrtc_response",
             "/t_rtc_log",
+            "/webrtc_response",
             RealtimeTopic.MESSAGE_SYNC,
             "/pp",
             "/webrtc",
@@ -202,8 +202,9 @@ class AndroidMQTT:
             "/t_trace",
             RealtimeTopic.TYPING_NOTIFICATION,
             "/sr_res",
-            "/ls_resp",
+            "/t_sp",
             "/t_rtc_multi",
+            "/ls_resp",
             # RealtimeTopic.SEND_MESSAGE_RESP,
             # RealtimeTopic.MARK_THREAD_READ_RESPONSE,
         ]
@@ -220,7 +221,7 @@ class AndroidMQTT:
             client_info=RealtimeClientInfo(
                 user_id=self.state.session.uid,
                 user_agent=self.state.user_agent_meta,
-                client_capabilities=0b1100001110110111,
+                client_capabilities=0b110110111,
                 endpoint_capabilities=0b1011010,
                 publish_format=2,
                 no_automatic_foreground=True,
@@ -235,7 +236,7 @@ class AndroidMQTT:
                 app_id=int(self.state.application.client_id),
                 region_preference=self.state.session.region_hint,
                 device_secret="",
-                client_stack=4,
+                client_stack=3,
                 network_type_info=7 if self.state.device.connection_type == "WIFI" else 4,
             ),
             password=self.state.session.access_token,
@@ -299,7 +300,7 @@ class AndroidMQTT:
     @property
     def _sync_queue_params(self) -> dict[str, Any]:
         return {
-            "client_delta_sync_bitmask": "CAvV/nxib6vRgAV/ss2A",
+            "client_delta_sync_bitmask": "1AgP1f58Ym+r0YAFf7LNgA",
             "graphql_query_hashes": {"xma_query_id": "0"},
             "graphql_query_params": {
                 "0": {
@@ -316,7 +317,7 @@ class AndroidMQTT:
                         "pixel_ratio": 3,
                     },
                     "use_oss_id": True,
-                    "client_doc_id": "222672581515007895135860332111",
+                    "client_doc_id": "22267258153674992339648494933",
                 }
             },
         }

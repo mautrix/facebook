@@ -70,6 +70,7 @@ class SendMessageRequest(ThriftObject):
     # sound_bite_id: int = field(TType.I64)
     # forward_score: int = field(TType.I32)
     # is_forwarded: bool
+    # unknown_i32: int = field(TType.I32)
 
 
 @autospec

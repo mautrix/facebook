@@ -32,12 +32,13 @@ from .errors import TwoFactorRequired
 class LoginAPI(BaseAndroidAPI):
     async def pwd_key_fetch(self) -> PasswordKeyResponse:
         req = {
+            "device_id": self.state.device.uuid,
             "version": "2",
             "flow": "CONTROLLER_INITIALIZATION",
             **self._params,
             "method": "GET",
             "fb_api_req_friendly_name": "pwdKeyFetch",
-            "fb_api_caller_class": "com.facebook.auth.login.AuthOperations",
+            "fb_api_caller_class": "AuthOperations",
             "access_token": self.state.application.access_token,
         }
         req_data = self.format(req, sign=False)
@@ -52,8 +53,8 @@ class LoginAPI(BaseAndroidAPI):
 
     async def mobile_config_sessionless(self) -> MobileConfig:
         req = {
-            "query_hash": "4d43269ae03c31739a1e8542bc0d1da3c0acb1a85de6903ee9f669e2bc4b7af7",
-            "one_query_hash": "835e01d247719369d2affa524786437bd4ad9443e351d95eb95d23d4aed357c7",
+            "query_hash": "0a97d448717ed4434c5f3c152f7f94893cfa691f2f9a5c40d8783ea30da6bbe9",
+            "one_query_hash": "52b26867babb064b6b8ff8147bc59f98351c38418b8a500b79c9448f73770bc3",
             "bool_opt_policy": "3",
             "device_id": self.state.device.uuid,
             "api_version": "8",
@@ -63,7 +64,11 @@ class LoginAPI(BaseAndroidAPI):
             **self._params,
         }
         req_data = self.format(req, sign=False)
-        headers = {**self._headers}
+        headers = {
+            **self._headers,
+            "x-fb-friendly-name": "mobile_config_request:mobileconfigsessionless",
+            "x-fb-request-analytics-tags": "FBMobileConfigTigonFetcher",
+        }
         headers.pop("x-fb-rmd", None)
         resp = await self.http.post(
             self.b_graph_url / "mobileconfigsessionless", headers=headers, data=req_data
@@ -119,7 +124,7 @@ class LoginAPI(BaseAndroidAPI):
             **self._params,
             "method": "GET",
             "fb_api_req_friendly_name": "checkApprovedMachine",
-            "fb_api_caller_class": "com.facebook.account.twofac.protocol.TwoFacServiceHandler",
+            "fb_api_caller_class": "TwoFacServiceHandler",
             "access_token": self.state.application.access_token,
         }
         headers = {
@@ -145,6 +150,7 @@ class LoginAPI(BaseAndroidAPI):
             "device_id": self.state.device.uuid,
             "fb_api_caller_class": "AuthOperations$PasswordAuthOperation",
             "fb_api_req_friendly_name": "authenticate",
+            "enroll_misauth": "false",
             "format": "json",
             "generate_analytics_claim": "1",
             "generate_machine_id": "1",

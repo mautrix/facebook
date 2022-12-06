@@ -219,6 +219,7 @@ class BaseAndroidAPI:
             **self._params,
             "variables": json.dumps(variables),
             "method": "post",
+            "client_doc_id": req.client_doc_id,
             "doc_id": req.doc_id,
             "format": "json",
             "pretty": "false",
@@ -230,6 +231,10 @@ class BaseAndroidAPI:
             "fb_api_analytics_tags": json.dumps(req.analytics_tags),
             "server_timestamps": "true",
         }
+        if params["doc_id"]:
+            del params["client_doc_id"]
+        else:
+            del params["doc_id"]
         if not req.include_client_country_code:
             params.pop("client_country_code")
         resp = await self.http.post(

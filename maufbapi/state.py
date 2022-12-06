@@ -27,11 +27,11 @@ from mautrix.types import SerializableAttrs
 @dataclass
 class AndroidApplication(SerializableAttrs):
     name: str = "Orca-Android"
-    version: str = "346.0.0.7.117"
+    version: str = "388.0.0.23.106"
     id: str = "com.facebook.orca"
     locale: str = "en_US"
-    build: int = 348143456
-    version_id: int = 4663247527104165
+    build: int = 423808514
+    version_id: int = 5840539252670510
 
     client_id = "256002347743983"
     client_secret = "374e60f8b9bb6b8cbb30f78030438895"
@@ -53,10 +53,10 @@ class AndroidDevice(SerializableAttrs):
     manufacturer: str = "Google"
     builder: str = "google"
     name: str = "Pixel 3"
-    software: str = "11"
+    software: str = "12"
     architecture: str = "arm64-v8a:null"
     dimensions: str = "{density=2.75,width=1080,height=2028}"
-    user_agent: str = "Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ3A.211001.001)"
+    user_agent: str = "Dalvik/2.1.0 (Linux; U; Android 12; Pixel 3 SP1A.210812.016.C2)"
 
     connection_type: str = "WIFI"
     connection_quality: str = "EXCELLENT"
@@ -149,6 +149,10 @@ class AndroidState(SerializableAttrs):
             "FBSV": self.device.software,
             "FBCA": self.device.architecture,
             "FBDM": self.device.dimensions,
+            # MQTT only?
+            "FBBK": "1",
+            "FBLR": "0",
+            # HTTP only?
             "FB_FW": "1",
         }
 
