@@ -207,6 +207,27 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             response_type=MessageUnsendResponse,
         )
 
+    async def delete_for_me(self, message_id: str) -> None:
+        headers = {
+            **self._headers,
+            "x-fb-friendly-name": "deleteMessages",
+            "x-fb-request-analytics-tags": "unknown",
+        }
+        params = {
+            **self._params,
+            "ids": f"m_{message_id}",
+            "format": "json",
+            "method": "DELETE",
+            "fb_api_req_friendly_name": "deleteMessages",
+            "fb_api_caller_class": "MultiCacheThreadsQueue",
+        }
+        resp = await self.http.post(
+            url=self.graph_url,
+            data=params,
+            headers=headers,
+        )
+        self.log.debug("Response to delete for me: HTTP %d / %s", resp.status, await resp.text())
+
     async def react(self, message_id: str, reaction: str | None) -> None:
         action = ReactionAction.ADD if reaction else ReactionAction.REMOVE
         await self.graphql(
