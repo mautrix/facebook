@@ -707,7 +707,7 @@ class User(DBUser, BaseUser):
                 self.log.debug("Thread sync is happening too quickly. Waiting for %ds", delay)
                 await asyncio.sleep(delay)
 
-            last_thread_sync_ts = now
+            last_thread_sync_ts = time.monotonic()
             had_new_messages = await self._sync_thread(thread)
             if not had_new_messages and stop_when_threads_have_no_messages_to_backfill:
                 self.log.debug("Got to threads with no new messages. Stopping sync.")
