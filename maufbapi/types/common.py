@@ -31,3 +31,4 @@ class ThreadFolder(SerializableEnum):
     PENDING = "PENDING"
     ARCHIVED = "ARCHIVED"
     OTHER = "OTHER"
+    COMMUNITY = "COMMUNITY"

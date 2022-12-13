@@ -39,6 +39,7 @@ class RealtimeTopic(Enum):
     TYPING_NOTIFICATION = "/t_tn"
     SET_TYPING = "/t_st"
     ORCA_PRESENCE = "/orca_presence"
+    PRESENCE = "/t_p"
 
     @property
     def encoded(self) -> str:

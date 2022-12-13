@@ -183,7 +183,7 @@ class AndroidMQTT:
 
     def _form_client_id(self, force_password: bool = False) -> bytes:
         subscribe_topics = [
-            "/t_p",
+            RealtimeTopic.PRESENCE,
             "/t_rtc",
             "/t_rtc_log",
             "/webrtc_response",
@@ -457,6 +457,9 @@ class AndroidMQTT:
                 self._on_typing_notification(message.payload)
             elif topic == RealtimeTopic.ORCA_PRESENCE:
                 self._on_presence(message.payload)
+            elif topic == RealtimeTopic.PRESENCE:
+                # TODO remove orca_presence support and use this instead
+                self.log.trace("Got presence payload: %s", message.payload)
             elif topic == RealtimeTopic.REGION_HINT:
                 self._on_region_hint(message.payload)
             else:
