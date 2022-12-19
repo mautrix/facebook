@@ -749,7 +749,11 @@ class Portal(DBPortal, BasePortal):
     async def backfill(self, source: u.User, backfill_request: Backfill) -> None:
         try:
             last_message_timestamp = await self._backfill(source, backfill_request)
-            if last_message_timestamp is not None:
+            if (
+                last_message_timestamp is not None
+                and not self.bridge.homeserver_software.is_hungry
+                and self.config["bridge.backfill.msc2716"]
+            ):
                 await self.send_post_backfill_dummy(last_message_timestamp)
         finally:
             # Always sleep after the backfill request is finished processing, even if it errors.
@@ -987,8 +991,10 @@ class Portal(DBPortal, BasePortal):
             # bridgeable, we want to skip further back in history to find some that are bridgable.
             return 0, oldest_msg_timestamp, None
 
-        if not self.bridge.homeserver_software.is_hungry and (
-            forward or self.next_batch_id is None
+        if (
+            not self.bridge.homeserver_software.is_hungry
+            and self.config["bridge.backfill.msc2716"]
+            and (forward or self.next_batch_id is None)
         ):
             self.log.debug("Sending dummy event to avoid forward extremity errors")
             await self.az.intent.send_message_event(

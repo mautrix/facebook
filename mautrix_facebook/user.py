@@ -547,6 +547,9 @@ class User(DBUser, BaseUser):
             self._thread_sync_task = asyncio.create_task(self.backfill_threads())
 
     async def _handle_backfill_requests_loop(self) -> None:
+        if not self.config["bridge.backfill.enable"] or not self.config["bridge.backfill.msc2716"]:
+            return
+
         while True:
             await self._sync_lock.wait("backfill request")
             req = await Backfill.get_next(self.mxid)
@@ -832,7 +835,10 @@ class User(DBUser, BaseUser):
                 last_message=last_message,
                 mark_read=mark_read,
             )
-            if not self.bridge.homeserver_software.is_hungry:
+            if (
+                not self.bridge.homeserver_software.is_hungry
+                and self.config["bridge.backfill.msc2716"]
+            ):
                 await portal.send_post_backfill_dummy(
                     last_message_timestamp, base_insertion_event_id=base_insertion_event_id
                 )
