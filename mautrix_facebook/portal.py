@@ -1022,7 +1022,7 @@ class Portal(DBPortal, BasePortal):
                 await intent.send_message_event(
                     self.mxid, evt.type, evt.content, timestamp=evt.timestamp
                 )
-                for evt, intent in zip(reversed(batch_messages), reversed(intents))
+                for evt, intent in zip(batch_messages, intents)
             ]
         await self._finish_batch(event_ids, message_infos)
         if not forward:
