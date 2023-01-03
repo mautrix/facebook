@@ -1276,6 +1276,10 @@ class Portal(DBPortal, BasePortal):
     ) -> None:
         converted = await matrix_to_facebook(message, self.mxid, self.log)
         dbm = await self._make_dbm(sender, event_id)
+
+        if message.msgtype == MessageType.NOTICE and not self.config["bridge.bridge_notices"]:
+            return
+
         resp = await sender.mqtt.send_message(
             self.fbid,
             self.fb_type != ThreadType.USER,

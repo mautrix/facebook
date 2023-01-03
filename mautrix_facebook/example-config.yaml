@@ -257,6 +257,8 @@ bridge:
     temporary_disconnect_notices: false
     # Disable bridge notices entirely
     disable_bridge_notices: false
+    # Should Matrix m.notice-type messages be bridged?
+    bridge_notices: true
     on_reconnection_fail:
         # What to do if a reconnection attempt fails? Options: reconnect, refresh, null
         action: reconnect
