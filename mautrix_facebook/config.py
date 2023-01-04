@@ -111,7 +111,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.max_startup_thread_sync_count")
         copy("bridge.temporary_disconnect_notices")
         copy("bridge.disable_bridge_notices")
-        copy("bridge.bridge_notices")
+        copy("bridge.bridge_matrix_notices")
         if "bridge.refresh_on_reconnection_fail" in self:
             base["bridge.on_reconnection_fail.action"] = (
                 "refresh" if self["bridge.refresh_on_reconnection_fail"] else None
