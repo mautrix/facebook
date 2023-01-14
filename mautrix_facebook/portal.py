@@ -1206,7 +1206,6 @@ class Portal(DBPortal, BasePortal):
                 status.reason = MessageStatusReason.UNSUPPORTED
         else:
             status.status = MessageStatus.SUCCESS
-        status.fill_legacy_booleans()
 
         await intent.send_message_event(
             room_id=self.mxid,
@@ -2245,13 +2244,6 @@ class Portal(DBPortal, BasePortal):
         self.log.debug(
             f"Handled Messenger read receipt from {sender.fbid} up to {timestamp}/{msg.mxid}"
         )
-
-    async def handle_facebook_typing(self, source: u.User, sender: p.Puppet) -> None:
-        if not await self._bridge_own_message_pm(
-            source, sender, "typing notification", invite=False
-        ):
-            return
-        await sender.intent.set_typing(self.mxid, is_typing=True)
 
     async def handle_facebook_photo(
         self,

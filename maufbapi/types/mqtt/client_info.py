@@ -42,7 +42,7 @@ class RealtimeClientInfo(ThriftObject):
     app_id: int = field(TType.I64)
     override_nectar_logging: bool = None
     connect_token_hash: bytes = None
-    region_preference: str
+    region_preference: str = None
     device_secret: str
     client_stack: int = field(TType.BYTE)
     fbns_connection_key: int = field(TType.I64, default=None)

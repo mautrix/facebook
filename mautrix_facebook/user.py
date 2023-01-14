@@ -1255,9 +1255,7 @@ class User(DBUser, BaseUser):
         portal = await po.Portal.get_by_fbid(evt.user_id, fb_receiver=self.fbid, create=False)
         if portal and portal.mxid:
             puppet = await pu.Puppet.get_by_fbid(evt.user_id)
-            await puppet.intent.set_typing(
-                portal.mxid, is_typing=bool(evt.typing_status), timeout=10000
-            )
+            await puppet.intent.set_typing(portal.mxid, timeout=10000 if evt.typing_status else 0)
 
     @async_time(METRIC_MEMBERS_ADDED)
     async def on_members_added(self, evt: mqtt_t.AddMember) -> None:
