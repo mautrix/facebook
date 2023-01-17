@@ -1274,14 +1274,13 @@ class Portal(DBPortal, BasePortal):
     async def _handle_matrix_text(
         self, event_id: EventID, sender: u.User, message: TextMessageEventContent
     ) -> None:
-        converted = await matrix_to_facebook(message, self.mxid, self.log)
-        dbm = await self._make_dbm(sender, event_id)
-
         if (
             message.msgtype == MessageType.NOTICE
             and not self.config["bridge.bridge_matrix_notices"]
         ):
             return
+        converted = await matrix_to_facebook(message, self.mxid, self.log)
+        dbm = await self._make_dbm(sender, event_id)
 
         resp = await sender.mqtt.send_message(
             self.fbid,
