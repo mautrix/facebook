@@ -46,14 +46,18 @@ class PublicBridgeWebsite:
     ready_wait: asyncio.Future | None
 
     def __init__(
-        self, shared_secret: str, segment_key: str | None, loop: asyncio.AbstractEventLoop
+        self,
+        shared_secret: str,
+        segment_key: str | None,
+        segment_user_id: str | None,
+        loop: asyncio.AbstractEventLoop,
     ) -> None:
         self.app = web.Application()
         self.ready_wait = loop.create_future()
         self.secret_key = "".join(random.choices(string.ascii_lowercase + string.digits, k=64))
         self.shared_secret = shared_secret
         if segment_key:
-            init_segment(segment_key)
+            init_segment(segment_key, segment_user_id)
         for path in (
             "whoami",
             "login",

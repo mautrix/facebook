@@ -54,6 +54,7 @@ class Config(BaseBridgeConfig):
             copy("appservice.public.shared_secret")
         copy("appservice.public.allow_matrix_login")
         copy("appservice.public.segment_key")
+        copy("appservice.public.segment_user_id")
 
         copy("metrics.enabled")
         copy("metrics.listen_port")

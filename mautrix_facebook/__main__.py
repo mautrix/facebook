@@ -63,10 +63,12 @@ class MessengerBridge(Bridge):
         if self.config["appservice.public.enabled"]:
             secret = self.config["appservice.public.shared_secret"]
             segment_key = self.config["appservice.public.segment_key"]
+            segment_user_id = self.config["appservice.public.segment_user_id"]
             self.public_website = PublicBridgeWebsite(
                 loop=self.loop,
                 shared_secret=secret,
                 segment_key=segment_key,
+                segment_user_id=segment_user_id,
             )
             self.az.app.add_subapp(
                 self.config["appservice.public.prefix"], self.public_website.app
