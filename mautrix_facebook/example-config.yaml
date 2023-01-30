@@ -67,6 +67,8 @@ appservice:
         # Segment API key to enable analytics tracking for web server endpoints. Set to null to disable.
         # Currently the only events are login start, success and fail.
         segment_key: null
+        # Optional user_id to use when sending Segment events. If null, defaults to using mxID.
+        segment_user_id: null
 
     # The unique ID of this appservice.
     id: facebook
