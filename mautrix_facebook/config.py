@@ -142,6 +142,8 @@ class Config(BaseBridgeConfig):
             if isinstance(value, list) and len(value) != 2:
                 raise ValueError(f"{key} must only be a list of two items")
 
+        copy("bridge.convert_animated_webp_attachments")
+
         copy("facebook.device_seed")
         if base["facebook.device_seed"] == "generate":
             base["facebook.device_seed"] = self._new_token()

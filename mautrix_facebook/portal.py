@@ -340,6 +340,7 @@ class Portal(DBPortal, BasePortal):
         referer: str = "messenger_thread_photo",
         find_size: bool = False,
         convert_audio: bool = False,
+        convert_animated_webp_to_gif: bool = False,
     ) -> tuple[ContentURI, FileInfo | VideoInfo | AudioInfo | ImageInfo, EncryptedFile | None]:
         if not url:
             raise ValueError("URL not provided")
@@ -357,6 +358,22 @@ class Portal(DBPortal, BasePortal):
                 data, ".ogg", output_args=("-c:a", "libopus"), input_mime=mime
             )
             mime = "audio/ogg"
+        if convert_animated_webp_to_gif and mime == "image/webp":
+            with Image.open(BytesIO(data)) as img:
+                with BytesIO() as data_bytes:
+                    loop = img.info.get("loop", 0)
+                    duration = img.info.get("duration", 70)
+                    img.save(
+                        data_bytes,
+                        "gif",
+                        save_all=True,
+                        duration=duration,
+                        loop=loop,
+                        background=0,
+                    )
+                    data = data_bytes.getvalue()
+                    mime = "image/gif"
+
         info = FileInfo(mimetype=mime, size=len(data))
         if Image and mime.startswith("image/") and find_size:
             with Image.open(BytesIO(data)) as img:
@@ -1930,6 +1947,7 @@ class Portal(DBPortal, BasePortal):
             return TextMessageEventContent(
                 msgtype=MessageType.NOTICE, body="Unsupported attachment"
             )
+        convert_animated_webp_to_gif = self.config["bridge.convert_animated_webp_attachments"]
         mxc, additional_info, decryption_info = await self._reupload_fb_file(
             url,
             source,
@@ -1939,9 +1957,10 @@ class Portal(DBPortal, BasePortal):
             find_size=False,
             referer=referer,
             convert_audio=voice_message,
+            convert_animated_webp_to_gif=convert_animated_webp_to_gif,
         )
         info.size = additional_info.size
-        info.mimetype = attachment.mime_type or additional_info.mimetype
+        info.mimetype = additional_info.mimetype or attachment.mime_type
         content = MediaMessageEventContent(
             url=mxc, file=decryption_info, msgtype=msgtype, body=filename, info=info
         )
