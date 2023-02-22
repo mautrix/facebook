@@ -1301,7 +1301,11 @@ class User(DBUser, BaseUser):
 
     async def on_message_sync_error(self, evt: mqtt_t.MessageSyncError) -> None:
         self.stop_listen()
-        if evt == mqtt_t.MessageSyncError.QUEUE_NOT_FOUND:
+        if evt == mqtt_t.MessageSyncError.ERROR_QUEUE_TEMPORARY_NOT_AVAILABLE:
+            self.log.debug("Reconnecting in 30s after ERROR_QUEUE_TEMPORARY_NOT_AVAILABLE error")
+            await asyncio.sleep(30)
+            self.start_listen()
+        elif evt == mqtt_t.MessageSyncError.QUEUE_NOT_FOUND:
             self.log.debug("Resetting connect_token_hash due to QUEUE_NOT_FOUND error")
             self.connect_token_hash = None
             self.start_listen()
