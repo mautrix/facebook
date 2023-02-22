@@ -368,7 +368,9 @@ class User(DBUser, BaseUser):
                 )
                 await asyncio.sleep(wait)
                 if refresh_proxy_on_failure:
-                    self.proxy_handler.update_proxy_url()
+                    self.proxy_handler.update_proxy_url(
+                        f"{e.__class__.__name__} while trying to {action}"
+                    )
                     await self.on_proxy_update()
             except ResponseError:
                 if action != "restore session":
