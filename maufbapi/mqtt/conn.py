@@ -552,7 +552,7 @@ class AndroidMQTT:
                 elif rc == pmc.MQTT_ERR_NO_CONN:
                     if connection_retries > retry_limit:
                         raise MQTTNotConnected(f"Connection failed {connection_retries} times")
-                    if self.proxy_handler.update_proxy_url():
+                    if self.proxy_handler.update_proxy_url("MQTT_ERR_NO_CONN"):
                         self.setup_proxy()
                         await self._dispatch(ProxyUpdate())
                     sleep = connection_retries * 2
