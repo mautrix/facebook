@@ -354,7 +354,7 @@ class AndroidMQTT:
 
     async def _post_connect(self) -> None:
         self._opened_thread = None
-        self.log.debug("Re-creating sync queue after reconnect")
+        self.log.debug(f"Re-creating sync queue after reconnect (seq_id={self.seq_id})")
         await self._dispatch(Connect())
         await self.publish(
             "/ls_req",

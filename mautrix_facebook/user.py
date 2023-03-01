@@ -639,6 +639,7 @@ class User(DBUser, BaseUser):
         self.seq_id = int(resp.sync_sequence_id)
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
+        self.log.debug(f"Got new seq_id {self.seq_id}")
         await self.save_seq_id()
         self.start_listen()
 
