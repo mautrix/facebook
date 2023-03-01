@@ -637,6 +637,17 @@ class User(DBUser, BaseUser):
         # We need to get the sequence ID before we start the listener task.
         resp = await self.client.fetch_thread_list()
         self.seq_id = int(resp.sync_sequence_id)
+        thread_seq_ids = list(
+            {int(thread.sync_sequence_id) for thread in resp.nodes if thread.sync_sequence_id}
+        )
+        if len(thread_seq_ids) > 1 or (
+            len(thread_seq_ids) == 1 and thread_seq_ids[0] != self.seq_id
+        ):
+            self.seq_id = max(*thread_seq_ids, self.seq_id)
+            self.log.warning(
+                f"Got more than one sequence ID in thread list: primary={resp.sync_sequence_id}, "
+                f"threads={thread_seq_ids}. Using highest value ({self.seq_id})"
+            )
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
         self.log.debug(f"Got new seq_id {self.seq_id}")

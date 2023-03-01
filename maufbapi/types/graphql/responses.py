@@ -590,6 +590,8 @@ class Thread(SerializableAttrs):
     can_viewer_reply: bool
     can_participants_claim_admin: bool
 
+    sync_sequence_id: Optional[str] = None
+
     @property
     def updated_timestamp(self) -> int:
         return int(self.updated_time_precise)
