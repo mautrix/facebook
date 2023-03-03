@@ -31,8 +31,8 @@ import paho.mqtt.client as pmc
 
 from mautrix.util import background_task
 from mautrix.util.logging import TraceLogger
+from mautrix.util.proxy import ProxyHandler
 
-from ..proxy import ProxyHandler
 from ..state import AndroidState
 from ..thrift import ThriftObject
 from ..types import (

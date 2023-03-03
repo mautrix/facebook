@@ -34,8 +34,8 @@ import zstandard as zstd
 
 from mautrix.types import JSON
 from mautrix.util.logging import TraceLogger
+from mautrix.util.proxy import ProxyHandler
 
-from ..proxy import ProxyHandler
 from ..state import AndroidState
 from ..types import GraphQLMutation, GraphQLQuery
 from .errors import GraphQLError, ResponseError, ResponseTypeError, error_class_map, error_code_map
