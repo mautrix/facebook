@@ -29,6 +29,7 @@ import zlib
 from yarl import URL
 import paho.mqtt.client as pmc
 
+from mautrix.util import background_task
 from mautrix.util.logging import TraceLogger
 
 from ..proxy import ProxyHandler
@@ -36,7 +37,6 @@ from ..state import AndroidState
 from ..thrift import ThriftObject
 from ..types import (
     MarkReadRequest,
-    MessageSyncError,
     MessageSyncPayload,
     NTContext,
     PHPOverride,
@@ -282,7 +282,7 @@ class AndroidMQTT:
                     self.connection_unauthorized_callback()
             return
 
-        asyncio.create_task(self._post_connect())
+        background_task.create(self._post_connect())
 
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
         err_str = "Generic error." if rc == pmc.MQTT_ERR_NOMEM else pmc.error_string(rc)
@@ -354,7 +354,7 @@ class AndroidMQTT:
 
     async def _post_connect(self) -> None:
         self._opened_thread = None
-        self.log.debug("Re-creating sync queue after reconnect")
+        self.log.debug(f"Re-creating sync queue after reconnect (seq_id={self.seq_id})")
         await self._dispatch(Connect())
         await self.publish(
             "/ls_req",
@@ -399,7 +399,7 @@ class AndroidMQTT:
             return
         self._update_seq_id(parsed)
         if parsed.error:
-            asyncio.create_task(self._dispatch(parsed.error))
+            background_task.create(self._dispatch(parsed.error))
         for item in parsed.items:
             for event in item.get_parts():
                 self._outgoing_events.put_nowait(event)
@@ -412,12 +412,12 @@ class AndroidMQTT:
         except Exception:
             self.log.debug("Failed to parse typing notification %s", payload, exc_info=True)
             return
-        asyncio.create_task(self._dispatch(parsed))
+        background_task.create(self._dispatch(parsed))
 
     def _on_presence(self, payload: bytes) -> None:
         try:
             presence = Presence.deserialize(json.loads(payload))
-            asyncio.create_task(self._dispatch(presence))
+            background_task.create(self._dispatch(presence))
         except Exception:
             self.log.debug("Failed to parse presence payload %s", payload, exc_info=True)
             return
@@ -552,7 +552,7 @@ class AndroidMQTT:
                 elif rc == pmc.MQTT_ERR_NO_CONN:
                     if connection_retries > retry_limit:
                         raise MQTTNotConnected(f"Connection failed {connection_retries} times")
-                    if self.proxy_handler.update_proxy_url():
+                    if self.proxy_handler.update_proxy_url("MQTT_ERR_NO_CONN"):
                         self.setup_proxy()
                         await self._dispatch(ProxyUpdate())
                     sleep = connection_retries * 2

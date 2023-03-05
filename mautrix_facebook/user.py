@@ -27,10 +27,9 @@ from aiohttp import ClientConnectionError
 
 from maufbapi import AndroidAPI, AndroidMQTT, AndroidState, ProxyHandler
 from maufbapi.http import InvalidAccessToken, ResponseError
-from maufbapi.http.errors import GraphQLError, RateLimitExceeded
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
 from maufbapi.types import graphql, mqtt as mqtt_t
-from maufbapi.types.graphql.responses import Message, Thread, ThreadListResponse
+from maufbapi.types.graphql.responses import Message, Thread
 from mautrix.bridge import BaseUser, async_getter_lock
 from mautrix.errors import MNotFound
 from mautrix.types import (
@@ -44,6 +43,7 @@ from mautrix.types import (
     TextMessageEventContent,
     UserID,
 )
+from mautrix.util import background_task
 from mautrix.util.bridge_state import BridgeState, BridgeStateEvent
 from mautrix.util.opt_prometheus import Gauge, Summary, async_time
 from mautrix.util.simple_lock import SimpleLock
@@ -318,7 +318,7 @@ class User(DBUser, BaseUser):
             self.is_connected = None
             self.stop_listen()
             self.stop_backfill_tasks()
-            asyncio.create_task(self.post_login(is_startup=is_startup))
+            background_task.create(self.post_login(is_startup=is_startup))
             return True
         return False
 
@@ -368,7 +368,9 @@ class User(DBUser, BaseUser):
                 )
                 await asyncio.sleep(wait)
                 if refresh_proxy_on_failure:
-                    self.proxy_handler.update_proxy_url()
+                    self.proxy_handler.update_proxy_url(
+                        f"{e.__class__.__name__} while trying to {action}"
+                    )
                     await self.on_proxy_update()
             except ResponseError:
                 if action != "restore session":
@@ -635,8 +637,20 @@ class User(DBUser, BaseUser):
         # We need to get the sequence ID before we start the listener task.
         resp = await self.client.fetch_thread_list()
         self.seq_id = int(resp.sync_sequence_id)
+        thread_seq_ids = list(
+            {int(thread.sync_sequence_id) for thread in resp.nodes if thread.sync_sequence_id}
+        )
+        if len(thread_seq_ids) > 1 or (
+            len(thread_seq_ids) == 1 and thread_seq_ids[0] != self.seq_id
+        ):
+            self.seq_id = max(*thread_seq_ids, self.seq_id)
+            self.log.warning(
+                f"Got more than one sequence ID in thread list: primary={resp.sync_sequence_id}, "
+                f"threads={thread_seq_ids}. Using highest value ({self.seq_id})"
+            )
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
+        self.log.debug(f"Got new seq_id {self.seq_id}")
         await self.save_seq_id()
         self.start_listen()
 
@@ -1004,7 +1018,7 @@ class User(DBUser, BaseUser):
         self.log.debug(f"Got region hint {region_hint}")
         if region_hint:
             self.state.session.region_hint = region_hint
-            asyncio.create_task(self.save())
+            background_task.create(self.save())
 
     async def _try_listen(self) -> None:
         try:
@@ -1078,9 +1092,9 @@ class User(DBUser, BaseUser):
                     await asyncio.sleep(sleep_time)
                 self._prev_reconnect_fail_refresh = time.monotonic()
                 if action == "refresh":
-                    asyncio.create_task(self.refresh())
+                    background_task.create(self.refresh())
                 else:
-                    asyncio.create_task(self.reconnect(fetch_user=True))
+                    background_task.create(self.reconnect(fetch_user=True))
             else:
                 self._disconnect_listener_after_error()
         except Exception:
@@ -1154,7 +1168,7 @@ class User(DBUser, BaseUser):
             self.log.exception("Failed to fetch post-login info")
         self.stop_listen()
         self.stop_backfill_tasks()
-        asyncio.create_task(self.post_login(is_startup=True, from_login=True))
+        background_task.create(self.post_login(is_startup=True, from_login=True))
 
     @async_time(METRIC_MESSAGE)
     async def on_message(self, evt: mqtt_t.Message | mqtt_t.ExtendedMessage) -> None:
@@ -1219,7 +1233,7 @@ class User(DBUser, BaseUser):
             await portal.handle_facebook_reaction_add(self, puppet, evt.message_id, evt.reaction)
 
     async def on_forced_fetch(self, evt: mqtt_t.ForcedFetch) -> None:
-        asyncio.create_task(self._try_on_forced_fetch(evt))
+        background_task.create(self._try_on_forced_fetch(evt))
 
     async def _try_on_forced_fetch(self, evt: mqtt_t.ForcedFetch) -> None:
         try:
@@ -1311,6 +1325,6 @@ class User(DBUser, BaseUser):
     def on_connection_not_authorized(self) -> None:
         self.log.debug("Stopping listener and reloading session after MQTT not authorized error")
         self.stop_listen()
-        asyncio.create_task(self.reload_session())
+        background_task.create(self.reload_session())
 
     # endregion

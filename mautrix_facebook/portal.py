@@ -61,7 +61,7 @@ from mautrix.types import (
     UserID,
     VideoInfo,
 )
-from mautrix.util import ffmpeg, magic, variation_selector
+from mautrix.util import background_task, ffmpeg, magic, variation_selector
 from mautrix.util.formatter import parse_html
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 
@@ -1168,7 +1168,7 @@ class Portal(DBPortal, BasePortal):
             event_type=event_type,
             message_type=msgtype,
         )
-        asyncio.create_task(self._send_message_status(event_id, err=None))
+        background_task.create(self._send_message_status(event_id, err=None))
         await self._send_delivery_receipt(event_id)
 
     async def _send_bridge_error(
@@ -1201,7 +1201,7 @@ class Portal(DBPortal, BasePortal):
                     body=f"\u26a0 Your {event_type_str} may not have been bridged: {str(err)}",
                 ),
             )
-        asyncio.create_task(self._send_message_status(event_id, err))
+        background_task.create(self._send_message_status(event_id, err))
 
     async def _send_message_status(self, event_id: EventID, err: Exception | None) -> None:
         if not self.config["bridge.message_status_events"]:
@@ -1290,8 +1290,14 @@ class Portal(DBPortal, BasePortal):
     async def _handle_matrix_text(
         self, event_id: EventID, sender: u.User, message: TextMessageEventContent
     ) -> None:
+        if (
+            message.msgtype == MessageType.NOTICE
+            and not self.config["bridge.bridge_matrix_notices"]
+        ):
+            return
         converted = await matrix_to_facebook(message, self.mxid, self.log)
         dbm = await self._make_dbm(sender, event_id)
+
         resp = await sender.mqtt.send_message(
             self.fbid,
             self.fb_type != ThreadType.USER,
@@ -1592,7 +1598,7 @@ class Portal(DBPortal, BasePortal):
             timestamp = message.timestamp
 
             def backfill_reactions(dbm: DBMessage | None):
-                asyncio.create_task(
+                background_task.create(
                     self._try_handle_graphql_reactions(
                         source, dbm or msg_id, message.message_reactions
                     )
