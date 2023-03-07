@@ -21,6 +21,7 @@ from html import escape
 from io import BytesIO
 import asyncio
 import base64
+import hashlib
 import json
 import mimetypes
 import re
@@ -54,6 +55,7 @@ from mautrix.types import (
     MessageStatus,
     MessageStatusReason,
     MessageType,
+    ReactionEventContent,
     RelatesTo,
     RelationType,
     RoomID,
@@ -941,6 +943,16 @@ class Portal(DBPortal, BasePortal):
             )
             added_members.add(mxid)
 
+        async def intent_for(user_id: str | int) -> tuple[p.Puppet, IntentAPI]:
+            puppet: p.Puppet = await p.Puppet.get_by_fbid(user_id)
+            if puppet:
+                intent = puppet.intent_for(self)
+            else:
+                intent = self.main_intent
+            if puppet.is_real_user and not self._can_double_puppet_backfill(intent.mxid):
+                intent = puppet.default_mxid_intent
+            return puppet, intent
+
         message_infos: list[tuple[graphql.Message, int]] = []
         intents: list[IntentAPI] = []
         last_message_timestamp = 0
@@ -948,18 +960,17 @@ class Portal(DBPortal, BasePortal):
         for message in message_page:
             last_message_timestamp = max(last_message_timestamp, message.timestamp)
 
-            puppet: p.Puppet = await p.Puppet.get_by_fbid(message.message_sender.id)
-            if puppet:
-                intent = puppet.intent_for(self)
-                if not puppet.name:
-                    await puppet.update_info(source)
-            else:
-                intent = self.main_intent
-            if puppet.is_real_user and not self._can_double_puppet_backfill(intent.mxid):
-                intent = puppet.default_mxid_intent
+            puppet, intent = await intent_for(message.message_sender.id)
+            if not puppet.name:
+                await puppet.update_info(source)
 
             # Convert the message
-            converted = await self.convert_facebook_message(source, intent, message)
+            converted = await self.convert_facebook_message(
+                source,
+                intent,
+                message,
+                deterministic_reply_id=self.bridge.homeserver_software.is_hungry,
+            )
             if not converted:
                 self.log.debug("Skipping unsupported message in backfill")
                 continue
@@ -967,6 +978,7 @@ class Portal(DBPortal, BasePortal):
             if intent.mxid not in current_members:
                 add_member(puppet, intent.mxid)
 
+            d_event_id = None
             for index, (event_type, content) in enumerate(converted):
                 if self.encrypted and self.matrix.e2ee:
                     event_type, content = await self.matrix.e2ee.encrypt(
@@ -975,6 +987,9 @@ class Portal(DBPortal, BasePortal):
                 if intent.api.is_real_user and intent.api.bridge_name is not None:
                     content[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
 
+                if self.bridge.homeserver_software.is_hungry:
+                    d_event_id = self._deterministic_event_id(message.message_id, index)
+
                 message_infos.append((message, index))
                 batch_messages.append(
                     BatchSendEvent(
@@ -982,9 +997,33 @@ class Portal(DBPortal, BasePortal):
                         type=event_type,
                         sender=intent.mxid,
                         timestamp=message.timestamp,
+                        event_id=d_event_id,
                     )
                 )
                 intents.append(intent)
+
+            if self.bridge.homeserver_software.is_hungry and message.message_reactions:
+                for reaction in message.message_reactions:
+                    puppet, intent = await intent_for(reaction.user.id)
+
+                    reaction_event = ReactionEventContent()
+                    reaction_event.relates_to = RelatesTo(
+                        rel_type=RelationType.ANNOTATION,
+                        event_id=d_event_id,
+                        key=reaction.reaction,
+                    )
+                    if intent.api.is_real_user and intent.api.bridge_name is not None:
+                        reaction_event[DOUBLE_PUPPET_SOURCE_KEY] = intent.api.bridge_name
+
+                    message_infos.append((reaction, 0))
+                    batch_messages.append(
+                        BatchSendEvent(
+                            content=reaction_event,
+                            type=EventType.REACTION,
+                            sender=intent.mxid,
+                            timestamp=message.timestamp,
+                        )
+                    )
 
         if not batch_messages:
             # Still return the oldest message's timestamp, since none of the messages were
@@ -1054,26 +1093,64 @@ class Portal(DBPortal, BasePortal):
         )
 
     async def _finish_batch(
-        self, event_ids: list[EventID], message_infos: list[tuple[graphql.Message, int]]
+        self,
+        event_ids: list[EventID],
+        message_infos: list[tuple[graphql.Message | graphql.Reaction, int]],
     ):
-        messages = [
-            DBMessage(
-                mxid=event_id,
-                mx_room=self.mxid,
-                index=index,
-                timestamp=message.timestamp,
-                fbid=message.message_id,
-                fb_chat=self.fbid,
-                fb_receiver=self.fb_receiver,
-                fb_sender=int(message.message_sender.id),
-                fb_txn_id=int(message.offline_threading_id),
-            )
-            for event_id, (message, index) in zip(event_ids, message_infos)
-        ]
+        # We have to do this slightly annoying processing of the event IDs and message infos so
+        # that we only map the last event ID to the message.
+        # When inline captions are enabled, this will have no effect since index will always be 0
+        # since there's only ever one event per message.
+        current_message = None
+        messages = []
+        reactions = []
+        for event_id, (message_or_reaction, index) in zip(event_ids, message_infos):
+            if isinstance(message_or_reaction, graphql.Message):
+                message = message_or_reaction
+                if index == 0 and current_message:
+                    # This means that all of the events for the previous message have been processed,
+                    # and the current_message is the most recent event for that message.
+                    messages.append(current_message)
+
+                current_message = DBMessage(
+                    mxid=event_id,
+                    mx_room=self.mxid,
+                    index=index,
+                    timestamp=message.timestamp,
+                    fbid=message.message_id,
+                    fb_chat=self.fbid,
+                    fb_receiver=self.fb_receiver,
+                    fb_sender=int(message.message_sender.id),
+                    fb_txn_id=int(message.offline_threading_id),
+                )
+            else:
+                assert current_message
+                reaction = message_or_reaction
+                reactions.append(
+                    DBReaction(
+                        mxid=event_id,
+                        mx_room=self.mxid,
+                        fb_msgid=current_message.fbid,
+                        fb_receiver=self.fb_receiver,
+                        fb_sender=int(reaction.user.id),
+                        reaction=reaction.reaction,
+                        mx_timestamp=current_message.timestamp,
+                    )
+                )
+
+        if current_message:
+            messages.append(current_message)
+
         try:
             await DBMessage.bulk_insert(messages)
         except Exception:
             self.log.exception("Failed to store batch message IDs")
+
+        try:
+            for reaction in reactions:
+                await reaction.insert()
+        except Exception:
+            self.log.exception("Failed to store backfilled reactions")
 
     async def send_post_backfill_dummy(
         self,
@@ -1500,7 +1577,10 @@ class Portal(DBPortal, BasePortal):
         return True
 
     async def _add_facebook_reply(
-        self, content: MessageEventContent, reply_to: graphql.MinimalMessage | mqtt.Message
+        self,
+        content: MessageEventContent,
+        reply_to: graphql.MinimalMessage | mqtt.Message,
+        deterministic_id: bool = False,
     ) -> None:
         if isinstance(reply_to, graphql.MinimalMessage):
             log_msg_id = reply_to.message_id
@@ -1523,9 +1603,12 @@ class Portal(DBPortal, BasePortal):
             return
 
         if not message:
-            self.log.warning(
-                f"Couldn't find reply target {log_msg_id} to bridge reply metadata to Matrix"
-            )
+            if deterministic_id and isinstance(reply_to, graphql.MinimalMessage):
+                content.set_reply(self._deterministic_event_id(reply_to.message_id, 0))
+            else:
+                self.log.warning(
+                    f"Couldn't find reply target {log_msg_id} to bridge reply metadata to Matrix"
+                )
             return
 
         content.set_reply(message.mxid)
@@ -1685,12 +1768,19 @@ class Portal(DBPortal, BasePortal):
                 source, created_msgs[0], message.message_reactions, timestamp
             )
 
+    def _deterministic_event_id(self, message_id: int | str, index: int) -> EventID:
+        hash_content = f"{self.mxid}/facebook/{message_id}/{index}"
+        hashed = hashlib.sha256(hash_content.encode("utf-8")).digest()
+        b64hash = base64.urlsafe_b64encode(hashed).decode("utf-8").rstrip("=")
+        return EventID(f"${b64hash}:facebook.com")
+
     async def convert_facebook_message(
         self,
         source: u.User,
         intent: IntentAPI,
         message: graphql.Message | mqtt.Message,
         reply_to: mqtt.Message | None = None,
+        deterministic_reply_id: bool = False,
     ) -> list[ConvertedMessage]:
         converted: list[ConvertedMessage] = []
 
@@ -1699,7 +1789,11 @@ class Portal(DBPortal, BasePortal):
                 converted.append(await self._convert_facebook_story_reply(message))
 
             if isinstance(message, graphql.Message):
-                converted.extend(await self._convert_graphql_message(source, intent, message))
+                converted.extend(
+                    await self._convert_graphql_message(
+                        source, intent, message, deterministic_reply_id=deterministic_reply_id
+                    )
+                )
             else:
                 converted.extend(
                     await self._convert_mqtt_message(source, intent, message, reply_to)
@@ -1759,7 +1853,7 @@ class Portal(DBPortal, BasePortal):
             )
             converted += [c for c in attachment_contents if c]
         if message.text:
-            converted.append(await self._handle_facebook_text(message, reply_to))
+            converted.append(await self._convert_facebook_text(message, reply_to))
         return converted
 
     async def _convert_extensible_media(
@@ -2029,7 +2123,11 @@ class Portal(DBPortal, BasePortal):
             self.log.debug(f"Updated {len(tasks)} reactions of {message_id}")
 
     async def _convert_graphql_message(
-        self, source: u.User, intent: IntentAPI, message: graphql.Message
+        self,
+        source: u.User,
+        intent: IntentAPI,
+        message: graphql.Message,
+        deterministic_reply_id: bool = False,
     ) -> list[ConvertedMessage]:
         reply_to_msg = message.replied_to_message.message if message.replied_to_message else None
         converted: list[ConvertedMessage] = []
@@ -2058,16 +2156,21 @@ class Portal(DBPortal, BasePortal):
             if content:
                 converted.append((EventType.ROOM_MESSAGE, content))
         if text:
-            converted.append(await self._handle_facebook_text(message.message, reply_to_msg))
+            converted.append(
+                await self._convert_facebook_text(
+                    message.message, reply_to_msg, deterministic_reply_id=deterministic_reply_id
+                )
+            )
         return converted
 
-    async def _handle_facebook_text(
+    async def _convert_facebook_text(
         self,
         message: graphql.MessageText | mqtt.Message,
         reply_to: graphql.MinimalMessage | mqtt.Message,
+        deterministic_reply_id: bool = False,
     ) -> ConvertedMessage:
         content = await facebook_to_matrix(message)
-        await self._add_facebook_reply(content, reply_to)
+        await self._add_facebook_reply(content, reply_to, deterministic_id=deterministic_reply_id)
         return EventType.ROOM_MESSAGE, content
 
     async def _convert_facebook_sticker(
