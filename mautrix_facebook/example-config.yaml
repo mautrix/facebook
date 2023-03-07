@@ -113,6 +113,13 @@ bridge:
     # Localpart template of MXIDs for Facebook users.
     # {userid} is replaced with the user ID of the Facebook user.
     username_template: "facebook_{userid}"
+    # Settings for creating a space for every user.
+    space_support:
+        # Whether or not to enable creating a space per user and inviting the
+        # user (as well as all of the puppets) to that space.
+        enable: false
+        # The name of the space
+        name: "Facebook"
     # Displayname template for Facebook users.
     # {displayname} is replaced with the display name of the Facebook user
     #               as defined below in displayname_preference.

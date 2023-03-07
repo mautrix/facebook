@@ -502,6 +502,19 @@ class Portal(DBPortal, BasePortal):
                 await puppet.intent_for(self).ensure_joined(self.mxid, bot=self.main_intent)
             if puppet.fbid in nick_map and not puppet.is_real_user:
                 await self.sync_per_room_nick(puppet, nick_map[puppet.fbid])
+
+            if source.space_room:
+                try:
+                    await self.az.intent.invite_user(
+                        source.space_room, puppet.custom_mxid or puppet.mxid
+                    )
+                    await puppet.intent.join_room_by_id(source.space_room)
+                except Exception as e:
+                    self.log.warning(
+                        f"Failed to invite and join puppet {puppet.fbid} to "
+                        f"space {source.space_room}: {e}"
+                    )
+
         return changed
 
     async def _update_participants(self, source: u.User, info: graphql.Thread) -> bool:
@@ -543,6 +556,14 @@ class Portal(DBPortal, BasePortal):
             did_join = await puppet.intent.ensure_joined(self.mxid)
             if did_join and self.is_direct:
                 await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
+
+        if source.space_room and self.mxid:
+            await self.az.intent.send_state_event(
+                source.space_room,
+                EventType.SPACE_CHILD,
+                {"via": [self.config["homeserver.domain"]], "suggested": True},
+                state_key=str(self.mxid),
+            )
 
         info = await self.update_info(source, info)
         if not info:
@@ -709,6 +730,19 @@ class Portal(DBPortal, BasePortal):
                 await self.az.intent.ensure_joined(self.mxid)
             except Exception:
                 self.log.warning(f"Failed to add bridge bot to new private chat {self.mxid}")
+
+        if source.space_room:
+            try:
+                await self.az.intent.send_state_event(
+                    source.space_room,
+                    EventType.SPACE_CHILD,
+                    {"via": [self.config["homeserver.domain"]], "suggested": True},
+                    state_key=str(self.mxid),
+                )
+                await self.az.intent.invite_user(source.space_room, source.mxid)
+            except Exception:
+                self.log.warning(f"Failed to add chat {self.mxid} to user's space")
+
         await self.save()
         self.log.debug(f"Matrix room created: {self.mxid}")
         self.by_mxid[self.mxid] = self
@@ -722,6 +756,20 @@ class Portal(DBPortal, BasePortal):
                 if self.is_direct:
                     await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
                 await puppet.intent.join_room_by_id(self.mxid)
+            except MatrixError:
+                self.log.debug(
+                    "Failed to join custom puppet into newly created portal",
+                    exc_info=True,
+                )
+
+        if self.is_direct and puppet:
+            try:
+                did_join = await puppet.intent.join_room_by_id(self.mxid)
+                if did_join:
+                    await source.update_direct_chats({self.main_intent.mxid: [self.mxid]})
+                if source.space_room:
+                    await self.az.intent.invite_user(source.space_room, puppet.custom_mxid)
+                    await puppet.intent.join_room_by_id(source.space_room)
             except MatrixError:
                 self.log.debug(
                     "Failed to join custom puppet into newly created portal",
@@ -1563,6 +1611,14 @@ class Portal(DBPortal, BasePortal):
                     f"{user.mxid} was the recipient of this portal. Cleaning up and deleting..."
                 )
                 await self.cleanup_and_delete()
+
+            if user.space_room:
+                await self.az.intent.send_state_event(
+                    user.space_room,
+                    EventType.SPACE_CHILD,
+                    {},
+                    state_key=str(self.mxid),
+                )
         else:
             self.log.debug(f"{user.mxid} left portal to {self.fbid}")
 

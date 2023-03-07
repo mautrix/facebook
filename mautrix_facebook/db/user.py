@@ -35,6 +35,7 @@ class User:
     fbid: int | None
     state: AndroidState | None
     notice_room: RoomID | None
+    space_room: RoomID | None
     seq_id: int | None
     connect_token_hash: bytes | None
     oldest_backfilled_thread_ts: int | None
@@ -59,6 +60,7 @@ class User:
             "fbid",
             "state",
             "notice_room",
+            "space_room",
             "seq_id",
             "connect_token_hash",
             "oldest_backfilled_thread_ts",
@@ -92,6 +94,7 @@ class User:
             self.fbid,
             self._state_json,
             self.notice_room,
+            self.space_room,
             self.seq_id,
             self.connect_token_hash,
             self.oldest_backfilled_thread_ts,
@@ -102,7 +105,7 @@ class User:
     async def insert(self) -> None:
         q = f"""
             INSERT INTO "user" ({self._columns})
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """
         await self.db.execute(q, *self._values)
 
@@ -112,8 +115,8 @@ class User:
     async def save(self) -> None:
         q = """
         UPDATE "user"
-        SET fbid=$2, state=$3, notice_room=$4, seq_id=$5, connect_token_hash=$6,
-            oldest_backfilled_thread_ts=$7, total_backfilled_portals=$8, thread_sync_completed=$9
+        SET fbid=$2, state=$3, notice_room=$4, space_room=$5, seq_id=$6, connect_token_hash=$7,
+            oldest_backfilled_thread_ts=$8, total_backfilled_portals=$9, thread_sync_completed=$10
         WHERE mxid=$1
         """
         await self.db.execute(q, *self._values)
