@@ -25,7 +25,7 @@ import time
 
 from aiohttp import ClientConnectionError
 
-from maufbapi import AndroidAPI, AndroidMQTT, AndroidState, ProxyHandler
+from maufbapi import AndroidAPI, AndroidMQTT, AndroidState
 from maufbapi.http import InvalidAccessToken, ResponseError
 from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
 from maufbapi.types import graphql, mqtt as mqtt_t
@@ -46,6 +46,7 @@ from mautrix.types import (
 from mautrix.util import background_task
 from mautrix.util.bridge_state import BridgeState, BridgeStateEvent
 from mautrix.util.opt_prometheus import Gauge, Summary, async_time
+from mautrix.util.proxy import ProxyHandler
 from mautrix.util.simple_lock import SimpleLock
 
 from . import portal as po, puppet as pu
