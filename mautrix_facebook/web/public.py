@@ -179,6 +179,7 @@ class PublicBridgeWebsite:
             state,
             log=user.log.getChild("login-api"),
             proxy_handler=user.proxy_handler,
+            on_proxy_update=user.on_proxy_update,
         )
         user.command_status = {
             "action": "Login",
@@ -238,6 +239,7 @@ class PublicBridgeWebsite:
                 state,
                 log=user.log.getChild("login-api"),
                 proxy_handler=user.proxy_handler,
+                on_proxy_update=user.on_proxy_update,
             )
             await api.mobile_config_sessionless()
 

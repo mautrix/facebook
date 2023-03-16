@@ -307,6 +307,7 @@ class User(DBUser, BaseUser):
             self.state,
             log=self.log.getChild("api"),
             proxy_handler=self.proxy_handler,
+            on_proxy_update=self.on_proxy_update,
         )
         user_info = await self.fetch_logged_in_user(client)
         if user_info:
@@ -1146,6 +1147,7 @@ class User(DBUser, BaseUser):
             state,
             log=self.log.getChild("api"),
             proxy_handler=self.proxy_handler,
+            on_proxy_update=self.on_proxy_update,
         )
         await self.save()
         try:

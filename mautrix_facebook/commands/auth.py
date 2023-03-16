@@ -102,6 +102,7 @@ async def enter_password(evt: CommandEvent) -> None:
         state,
         log=evt.sender.log.getChild("login-api"),
         proxy_handler=evt.sender.proxy_handler,
+        on_proxy_update=evt.sender.on_proxy_update,
     )
     try:
         await api.mobile_config_sessionless()
