@@ -209,13 +209,13 @@ class BaseAndroidAPI:
                 return sandboxed_get(url)
         return self.http.get(url, headers=headers, **kwargs)
 
-    def http_get(self, *args, **kwargs) -> ClientResponse:
+    async def http_get(self, *args, **kwargs) -> ClientResponse:
         return await self.proxy_with_retry(
             "AndroidAPI.get",
             lambda: self.raw_http_get(*args, **kwargs),
         )
 
-    def http_post(self, *args, **kwargs) -> ClientResponse:
+    async def http_post(self, *args, **kwargs) -> ClientResponse:
         return await self.proxy_with_retry(
             "AndroidAPI.post",
             lambda: self.http.post(*args, **kwargs),
