@@ -31,7 +31,7 @@ import paho.mqtt.client as pmc
 
 from mautrix.util import background_task
 from mautrix.util.logging import TraceLogger
-from mautrix.util.proxy import ProxyHandler
+from mautrix.util.proxy import ProxyHandler, proxy_with_retry
 
 from ..state import AndroidState
 from ..thrift import ThriftObject
@@ -521,53 +521,60 @@ class AndroidMQTT:
         self.seq_id = seq_id
 
         self.log.debug("Connecting to Messenger MQTT")
-        await self._reconnect()
-        connection_retries = 0
 
-        while True:
-            try:
-                await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                self.disconnect()
-                # this might not be necessary
-                self._client.loop_misc()
-                break
-            rc = self._client.loop_misc()
+        async def connect_and_watch():
+            await self._reconnect()
 
-            # If disconnect() has been called
-            # Beware, internal API, may have to change this to something more stable!
-            if self._client._state == pmc.mqtt_cs_disconnecting:
-                break  # Stop listening
+            while True:
+                try:
+                    await asyncio.sleep(1)
+                except asyncio.CancelledError:
+                    self.disconnect()
+                    # this might not be necessary
+                    self._client.loop_misc()
+                    return
+                rc = self._client.loop_misc()
 
-            if rc != pmc.MQTT_ERR_SUCCESS:
-                # If known/expected error
-                if rc == pmc.MQTT_ERR_CONN_LOST:
-                    await self._dispatch(Disconnect(reason="Connection lost, retrying"))
-                elif rc == pmc.MQTT_ERR_NOMEM:
-                    # This error is wrongly classified
-                    # See https://github.com/eclipse/paho.mqtt.python/issues/340
-                    await self._dispatch(Disconnect(reason="Connection lost, retrying"))
-                elif rc == pmc.MQTT_ERR_CONN_REFUSED:
-                    raise MQTTNotLoggedIn("MQTT connection refused")
-                elif rc == pmc.MQTT_ERR_NO_CONN:
-                    if connection_retries > retry_limit:
-                        raise MQTTNotConnected(f"Connection failed {connection_retries} times")
-                    if self.proxy_handler.update_proxy_url("MQTT_ERR_NO_CONN"):
-                        self.setup_proxy()
-                        await self._dispatch(ProxyUpdate())
-                    sleep = connection_retries * 2
-                    msg = f"MQTT Error: no connection, retrying in {connection_retries} seconds"
-                    await self._dispatch(Disconnect(reason=msg))
-                    await asyncio.sleep(sleep)
-                else:
-                    err = pmc.error_string(rc)
-                    self.log.error("MQTT Error: %s", err)
-                    await self._dispatch(Disconnect(reason=f"MQTT Error: {err}, retrying"))
+                # If disconnect() has been called
+                # Beware, internal API, may have to change this to something more stable!
+                if self._client._state == pmc.mqtt_cs_disconnecting:
+                    return  # Stop listening
 
-                await self._reconnect()
-                connection_retries += 1
-            else:
-                connection_retries = 0
+                if rc != pmc.MQTT_ERR_SUCCESS:
+                    # If known/expected error
+                    if rc == pmc.MQTT_ERR_CONN_LOST:
+                        await self._dispatch(Disconnect(reason="Connection lost, retrying"))
+                        raise MQTTNotConnected("MQTT_ERR_CONN_LOST")
+                    elif rc == pmc.MQTT_ERR_NOMEM:
+                        # This error is wrongly classified
+                        # See https://github.com/eclipse/paho.mqtt.python/issues/340
+                        await self._dispatch(Disconnect(reason="Connection lost, retrying"))
+                        raise MQTTNotConnected("MQTT_ERR_NOMEM")
+                    elif rc == pmc.MQTT_ERR_CONN_REFUSED:
+                        await self._dispatch(Disconnect(reason="Connection refused, retrying"))
+                        raise MQTTNotLoggedIn("MQTT_ERR_CONN_REFUSED")
+                    elif rc == pmc.MQTT_ERR_NO_CONN:
+                        await self._dispatch(Disconnect(reason="Connection dropped, retrying"))
+                        raise MQTTNotConnected("MQTT_ERR_NO_CONN")
+                    else:
+                        err = pmc.error_string(rc)
+                        self.log.error("MQTT Error: %s", err)
+                        await self._dispatch(Disconnect(reason=f"MQTT Error: {err}, retrying"))
+                        raise MQTTNotConnected(err)
+
+        await proxy_with_retry(
+            "mqtt.listen",
+            lambda: connect_and_watch(),
+            logger=self.log,
+            proxy_handler=self.proxy_handler,
+            on_proxy_change=lambda: self._dispatch(ProxyUpdate()),
+            max_retries=retry_limit,
+            retryable_exceptions=(MQTTNotConnected,),
+            # Wait 1s * errors, max 10s for fast reconnect or die
+            max_wait_seconds=10,
+            multiply_wait_seconds=1,
+        )
+
         if self._event_dispatcher_task:
             self._event_dispatcher_task.cancel()
             self._event_dispatcher_task = None

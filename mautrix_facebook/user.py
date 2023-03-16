@@ -1118,6 +1118,8 @@ class User(DBUser, BaseUser):
     async def on_proxy_update(self, evt: ProxyUpdate | None = None) -> None:
         if self.client:
             self.client.setup_http()
+        if self.mqtt:
+            self.mqtt.setup_proxy()
 
     def stop_listen(self) -> None:
         if self.mqtt:
