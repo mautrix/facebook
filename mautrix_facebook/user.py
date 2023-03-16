@@ -353,26 +353,6 @@ class User(DBUser, BaseUser):
                 if action != "restore session":
                     await self._send_reset_notice(e)
                 raise
-            except (
-                ProxyError,
-                ProxyTimeoutError,
-                ProxyConnectionError,
-                ClientConnectionError,
-                ConnectionError,
-                asyncio.TimeoutError,
-            ) as e:
-                attempt += 1
-                wait = min(attempt * 10, 60)
-                self.log.warning(
-                    f"{e.__class__.__name__} while trying to {action}, "
-                    f"retrying in {wait} seconds: {e}"
-                )
-                await asyncio.sleep(wait)
-                if refresh_proxy_on_failure:
-                    self.proxy_handler.update_proxy_url(
-                        f"{e.__class__.__name__} while trying to {action}"
-                    )
-                    await self.on_proxy_update()
             except ResponseError:
                 if action != "restore session":
                     attempt += 1

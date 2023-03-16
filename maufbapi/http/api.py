@@ -222,7 +222,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             "fb_api_req_friendly_name": "deleteMessages",
             "fb_api_caller_class": "MultiCacheThreadsQueue",
         }
-        resp = await self.http.post(
+        resp = await self.http_post(
             url=self.graph_url,
             data=params,
             headers=headers,
@@ -333,8 +333,8 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
     async def get_self(self) -> OwnInfo:
         fields = ",".join(field.name for field in attr.fields(OwnInfo))
         url = (self.graph_url / str(self.state.session.uid)).with_query({"fields": fields})
-        async with self.get(url) as resp:
-            json_data = await self._handle_response(resp)
+        resp = await self.get(url)
+        json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)
 
     async def logout(self) -> bool:
@@ -347,7 +347,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             "fb_api_req_friendly_name": "logout",
             "fb_api_caller_class": "AuthOperations",
         }
-        resp = await self.http.post(
+        resp = await self.http_post(
             url=self.b_graph_url / "auth" / "expire_session", headers=headers, data=req
         )
         resp.raise_for_status()
@@ -368,7 +368,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
         }
         if prev_token:
             query["prev_token"] = prev_token
-        resp = await self.http.post(
+        resp = await self.http_post(
             url=(self.graph_url / "v3.2" / "cdn_rmd").with_query(query),
             headers=headers,
         )
