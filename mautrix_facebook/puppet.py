@@ -215,11 +215,11 @@ class Puppet(DBPuppet, BasePuppet):
             graph_url = (source.client.graph_url / str(fbid) / "picture").with_query(
                 {"width": "1000", "height": "1000"}
             )
-            async with source.client.get(graph_url) as resp:
+            async with source.client.raw_http_get(graph_url) as resp:
                 if resp.status < 400:
                     data = await resp.read()
         if data is None:
-            async with source.client.get(url) as resp:
+            async with source.client.raw_http_get(url) as resp:
                 data = await resp.read()
         mime = magic.mimetype(data)
         return await intent.upload_media(

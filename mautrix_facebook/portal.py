@@ -348,7 +348,7 @@ class Portal(DBPortal, BasePortal):
         headers = {"referer": f"fbapp://{source.state.application.client_id}/{referer}"}
         sandbox = cls.config["bridge.sandbox_media_download"]
         cls.log.trace("Reuploading file %s", url)
-        async with source.client.get(url, headers=headers, sandbox=sandbox) as resp:
+        async with source.client.raw_http_get(url, headers=headers, sandbox=sandbox) as resp:
             length = int(resp.headers["Content-Length"])
             if length > cls.matrix.media_config.upload_size:
                 raise ValueError("File not available: too large")

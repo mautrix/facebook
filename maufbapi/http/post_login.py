@@ -54,7 +54,7 @@ class PostLoginAPI(BaseAndroidAPI):
             **self._headers,
         }
         headers.pop("x-fb-rmd", None)
-        resp = await self.http.post(url=url, headers=headers, data=req_data)
+        resp = await self.http_post(url=url, headers=headers, data=req_data)
         await self._decompress_zstd(resp)
         self.log.trace(f"Fetch logged in user response: {await resp.text()}")
         resp_data = await self._handle_response(resp, batch_index=2 if post_login else 0)

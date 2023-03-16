@@ -15,8 +15,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import Type, TypeVar
+from typing import Awaitable, Callable, Type, TypeVar
 from contextlib import asynccontextmanager
+from functools import partial
 from urllib.parse import quote, urlparse
 import base64
 import hashlib
@@ -34,7 +35,7 @@ import zstandard as zstd
 
 from mautrix.types import JSON
 from mautrix.util.logging import TraceLogger
-from mautrix.util.proxy import ProxyHandler
+from mautrix.util.proxy import ProxyHandler, proxy_with_retry
 
 from ..state import AndroidState
 from ..types import GraphQLMutation, GraphQLQuery
@@ -82,10 +83,12 @@ class BaseAndroidAPI:
         state: AndroidState,
         log: TraceLogger | None = None,
         proxy_handler: ProxyHandler | None = None,
+        on_proxy_update: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.log = log or logging.getLogger("maufbapi.http")
 
         self.proxy_handler = proxy_handler
+        self.on_proxy_update = on_proxy_update
         self.setup_http()
 
         self.state = state
@@ -97,6 +100,16 @@ class BaseAndroidAPI:
         ).decode("utf-8")
         self._tid = 0
         self._file_url_cache = {}
+
+        self.proxy_with_retry = partial(
+            proxy_with_retry,
+            logger=self.log,
+            proxy_handler=self.proxy_handler,
+            on_proxy_change=self.on_proxy_update,
+            # Wait 1s * errors, max 10s for fast failure
+            max_wait_seconds=10,
+            multiply_wait_seconds=1,
+        )
 
     @property
     def tid(self) -> int:
@@ -167,7 +180,7 @@ class BaseAndroidAPI:
         self.http = ClientSession(connector=connector)
         return None
 
-    def get(
+    def raw_http_get(
         self,
         url: str | URL,
         headers: dict[str, str] | None = None,
@@ -195,6 +208,18 @@ class BaseAndroidAPI:
             if sandbox:
                 return sandboxed_get(url)
         return self.http.get(url, headers=headers, **kwargs)
+
+    def http_get(self, *args, **kwargs) -> ClientResponse:
+        return await self.proxy_with_retry(
+            "AndroidAPI.get",
+            lambda: self.raw_http_get(*args, **kwargs),
+        )
+
+    def http_post(self, *args, **kwargs) -> ClientResponse:
+        return await self.proxy_with_retry(
+            "AndroidAPI.post",
+            lambda: self.http.post(*args, **kwargs),
+        )
 
     async def graphql(
         self,
@@ -237,7 +262,7 @@ class BaseAndroidAPI:
             del params["doc_id"]
         if not req.include_client_country_code:
             params.pop("client_country_code")
-        resp = await self.http.post(
+        resp = await self.http_post(
             url=(self.b_graph_url if b else self.graph_url) / "graphql",
             data=params,
             headers=headers,

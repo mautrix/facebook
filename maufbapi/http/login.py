@@ -42,7 +42,7 @@ class LoginAPI(BaseAndroidAPI):
             "access_token": self.state.application.access_token,
         }
         req_data = self.format(req, sign=False)
-        resp = await self.http.post(
+        resp = await self.http_post(
             self.graph_url.with_path("//pwd_key_fetch"), headers=self._headers, data=req_data
         )
         json_data = await self._handle_response(resp)
@@ -70,7 +70,7 @@ class LoginAPI(BaseAndroidAPI):
             "x-fb-request-analytics-tags": "FBMobileConfigTigonFetcher",
         }
         headers.pop("x-fb-rmd", None)
-        resp = await self.http.post(
+        resp = await self.http_post(
             self.b_graph_url / "mobileconfigsessionless", headers=headers, data=req_data
         )
         json_data = await self._handle_response(resp)
@@ -132,7 +132,7 @@ class LoginAPI(BaseAndroidAPI):
             "content-type": "application/x-www-form-urlencoded",
             "x-fb-friendly-name": req["fb_api_req_friendly_name"],
         }
-        resp = await self.http.post(
+        resp = await self.http_post(
             url=self.graph_url / "check_approved_machine", headers=headers, data=req
         )
         json_data = await self._handle_response(resp)
@@ -168,7 +168,7 @@ class LoginAPI(BaseAndroidAPI):
             "x-fb-friendly-name": req["fb_api_req_friendly_name"],
         }
         headers.pop("x-fb-rmd", None)
-        resp = await self.http.post(
+        resp = await self.http_post(
             url=self.b_graph_url / "auth" / "login", headers=headers, data=req_data
         )
         self.log.trace(f"Login response: {resp.status} {await resp.text()}")
