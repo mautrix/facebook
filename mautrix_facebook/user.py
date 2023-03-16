@@ -1060,8 +1060,14 @@ class User(DBUser, BaseUser):
                     state_event=BridgeStateEvent.UNKNOWN_ERROR,
                     error_code="fb-connection-error",
                 )
-            elif self.temp_disconnect_notices:
-                await self.send_bridge_notice(message)
+            else:
+                await self.send_bridge_notice(
+                    message,
+                    state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
+                    error_code="fb-no-mqtt",
+                )
+                if self.temp_disconnect_notices:
+                    await self.send_bridge_notice(message)
             if action in ("reconnect", "refresh"):
                 wait_for = self.config["bridge.on_reconnection_fail.wait_for"]
                 if wait_for:
@@ -1108,7 +1114,6 @@ class User(DBUser, BaseUser):
         self._track_metric(METRIC_CONNECTED, False)
         if self.temp_disconnect_notices:
             await self.send_bridge_notice(f"Disconnected from Facebook Messenger: {evt.reason}")
-        await self.push_bridge_state(BridgeStateEvent.TRANSIENT_DISCONNECT, message=evt.reason)
 
     async def on_proxy_update(self, evt: ProxyUpdate | None = None) -> None:
         if self.client:
