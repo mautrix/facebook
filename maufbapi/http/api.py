@@ -295,7 +295,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             "referer": f"fbapp://{self.state.application.client_id}/messenger_thread_photo",
             "x-fb-friendly-name": "image",
         }
-        resp = await self.get(
+        resp = await self.http_get(
             (self.graph_url / "messaging_get_attachment").with_query(query),
             headers=headers,
             include_auth=False,
@@ -333,7 +333,7 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
     async def get_self(self) -> OwnInfo:
         fields = ",".join(field.name for field in attr.fields(OwnInfo))
         url = (self.graph_url / str(self.state.session.uid)).with_query({"fields": fields})
-        resp = await self.get(url)
+        resp = await self.http_get(url)
         json_data = await self._handle_response(resp)
         return OwnInfo.deserialize(json_data)
 
