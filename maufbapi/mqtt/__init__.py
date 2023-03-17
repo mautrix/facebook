@@ -1,2 +1,7 @@
-from .conn import AndroidMQTT, MQTTNotConnected, MQTTNotLoggedIn
-from .events import Connect, Disconnect, ProxyUpdate
+from .conn import (  # noqa: F401
+    AndroidMQTT,
+    MQTTNotConnected,
+    MQTTNotLoggedIn,
+    MQTTReconnectionError,
+)
+from .events import Connect, Disconnect, ProxyUpdate  # noqa: F401
