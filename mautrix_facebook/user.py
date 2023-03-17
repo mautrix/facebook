@@ -23,11 +23,16 @@ import hashlib
 import hmac
 import time
 
-from aiohttp import ClientConnectionError
-
 from maufbapi import AndroidAPI, AndroidMQTT, AndroidState
 from maufbapi.http import InvalidAccessToken, ResponseError
-from maufbapi.mqtt import Connect, Disconnect, MQTTNotConnected, MQTTNotLoggedIn, ProxyUpdate
+from maufbapi.mqtt import (
+    Connect,
+    Disconnect,
+    MQTTNotConnected,
+    MQTTNotLoggedIn,
+    MQTTReconnectionError,
+    ProxyUpdate,
+)
 from maufbapi.types import graphql, mqtt as mqtt_t
 from maufbapi.types.graphql.responses import Message, Thread
 from mautrix.bridge import BaseUser, async_getter_lock
@@ -973,6 +978,16 @@ class User(DBUser, BaseUser):
     def start_listen(self) -> None:
         self.listen_task = asyncio.create_task(self._try_listen())
 
+    async def delayed_start_listen(self, sleep: int) -> None:
+        await asyncio.sleep(sleep)
+        if self.is_connected:
+            self.log.debug(
+                "Already reconnected before delay after MQTT reconnection error finished",
+            )
+        else:
+            self.log.debug("Reconnecting after MQTT connection error")
+            self.start_listen()
+
     def _disconnect_listener_after_error(self) -> None:
         try:
             self.mqtt.disconnect()
@@ -1041,6 +1056,18 @@ class User(DBUser, BaseUser):
                     state_event=BridgeStateEvent.UNKNOWN_ERROR,
                     error_code="fb-disconnected",
                 )
+        except MQTTReconnectionError as e:
+            self.log.warning(
+                f"Unexpected connection error: {e}, reconnecting in 1 minute", exc_info=True,
+            )
+            await self.send_bridge_notice(
+                f"Error in listener: {e}",
+                important=True,
+                state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
+                error_code="fb-connection-error",
+            )
+            self._disconnect_listener_after_error()
+            background_task.create(self.delayed_start_listen(sleep=60))
         except (MQTTNotLoggedIn, MQTTNotConnected) as e:
             self.log.debug("Listen threw a Facebook error", exc_info=True)
             action = self.config["bridge.on_reconnection_fail.action"]

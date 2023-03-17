@@ -74,6 +74,10 @@ class MQTTNotConnected(Exception):
     pass
 
 
+class MQTTReconnectionError(Exception):
+    pass
+
+
 class AndroidMQTT:
     _loop: asyncio.AbstractEventLoop
     _client: MQTToTClient
@@ -479,7 +483,7 @@ class AndroidMQTT:
             self.log.trace("Trying to reconnect to MQTT")
             self._client.reconnect()
         except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
-            raise MQTTNotLoggedIn("MQTT reconnection failed") from e
+            raise MQTTReconnectionError("MQTT reconnection failed") from e
 
     def add_event_handler(
         self, evt_type: Type[T], handler: Callable[[T], Awaitable[None]]
@@ -569,7 +573,7 @@ class AndroidMQTT:
             proxy_handler=self.proxy_handler,
             on_proxy_change=lambda: self._dispatch(ProxyUpdate()),
             max_retries=retry_limit,
-            retryable_exceptions=(MQTTNotConnected,),
+            retryable_exceptions=(MQTTNotConnected, MQTTReconnectionError),
             # Wait 1s * errors, max 10s for fast reconnect or die
             max_wait_seconds=10,
             multiply_wait_seconds=1,
