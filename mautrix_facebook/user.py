@@ -1058,7 +1058,8 @@ class User(DBUser, BaseUser):
                 )
         except MQTTReconnectionError as e:
             self.log.warning(
-                f"Unexpected connection error: {e}, reconnecting in 1 minute", exc_info=True,
+                f"Unexpected connection error: {e}, reconnecting in 1 minute",
+                exc_info=True,
             )
             await self.send_bridge_notice(
                 f"Error in listener: {e}",
