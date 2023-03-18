@@ -421,7 +421,6 @@ class User(DBUser, BaseUser):
                 state_event=BridgeStateEvent.TRANSIENT_DISCONNECT,
             )
         self.client = None
-        self.proxy_handler.update_proxy_url()
         await self.reload_session(event_id)
 
     async def reload_session(
@@ -468,8 +467,6 @@ class User(DBUser, BaseUser):
         await self.listen_task
         self.listen_task = None
         self.mqtt = None
-        self.proxy_handler.update_proxy_url()
-        await self.on_proxy_update()
         if fetch_user:
             self.log.debug("Fetching current user after MQTT disconnection")
             await self.fetch_logged_in_user(
