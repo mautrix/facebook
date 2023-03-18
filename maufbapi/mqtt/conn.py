@@ -646,6 +646,9 @@ class AndroidMQTT:
                     "MQTT disconnected before PUBACK - wait a hot minute, we should get "
                     "the response after we auto reconnect"
                 )
+            self.log.trace(
+                f"Request published to {topic.value}, waiting for response {response.name}"
+            )
             timeout_handle = self._loop.call_later(
                 REQUEST_TIMEOUT, self._request_cancel_later, fut
             )
