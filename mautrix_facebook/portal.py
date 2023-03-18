@@ -723,7 +723,7 @@ class Portal(DBPortal, BasePortal):
         ).upsert()
 
         self.log.trace("Sending portal post-create dummy event")
-        self.first_event_id = await self.az.intent.send_message_event(
+        self.first_event_id = await self.main_intent.send_message_event(
             self.mxid, PortalCreateDummy, {}
         )
         await self.save()
