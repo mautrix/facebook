@@ -1036,7 +1036,7 @@ class Portal(DBPortal, BasePortal):
             and (forward or self.next_batch_id is None)
         ):
             self.log.debug("Sending dummy event to avoid forward extremity errors")
-            await self.az.intent.send_message_event(
+            await self.main_intent.send_message_event(
                 self.mxid, EventType("fi.mau.dummy.pre_backfill", EventType.Class.MESSAGE), {}
             )
 
