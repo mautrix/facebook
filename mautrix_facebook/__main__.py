@@ -159,7 +159,7 @@ class MessengerBridge(Bridge):
                     if mode == "refresh":
                         await user.refresh()
                     elif mode == "reconnect":
-                        await user.reconnect()
+                        await user.reconnect(update_proxy=True)
                 except asyncio.CancelledError:
                     log.debug("Periodic reconnect loop stopped")
                     return

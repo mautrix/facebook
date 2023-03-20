@@ -460,13 +460,15 @@ class User(DBUser, BaseUser):
         finally:
             self._is_refreshing = False
 
-    async def reconnect(self, fetch_user: bool = False) -> None:
+    async def reconnect(self, fetch_user: bool = False, update_proxy: bool = False) -> None:
         self._is_refreshing = True
         if self.mqtt:
             self.mqtt.disconnect()
         await self.listen_task
         self.listen_task = None
         self.mqtt = None
+        if update_proxy and self.proxy_handler.update_proxy_url(reason="reconnect"):
+            await self.on_proxy_update()
         if fetch_user:
             self.log.debug("Fetching current user after MQTT disconnection")
             await self.fetch_logged_in_user(
