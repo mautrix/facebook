@@ -63,7 +63,7 @@ T = TypeVar("T")
 no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 REQUEST_TIMEOUT = 30
-
+RECONNECT_ATTEMPTS = 5
 
 # TODO add some custom stuff in these?
 class MQTTNotLoggedIn(Exception):
@@ -479,11 +479,16 @@ class AndroidMQTT:
     # endregion
 
     async def _reconnect(self) -> None:
-        try:
-            self.log.trace("Trying to reconnect to MQTT")
-            self._client.reconnect()
-        except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
-            raise MQTTReconnectionError("MQTT reconnection failed") from e
+        self.log.trace("Trying to reconnect to MQTT")
+        attempts = 0
+        while True:
+            try:
+                self._client.reconnect()
+                return
+            except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
+                attempts += 1
+                if attempts > RECONNECT_ATTEMPTS:
+                    raise MQTTReconnectionError("MQTT reconnection failed") from e
 
     def add_event_handler(
         self, evt_type: Type[T], handler: Callable[[T], Awaitable[None]]
@@ -640,7 +645,7 @@ class AndroidMQTT:
                 await self.publish(topic, payload, prefix)
             except asyncio.TimeoutError:
                 self.log.warning("Publish timed out - try forcing reconnect")
-                self._client.reconnect()
+                self._reconnect()
             except MQTTNotConnected:
                 self.log.warning(
                     "MQTT disconnected before PUBACK - wait a hot minute, we should get "
