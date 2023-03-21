@@ -65,6 +65,7 @@ fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 REQUEST_TIMEOUT = 30
 RECONNECT_ATTEMPTS = 5
 
+
 # TODO add some custom stuff in these?
 class MQTTNotLoggedIn(Exception):
     pass
