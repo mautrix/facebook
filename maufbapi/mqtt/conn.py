@@ -62,7 +62,10 @@ except ImportError:
 T = TypeVar("T")
 no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
-REQUEST_TIMEOUT = 30
+
+REQUEST_PUBLISH_TIMEOUT = 5
+REQUEST_RESPONSE_TIMEOUT = 30
+
 RECONNECT_ATTEMPTS = 5
 
 
@@ -291,7 +294,7 @@ class AndroidMQTT:
 
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
         err_str = "Generic error." if rc == pmc.MQTT_ERR_NOMEM else pmc.error_string(rc)
-        self.log.debug(f"MQTT disconnection code %d: %s", rc, err_str)
+        self.log.debug("MQTT disconnection code %d: %s", rc, err_str)
         self._clear_publish_waiters()
 
     @property
@@ -627,7 +630,9 @@ class AndroidMQTT:
             topic.encoded if isinstance(topic, RealtimeTopic) else topic, payload, qos=1
         )
         fut = self._loop.create_future()
-        timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._publish_cancel_later, fut)
+        timeout_handle = self._loop.call_later(
+            REQUEST_PUBLISH_TIMEOUT, self._publish_cancel_later, fut
+        )
         fut.add_done_callback(lambda _: timeout_handle.cancel())
         self._publish_waiters[info.mid] = fut
         return fut
@@ -656,7 +661,7 @@ class AndroidMQTT:
                 f"Request published to {topic.value}, waiting for response {response.name}"
             )
             timeout_handle = self._loop.call_later(
-                REQUEST_TIMEOUT, self._request_cancel_later, fut
+                REQUEST_RESPONSE_TIMEOUT, self._request_cancel_later, fut
             )
             fut.add_done_callback(lambda _: timeout_handle.cancel())
             return await fut
