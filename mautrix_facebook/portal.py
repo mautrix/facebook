@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2022 Tulir Asokan
+# Copyright (C) 2023 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Pattern, Tuple, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Literal, Pattern, Tuple, cast
 from collections import deque
 from html import escape
 from io import BytesIO
@@ -118,6 +118,7 @@ class Portal(DBPortal, BasePortal):
     by_fbid: dict[tuple[int, int], Portal] = {}
     matrix: m.MatrixHandler
     config: Config
+    private_chat_portal_meta: Literal["default", "always", "never"]
 
     _main_intent: IntentAPI | None
     _create_room_lock: asyncio.Lock
@@ -184,6 +185,7 @@ class Portal(DBPortal, BasePortal):
         cls.loop = bridge.loop
         cls.matrix = bridge.matrix
         cls.invite_own_puppet_to_pm = cls.config["bridge.invite_own_puppet_to_pm"]
+        cls.private_chat_portal_meta = cls.config["bridge.private_chat_portal_meta"]
 
     # region DB conversion
 
@@ -233,6 +235,14 @@ class Portal(DBPortal, BasePortal):
             return graphql.ThreadKey(thread_fbid=str(self.fbid))
         else:
             raise ValueError("Unsupported thread type")
+
+    @property
+    def set_dm_room_metadata(self) -> bool:
+        return (
+            not self.is_direct
+            or self.private_chat_portal_meta == "always"
+            or (self.encrypted and self.private_chat_portal_meta != "never")
+        )
 
     @property
     def is_direct(self) -> bool:
@@ -384,25 +394,24 @@ class Portal(DBPortal, BasePortal):
         if not name:
             self.log.warning("Got empty name in _update_name call")
             return False
-        if self.name != name or not self.name_set:
+        if self.name != name or (not self.name_set and self.set_dm_room_metadata):
             self.log.trace("Updating name %s -> %s", self.name, name)
             self.name = name
-            if self.mxid and (self.encrypted or not self.is_direct):
+            self.name_set = False
+            if self.mxid and self.set_dm_room_metadata:
                 try:
                     await self.main_intent.set_room_name(self.mxid, self.name)
                     self.name_set = True
                 except Exception:
                     self.log.exception("Failed to set room name")
-                    self.name_set = False
             return True
         return False
 
     async def _update_photo(self, source: u.User, photo: graphql.Picture | None) -> bool:
-        if self.is_direct and not self.encrypted:
-            return False
         photo_id = self.get_photo_id(photo)
         if self.photo_id != photo_id or not self.avatar_set:
             self.photo_id = photo_id
+            self.avatar_set = False
             if photo:
                 if self.photo_id != photo_id or not self.avatar_url:
                     # Reset avatar_url first in case the upload fails
@@ -422,12 +431,11 @@ class Portal(DBPortal, BasePortal):
                     self.avatar_set = True
                 except Exception:
                     self.log.exception("Failed to set room avatar")
-                    self.avatar_set = False
             return True
         return False
 
     async def _update_photo_from_puppet(self, puppet: p.Puppet) -> bool:
-        if self.photo_id == puppet.photo_id and self.avatar_set:
+        if self.photo_id == puppet.photo_id and (self.avatar_set or not self.set_dm_room_metadata):
             return False
         self.photo_id = puppet.photo_id
         if puppet.photo_mxc:
@@ -438,13 +446,13 @@ class Portal(DBPortal, BasePortal):
             puppet.photo_mxc = profile.avatar_url
         else:
             self.avatar_url = ContentURI("")
-        if self.mxid:
+        self.avatar_set = False
+        if self.mxid and self.set_dm_room_metadata:
             try:
                 await self.main_intent.set_room_avatar(self.mxid, self.avatar_url)
                 self.avatar_set = True
             except Exception:
                 self.log.exception("Failed to set room avatar")
-                self.avatar_set = False
         return True
 
     async def update_info_from_puppet(self, puppet: p.Puppet | None = None) -> bool:
@@ -482,7 +490,7 @@ class Portal(DBPortal, BasePortal):
         puppet = await p.Puppet.get_by_fbid(int(participant.id))
         await puppet.update_info(source, participant.messaging_actor)
         changed = False
-        if self.is_direct and self.fbid == puppet.fbid and self.encrypted:
+        if self.is_direct and self.fbid == puppet.fbid:
             changed = await self.update_info_from_puppet(puppet) or changed
         if self.mxid:
             if puppet.fbid != self.fb_receiver or puppet.is_real_user:
@@ -667,7 +675,7 @@ class Portal(DBPortal, BasePortal):
             self.log.debug("update_info() didn't return info, cancelling room creation")
             return None
 
-        if self.encrypted or not self.is_direct:
+        if self.set_dm_room_metadata:
             name = self.name
             initial_state.append(
                 {
@@ -688,6 +696,8 @@ class Portal(DBPortal, BasePortal):
         )
         if not self.mxid:
             raise Exception("Failed to create room: no mxid returned")
+        self.name_set = bool(name)
+        self.avatar_set = bool(self.avatar_url) and self.set_dm_room_metadata
 
         if self.encrypted and self.matrix.e2ee and self.is_direct:
             try:

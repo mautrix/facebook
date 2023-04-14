@@ -280,6 +280,11 @@ bridge:
     sandbox_media_download: false
     # URL to call to retrieve a proxy URL from (defaults to the http_proxy environment variable).
     get_proxy_api_url: null
+    # Whether to explicitly set the avatar and room name for private chat portal rooms.
+    # If set to `default`, this will be enabled in encrypted rooms and disabled in unencrypted rooms.
+    # If set to `always`, all DM rooms will have explicit names and avatars set.
+    # If set to `never`, DM rooms will never have names and avatars set.
+    private_chat_portal_meta: default
 
     # End-to-bridge encryption support options.
     #

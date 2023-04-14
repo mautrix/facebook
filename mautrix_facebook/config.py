@@ -1,5 +1,5 @@
 # mautrix-facebook - A Matrix-Facebook Messenger puppeting bridge.
-# Copyright (C) 2022 Tulir Asokan
+# Copyright (C) 2023 Tulir Asokan
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -134,6 +134,9 @@ class Config(BaseBridgeConfig):
         copy_dict("bridge.permissions")
 
         copy("bridge.get_proxy_api_url")
+        copy("bridge.private_chat_portal_meta")
+        if base["bridge.private_chat_portal_meta"] not in ("default", "always", "never"):
+            base["bridge.private_chat_portal_meta"] = "default"
 
         for key in (
             "bridge.periodic_reconnect.interval",
