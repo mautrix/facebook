@@ -38,6 +38,8 @@ from .web import PublicBridgeWebsite
 class MessengerBridge(Bridge):
     name = "mautrix-facebook"
     module = "mautrix_facebook"
+    beeper_service_name = "facebook"
+    beeper_network_name = "facebook"
     command = "python -m mautrix-facebook"
     description = "A Matrix-Facebook Messenger puppeting bridge."
     repo_url = "https://github.com/mautrix/facebook"
