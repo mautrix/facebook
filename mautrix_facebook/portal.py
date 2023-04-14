@@ -2579,6 +2579,28 @@ class Portal(DBPortal, BasePortal):
             ),
         )
 
+    async def handle_facebook_call(
+        self, sender: p.Puppet, thread_change: mqtt.ThreadChange
+    ) -> None:
+        if not self.mxid:
+            return
+
+        if thread_change.action_data["event"] != "group_call_started":
+            return
+
+        call_type = "video" if thread_change.action_data["video"] == "1" else "audio"
+        html = f"<b>Started a group {call_type} call.</b> Open Facebook Messenger to answer."
+
+        await self._send_message(
+            sender.intent_for(self),
+            TextMessageEventContent(
+                msgtype=MessageType.TEXT,
+                body=await parse_html(html),
+                format=Format.HTML,
+                formatted_body=html,
+            ),
+        )
+
     async def handle_facebook_join(
         self, source: u.User, sender: p.Puppet, users: list[p.Puppet]
     ) -> None:

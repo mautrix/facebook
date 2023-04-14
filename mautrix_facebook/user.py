@@ -1324,6 +1324,9 @@ class User(DBUser, BaseUser):
         elif evt.action == mqtt_t.ThreadChangeAction.POLL:
             puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
             await portal.handle_facebook_poll(puppet, evt)
+        elif evt.action == mqtt_t.ThreadChangeAction.CALL_LOG:
+            puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
+            await portal.handle_facebook_call(puppet, evt)
 
         # TODO
         # elif evt.action == mqtt_t.ThreadChangeAction.ADMINS:

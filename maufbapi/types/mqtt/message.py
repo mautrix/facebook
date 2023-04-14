@@ -557,6 +557,11 @@ class ThreadChangeAction(ExtensibleEnum):
     #    'question_json': JSON of the question
     POLL = "group_poll"
 
+    # action_data:
+    #    'event': 'group_call_started', 'group_call_ended', 'missed_call'
+    #    'video': '1' or '0'
+    CALL_LOG = "messenger_call_log"
+
 
 @autospec
 @dataclass(kw_only=True)
