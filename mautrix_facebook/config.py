@@ -137,6 +137,7 @@ class Config(BaseBridgeConfig):
         copy("bridge.private_chat_portal_meta")
         if base["bridge.private_chat_portal_meta"] not in ("default", "always", "never"):
             base["bridge.private_chat_portal_meta"] = "default"
+        copy("bridge.disable_reply_fallbacks")
 
         for key in (
             "bridge.periodic_reconnect.interval",

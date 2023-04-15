@@ -119,6 +119,7 @@ class Portal(DBPortal, BasePortal):
     matrix: m.MatrixHandler
     config: Config
     private_chat_portal_meta: Literal["default", "always", "never"]
+    disable_reply_fallbacks: bool
 
     _main_intent: IntentAPI | None
     _create_room_lock: asyncio.Lock
@@ -186,6 +187,7 @@ class Portal(DBPortal, BasePortal):
         cls.matrix = bridge.matrix
         cls.invite_own_puppet_to_pm = cls.config["bridge.invite_own_puppet_to_pm"]
         cls.private_chat_portal_meta = cls.config["bridge.private_chat_portal_meta"]
+        cls.disable_reply_fallbacks = cls.config["bridge.disable_reply_fallbacks"]
 
     # region DB conversion
 
@@ -1622,7 +1624,7 @@ class Portal(DBPortal, BasePortal):
             return
 
         content.set_reply(message.mxid)
-        if not isinstance(content, TextMessageEventContent):
+        if not isinstance(content, TextMessageEventContent) or self.disable_reply_fallbacks:
             return
 
         try:
