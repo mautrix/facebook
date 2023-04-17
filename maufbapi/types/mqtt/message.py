@@ -329,6 +329,14 @@ class UnsendMessage(ThriftObject):
 
 @autospec
 @dataclass(kw_only=True)
+class DeltaRTCMultiwayMessage(ThriftObject):
+    data: bytes
+    timestamp: int = field(TType.I64)
+    event: str = field(index=3)
+
+
+@autospec
+@dataclass(kw_only=True)
 class PowerUpMessageWrap(ThriftObject):
     message: Message
 
@@ -429,7 +437,7 @@ class MessageSyncClientEvent(ThriftObject):
     unsend_message: UnsendMessage = field(index=67, default=None)  # deltaRecallMessageData
     # 68: deltaMentorshipUpdate
     # 69: deltaPageUnSubscribeStatus
-    # 70: deltaRTCMultiwayMessage
+    delta_rtc_multiway_message: DeltaRTCMultiwayMessage = field(index=70, default=None)
     # 71: deltaMessengerRelationshipEventEligibilityUpdate
     # 72: deltaSchoolChatShouldShowInviteScreenUpdate
     # 73: deltaMessengerAdsConversionUpdate
@@ -703,6 +711,7 @@ class MessageSyncEvent(ThriftObject):
                     inner_item.powerup_message.wrapped.message
                     if inner_item.powerup_message
                     else None,
+                    inner_item.delta_rtc_multiway_message,
                 ]
         return [part for part in parts if part is not None]
 

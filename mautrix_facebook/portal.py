@@ -2579,7 +2579,28 @@ class Portal(DBPortal, BasePortal):
             ),
         )
 
-    async def handle_facebook_call(
+    ringing: bool = False
+
+    async def handle_facebook_call(self, sender: p.Puppet) -> None:
+        if self.ringing:
+            return
+
+        self.ringing = True
+        html = f"<b>Started a call.</b> Open Facebook Messenger to answer."
+        await self._send_message(
+            sender.intent_for(self),
+            TextMessageEventContent(
+                msgtype=MessageType.TEXT,
+                body=await parse_html(html),
+                format=Format.HTML,
+                formatted_body=html,
+            ),
+        )
+
+    async def handle_facebook_call_hangup(self) -> None:
+        self.ringing = False
+
+    async def handle_facebook_group_call(
         self, sender: p.Puppet, thread_change: mqtt.ThreadChange
     ) -> None:
         if not self.mxid:

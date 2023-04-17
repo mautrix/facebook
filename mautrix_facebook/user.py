@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, Call
 from datetime import datetime, timedelta
 from functools import partial
 import asyncio
+import base64
 import hashlib
 import hmac
+import re
 import time
 
 from maufbapi import AndroidAPI, AndroidMQTT, AndroidState
@@ -71,6 +73,9 @@ METRIC_PRESENCE = Summary("bridge_on_presence", "calls to on_presence")
 METRIC_REACTION = Summary("bridge_on_reaction", "calls to on_reaction")
 METRIC_FORCED_FETCH = Summary("bridge_on_forced_fetch", "calls to on_forced_fetch")
 METRIC_MESSAGE_UNSENT = Summary("bridge_on_unsent", "calls to on_unsent")
+METRIC_DELTA_RTC_MULTIWAY_MESSAGE = Summary(
+    "bridge_on_metric_delta_rtc_multiway_message", "calls to on_delta_rtc_multiway_message"
+)
 METRIC_MESSAGE_SEEN = Summary("bridge_on_message_seen", "calls to on_message_seen")
 METRIC_TITLE_CHANGE = Summary("bridge_on_title_change", "calls to on_title_change")
 METRIC_AVATAR_CHANGE = Summary("bridge_on_avatar_change", "calls to on_avatar_change")
@@ -1041,6 +1046,9 @@ class User(DBUser, BaseUser):
                 self.mqtt.add_event_handler(mqtt_t.NameChange, self.on_title_change)
                 self.mqtt.add_event_handler(mqtt_t.AvatarChange, self.on_avatar_change)
                 self.mqtt.add_event_handler(mqtt_t.UnsendMessage, self.on_message_unsent)
+                self.mqtt.add_event_handler(
+                    mqtt_t.DeltaRTCMultiwayMessage, self.on_delta_rtc_multiway_message
+                )
                 self.mqtt.add_event_handler(mqtt_t.ReadReceipt, self.on_message_seen)
                 self.mqtt.add_event_handler(mqtt_t.OwnReadReceipt, self.on_message_seen_self)
                 self.mqtt.add_event_handler(mqtt_t.Reaction, self.on_reaction)
@@ -1245,6 +1253,42 @@ class User(DBUser, BaseUser):
             puppet = await pu.Puppet.get_by_fbid(evt.user_id)
             await portal.handle_facebook_unsend(puppet, evt.message_id, timestamp=evt.timestamp)
 
+    peer_id_re = re.compile(r'"peer_id":"(\d+)"')
+    rtc_room_id_re = re.compile(r"ROOM:(\d+)")
+    rtc_room_id_to_peer_id: dict[str, int] = {}
+
+    @async_time(METRIC_DELTA_RTC_MULTIWAY_MESSAGE)
+    async def on_delta_rtc_multiway_message(self, evt: mqtt_t.DeltaRTCMultiwayMessage) -> None:
+        # The data is in a really annoying format (probably flatbuffers), so we are just parsing
+        # out the important bits manually.
+        decoded = base64.b64decode(evt.data).decode(encoding="unicode_escape")
+        rtc_room_id_match = self.rtc_room_id_re.search(decoded)
+        if not rtc_room_id_match:
+            return
+
+        if evt.event != "RING":
+            peer_id = self.rtc_room_id_to_peer_id.get(rtc_room_id_match.group(1))
+            if not peer_id:
+                return
+
+            portal = await po.Portal.get_by_fbid(peer_id, fb_receiver=self.fbid, create=False)
+            if portal and portal.mxid:
+                await portal.handle_facebook_call_hangup()
+
+            self.rtc_room_id_to_peer_id.pop(rtc_room_id_match.group(1), None)
+            return
+
+        peer_id_match = self.peer_id_re.search(decoded)
+        if not peer_id_match:
+            return
+        peer_id = int(peer_id_match.group(1))
+        self.rtc_room_id_to_peer_id[rtc_room_id_match.group(1)] = peer_id
+
+        portal = await po.Portal.get_by_fbid(peer_id, fb_receiver=self.fbid, create=False)
+        if portal and portal.mxid:
+            puppet = await pu.Puppet.get_by_fbid(peer_id)
+            await portal.handle_facebook_call(puppet)
+
     @async_time(METRIC_REACTION)
     async def on_reaction(self, evt: mqtt_t.Reaction) -> None:
         portal = await po.Portal.get_by_thread(evt.thread, self.fbid, create=False)
@@ -1326,7 +1370,7 @@ class User(DBUser, BaseUser):
             await portal.handle_facebook_poll(puppet, evt)
         elif evt.action == mqtt_t.ThreadChangeAction.CALL_LOG:
             puppet = await pu.Puppet.get_by_fbid(evt.metadata.sender)
-            await portal.handle_facebook_call(puppet, evt)
+            await portal.handle_facebook_group_call(puppet, evt)
 
         # TODO
         # elif evt.action == mqtt_t.ThreadChangeAction.ADMINS:

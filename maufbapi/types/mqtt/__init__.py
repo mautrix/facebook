@@ -5,6 +5,7 @@ from .message import (
     Attachment,
     AudioInfo,
     AvatarChange,
+    DeltaRTCMultiwayMessage,
     ExtendedAddMember,
     ExtendedAddMemberParticipant,
     ExtendedMessage,
