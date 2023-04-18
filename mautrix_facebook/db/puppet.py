@@ -37,12 +37,18 @@ class Puppet:
     photo_mxc: ContentURI | None
     name_set: bool
     avatar_set: bool
+    contact_info_set: bool
     is_registered: bool
 
     custom_mxid: UserID | None
     access_token: str | None
     next_batch: SyncToken | None
     base_url: URL | None
+
+    columns: ClassVar[str] = (
+        "fbid, name, photo_id, photo_mxc, name_set, avatar_set, contact_info_set, is_registered, "
+        "custom_mxid, access_token, next_batch, base_url "
+    )
 
     @classmethod
     def _from_row(cls, row: Record | None) -> Puppet | None:
@@ -54,43 +60,23 @@ class Puppet:
 
     @classmethod
     async def get_by_fbid(cls, fbid: int) -> Puppet | None:
-        q = (
-            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-            "       custom_mxid, access_token, next_batch, base_url "
-            "FROM puppet WHERE fbid=$1"
-        )
-        row = await cls.db.fetchrow(q, fbid)
-        return cls._from_row(row)
+        q = f"SELECT {cls.columns} FROM puppet WHERE fbid=$1"
+        return cls._from_row(await cls.db.fetchrow(q, fbid))
 
     @classmethod
     async def get_by_name(cls, name: str) -> Puppet | None:
-        q = (
-            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-            "       custom_mxid, access_token, next_batch, base_url "
-            "FROM puppet WHERE name=$1"
-        )
-        row = await cls.db.fetchrow(q, name)
-        return cls._from_row(row)
+        q = f"SELECT {cls.columns} FROM puppet WHERE name=$1"
+        return cls._from_row(await cls.db.fetchrow(q, name))
 
     @classmethod
     async def get_by_custom_mxid(cls, mxid: UserID) -> Puppet | None:
-        q = (
-            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-            "       custom_mxid, access_token, next_batch, base_url "
-            "FROM puppet WHERE custom_mxid=$1"
-        )
-        row = await cls.db.fetchrow(q, mxid)
-        return cls._from_row(row)
+        q = f"SELECT {cls.columns} FROM puppet WHERE custom_mxid=$1"
+        return cls._from_row(await cls.db.fetchrow(q, mxid))
 
     @classmethod
     async def get_all_with_custom_mxid(cls) -> list[Puppet]:
-        q = (
-            "SELECT fbid, name, photo_id, photo_mxc, name_set, avatar_set, is_registered, "
-            "       custom_mxid, access_token, next_batch, base_url "
-            "FROM puppet WHERE custom_mxid<>''"
-        )
-        rows = await cls.db.fetch(q)
-        return [cls._from_row(row) for row in rows]
+        q = f"SELECT {cls.columns} FROM puppet WHERE custom_mxid<>''"
+        return [cls._from_row(row) for row in await cls.db.fetch(q)]
 
     @property
     def _values(self):
@@ -101,6 +87,7 @@ class Puppet:
             self.photo_mxc,
             self.name_set,
             self.avatar_set,
+            self.contact_info_set,
             self.is_registered,
             self.custom_mxid,
             self.access_token,
@@ -111,8 +98,9 @@ class Puppet:
     async def insert(self) -> None:
         q = """
             INSERT INTO puppet (fbid, name, photo_id, photo_mxc, name_set, avatar_set,
-                                is_registered, custom_mxid, access_token, next_batch, base_url)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                contact_info_set, is_registered, custom_mxid, access_token,
+                                next_batch, base_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         """
         await self.db.execute(q, *self._values)
 
@@ -123,8 +111,8 @@ class Puppet:
     async def save(self) -> None:
         q = """
             UPDATE puppet SET name=$2, photo_id=$3, photo_mxc=$4, name_set=$5, avatar_set=$6,
-                              is_registered=$7, custom_mxid=$8, access_token=$9, next_batch=$10,
-                              base_url=$11
+                              contact_info_set=$7, is_registered=$8, custom_mxid=$9,
+                              access_token=$10, next_batch=$11, base_url=$12
             WHERE fbid=$1
         """
         await self.db.execute(q, *self._values)
