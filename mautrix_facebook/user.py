@@ -546,6 +546,10 @@ class User(DBUser, BaseUser):
                 self._thread_sync_task.cancel()
             self._thread_sync_task = asyncio.create_task(self.backfill_threads())
 
+        if self.bridge.homeserver_software.is_hungry:
+            self.log.info("Updating contact info for all users")
+            asyncio.gather(*[puppet.update_contact_info() async for puppet in pu.Puppet.get_all()])
+
     async def _handle_backfill_requests_loop(self) -> None:
         if not self.config["bridge.backfill.enable"] or not self.config["bridge.backfill.msc2716"]:
             return

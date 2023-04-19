@@ -74,6 +74,11 @@ class Puppet:
         return cls._from_row(await cls.db.fetchrow(q, mxid))
 
     @classmethod
+    async def get_all(cls) -> list[Puppet]:
+        q = f"SELECT {cls.columns} FROM puppet"
+        return [cls._from_row(row) for row in await cls.db.fetch(q)]
+
+    @classmethod
     async def get_all_with_custom_mxid(cls) -> list[Puppet]:
         q = f"SELECT {cls.columns} FROM puppet WHERE custom_mxid<>''"
         return [cls._from_row(row) for row in await cls.db.fetch(q)]

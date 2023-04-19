@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable, Awaitable, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterable, Awaitable, cast
 from datetime import datetime, timedelta
 import asyncio
 
@@ -155,11 +155,11 @@ class Puppet(DBPuppet, BasePuppet):
             #     return self
             # FIXME
             # info = await source.client.fetch_thread_info([self.fbid]).__anext__()
-            print("no info to update puppet :(")
+            self.log.info("no info to update puppet :(")
             return self
         self._last_info_sync = datetime.now()
         try:
-            changed = await self._update_contact_info(info)
+            changed = await self.update_contact_info(info)
             changed = await self._update_name(info) or changed
             if update_avatar:
                 changed = (
@@ -176,7 +176,7 @@ class Puppet(DBPuppet, BasePuppet):
             self.log.exception(f"Failed to update info from source {source.fbid}")
         return self
 
-    async def _update_contact_info(self, info: Participant | None = None) -> bool:
+    async def update_contact_info(self, info: Participant | None = None) -> bool:
         if not self.bridge.homeserver_software.is_hungry:
             return False
 
@@ -184,17 +184,14 @@ class Puppet(DBPuppet, BasePuppet):
             return False
 
         try:
-            identifiers = []
+            contact_info: dict[str, Any] = {
+                "com.beeper.bridge.remote_id": str(self.fbid),
+                "com.beeper.bridge.service": self.bridge.beeper_service_name,
+                "com.beeper.bridge.network": self.bridge.beeper_network_name,
+            }
             if info and info.username:
-                identifiers.append(f"facebook:{info.username}")
-            await self.default_mxid_intent.beeper_update_profile(
-                {
-                    "com.beeper.bridge.identifiers": identifiers,
-                    "com.beeper.bridge.remote_id": str(self.fbid),
-                    "com.beeper.bridge.service": self.bridge.beeper_service_name,
-                    "com.beeper.bridge.network": self.bridge.beeper_network_name,
-                }
-            )
+                contact_info["com.beeper.bridge.identifiers"] = [f"facebook:{info.username}"]
+            await self.default_mxid_intent.beeper_update_profile(contact_info)
             self.contact_info_set = True
         except Exception:
             self.log.exception("Error updating contact info")
@@ -345,6 +342,17 @@ class Puppet(DBPuppet, BasePuppet):
     @classmethod
     async def get_all_with_custom_mxid(cls) -> AsyncGenerator[Puppet, None]:
         puppets = await super().get_all_with_custom_mxid()
+        puppet: cls
+        for puppet in puppets:
+            try:
+                yield cls.by_fbid[puppet.fbid]
+            except KeyError:
+                puppet._add_to_cache()
+                yield puppet
+
+    @classmethod
+    async def get_all(cls) -> AsyncGenerator[Puppet, None]:
+        puppets = await super().get_all()
         puppet: cls
         for puppet in puppets:
             try:
