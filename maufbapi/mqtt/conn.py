@@ -64,7 +64,7 @@ no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESEN
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 
 REQUEST_PUBLISH_TIMEOUT = 5
-REQUEST_RESPONSE_TIMEOUT = 30
+REQUEST_RESPONSE_TIMEOUT = 60
 
 RECONNECT_ATTEMPTS = 5
 
@@ -660,6 +660,12 @@ class AndroidMQTT:
             self.log.trace(
                 f"Request published to {topic.value}, waiting for response {response.name}"
             )
+            # If we don't have a response in req timeout / 2, force reconnect
+            reconnect_handle = self._loop.call_later(
+                REQUEST_RESPONSE_TIMEOUT / 2, self._reconnect()
+            )
+            fut.add_done_callback(lambda _: reconnect_handle.cancel())
+            # If we don't have a response in req timeout, assume failed
             timeout_handle = self._loop.call_later(
                 REQUEST_RESPONSE_TIMEOUT, self._request_cancel_later, fut
             )
