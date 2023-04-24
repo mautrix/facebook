@@ -19,4 +19,4 @@ aiohttp-socks
 setuptools
 
 #/sqlite
-aiosqlite>=0.16,<0.19
+aiosqlite>=0.16,<0.20
