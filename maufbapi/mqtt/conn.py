@@ -651,7 +651,7 @@ class AndroidMQTT:
                 await self.publish(topic, payload, prefix)
             except asyncio.TimeoutError:
                 self.log.warning("Publish timed out - try forcing reconnect")
-                self._reconnect()
+                await self._reconnect()
             except MQTTNotConnected:
                 self.log.warning(
                     "MQTT disconnected before PUBACK - wait a hot minute, we should get "
