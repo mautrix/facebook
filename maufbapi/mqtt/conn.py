@@ -662,7 +662,8 @@ class AndroidMQTT:
             )
             # If we don't have a response in req timeout / 2, force reconnect
             reconnect_handle = self._loop.call_later(
-                REQUEST_RESPONSE_TIMEOUT / 2, self._reconnect()
+                REQUEST_RESPONSE_TIMEOUT / 2,
+                lambda: self._loop.create_task(self._reconnect()),
             )
             fut.add_done_callback(lambda _: reconnect_handle.cancel())
             # If we don't have a response in req timeout, assume failed
