@@ -1167,6 +1167,8 @@ class User(DBUser, BaseUser):
             self.client.setup_http()
         if self.mqtt:
             self.mqtt.setup_proxy()
+        if self.command_status:
+            self.command_status["api"].setup_http()
 
     def stop_listen(self) -> None:
         if self.mqtt:
