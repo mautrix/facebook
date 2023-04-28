@@ -313,16 +313,15 @@ class User(DBUser, BaseUser):
         self.state.device.connection_type = self.config["facebook.connection_type"]
         self.state.carrier.name = self.config["facebook.carrier"]
         self.state.carrier.hni = self.config["facebook.hni"]
-        client = AndroidAPI(
+        self.client = AndroidAPI(
             self.state,
             log=self.log.getChild("api"),
             proxy_handler=self.proxy_handler,
             on_proxy_update=self.on_proxy_update,
         )
-        user_info = await self.fetch_logged_in_user(client)
+        user_info = await self.fetch_logged_in_user()
         if user_info:
             self.log.info("Loaded session successfully")
-            self.client = client
             self._logged_in_info = user_info
             self._logged_in_info_time = time.monotonic()
             self._track_metric(METRIC_LOGGED_IN, True)
@@ -332,6 +331,8 @@ class User(DBUser, BaseUser):
             self.stop_backfill_tasks()
             background_task.create(self.post_login(is_startup=is_startup))
             return True
+        # Unset the client if we failed to fetch the user
+        self.client = None
         return False
 
     async def _send_reset_notice(self, e: InvalidAccessToken, edit: EventID | None = None) -> None:
@@ -350,16 +351,13 @@ class User(DBUser, BaseUser):
 
     async def fetch_logged_in_user(
         self,
-        client: AndroidAPI | None = None,
         action: str = "restore session",
         refresh_proxy_on_failure: bool = False,
     ) -> None:
-        if not client:
-            client = self.client
         attempt = 0
         while True:
             try:
-                return await client.fetch_logged_in_user()
+                return await self.client.fetch_logged_in_user()
             except RETRYABLE_PROXY_EXCEPTIONS as e:
                 # These are retried by the client up to 10 times, but we actually want to retry
                 # these indefinitely so we capture them here again and retry.
