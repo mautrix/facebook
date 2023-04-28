@@ -431,6 +431,8 @@ class User(DBUser, BaseUser):
     async def reload_session(
         self, event_id: EventID | None = None, retries: int = 3, is_startup: bool = False
     ) -> None:
+        if is_startup:
+            await self.push_bridge_state(BridgeStateEvent.CONNECTING)
         try:
             await self._load_session(is_startup=is_startup)
         except InvalidAccessToken as e:
