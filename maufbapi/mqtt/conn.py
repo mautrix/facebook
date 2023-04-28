@@ -483,7 +483,10 @@ class AndroidMQTT:
     # endregion
 
     async def _reconnect(self) -> None:
-        self.log.trace("Trying to reconnect to MQTT")
+        if self._client.is_connected():
+            self.log.debug("Trying to reconnect to MQTT (currently connected)")
+        else:
+            self.log.debug("Trying to reconnect to MQTT (currently not connected)")
         attempts = 0
         while True:
             try:
@@ -651,22 +654,26 @@ class AndroidMQTT:
             try:
                 await self.publish(topic, payload, prefix)
             except asyncio.TimeoutError:
-                self.log.warning("Publish timed out - try forcing reconnect")
-                await self._reconnect()
+                if topic == RealtimeTopic.SEND_MESSAGE:
+                    self.log.warning("Publish message timed out - try forcing reconnect")
+                    await self._reconnect()
+                else:
+                    self.log.warning(f"Publish {topic.value} timed out, waiting")
             except MQTTNotConnected:
                 self.log.warning(
                     "MQTT disconnected before PUBACK - wait a hot minute, we should get "
                     "the response after we auto reconnect"
                 )
-            self.log.trace(
+            self.log.debug(
                 f"Request published to {topic.value}, waiting for response {response.name}"
             )
-            # If we don't have a response in req timeout / 2, force reconnect
-            reconnect_handle = self._loop.call_later(
-                REQUEST_RESPONSE_TIMEOUT / 2,
-                lambda: self._loop.create_task(self._reconnect()),
-            )
-            fut.add_done_callback(lambda _: reconnect_handle.cancel())
+            if topic == RealtimeTopic.SEND_MESSAGE:
+                # If we don't have a response in req timeout / 2, force reconnect
+                reconnect_handle = self._loop.call_later(
+                    REQUEST_RESPONSE_TIMEOUT / 2,
+                    lambda: self._loop.create_task(self._reconnect()),
+                )
+                fut.add_done_callback(lambda _: reconnect_handle.cancel())
             # If we don't have a response in req timeout, assume failed
             timeout_handle = self._loop.call_later(
                 REQUEST_RESPONSE_TIMEOUT, self._request_cancel_later, fut
