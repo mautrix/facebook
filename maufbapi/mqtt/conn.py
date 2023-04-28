@@ -143,7 +143,7 @@ class AndroidMQTT:
         # mqtt.max_queued_messages_set(0)  # Unlimited messages can be queued
         # mqtt.message_retry_set(20)  # Retry sending for at least 20 seconds
         # mqtt.reconnect_delay_set(min_delay=1, max_delay=120)
-        self._client.connect_async("edge-mqtt.facebook.com", 443, keepalive=60)
+        self._client.connect_async("edge-mqtt.facebook.com", 443, keepalive=30)
         self._client.on_message = self._on_message_handler
         self._client.on_publish = self._on_publish_handler
         self._client.on_connect = self._on_connect_handler
