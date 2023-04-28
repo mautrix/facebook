@@ -490,6 +490,7 @@ class AndroidMQTT:
                 self._client.reconnect()
                 return
             except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
+                self.log.exception("Error on attempt %d reconnecting to MQTT", attempts)
                 attempts += 1
                 if attempts > RECONNECT_ATTEMPTS:
                     raise MQTTReconnectionError("MQTT reconnection failed") from e
