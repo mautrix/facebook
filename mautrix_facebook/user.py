@@ -892,9 +892,6 @@ class User(DBUser, BaseUser):
             except MNotFound:
                 pass
 
-    async def is_in_portal(self, portal: po.Portal) -> bool:
-        return await UserPortal.get(self.fbid, portal.fbid, portal.fb_receiver) is not None
-
     async def on_2fa_callback(self) -> str:
         if self.command_status and self.command_status.get("action", "") == "Login":
             future = self.loop.create_future()
