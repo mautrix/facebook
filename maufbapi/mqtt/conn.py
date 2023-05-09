@@ -101,6 +101,7 @@ class AndroidMQTT:
     _event_handlers: dict[Type[T], list[Callable[[T], Awaitable[None]]]]
     _outgoing_events: asyncio.Queue
     _event_dispatcher_task: asyncio.Task | None
+    _post_connect_task: asyncio.Task | None
 
     # region Initialization
 
@@ -125,6 +126,7 @@ class AndroidMQTT:
         self._response_waiter_locks = defaultdict(lambda: asyncio.Lock())
         self._event_handlers = defaultdict(lambda: [])
         self._event_dispatcher_task = None
+        self._post_connect_task = None
         self._outgoing_events = asyncio.Queue()
         self.log = log or logging.getLogger("maufbapi.mqtt")
         self._loop = loop or asyncio.get_event_loop()
@@ -290,12 +292,15 @@ class AndroidMQTT:
                     self.connection_unauthorized_callback()
             return
 
-        background_task.create(self._post_connect())
+        self._post_connect_task = background_task.create(self._post_connect())
 
     def _on_disconnect_handler(self, client: MQTToTClient, _: Any, rc: int) -> None:
         err_str = "Generic error." if rc == pmc.MQTT_ERR_NOMEM else pmc.error_string(rc)
         self.log.debug("MQTT disconnection code %d: %s", rc, err_str)
         self._clear_publish_waiters()
+        if self._post_connect_task:
+            self._post_connect_task.cancel()
+            self._post_connect_task = None
 
     @property
     def _sync_queue_params(self) -> dict[str, Any]:
@@ -385,15 +390,17 @@ class AndroidMQTT:
             await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, self._sync_create_queue_data)
 
     async def _post_connect(self) -> None:
-        try:
-            await self._unsafe_post_connect()
-        except Exception:
-            # If we ever connect, but fail to send the SYNC_* message, we end up stuck with a "working"
-            # MQTT connection but no data flowing. Always retry in this situation. The listen method
-            # should detect & raise any connection issues, so looping here is OK.
-            self.log.exception("Error publishing MQTT queue SYNC request, retrying in 5s!")
-            await asyncio.sleep(5)
-            background_task.create(self._post_connect())
+        while True:
+            try:
+                await self._unsafe_post_connect()
+            except Exception:
+                # If we ever connect, but fail to send the SYNC_* message, we end up stuck with a "working"
+                # MQTT connection but no data flowing. Always retry in this situation. The listen method
+                # should detect & raise any connection issues, so looping here is OK.
+                self.log.exception("Error publishing MQTT queue SYNC request, retrying in 5s!")
+                await asyncio.sleep(5)
+            else:
+                return
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
