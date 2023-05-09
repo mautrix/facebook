@@ -360,7 +360,7 @@ class AndroidMQTT:
             queue_params=json.dumps(self._sync_queue_params, separators=(",", ":")),
         )
 
-    async def _post_connect(self) -> None:
+    async def _unsafe_post_connect(self) -> None:
         self._opened_thread = None
         self.log.debug(f"Re-creating sync queue after reconnect (seq_id={self.seq_id})")
         await self._dispatch(Connect())
@@ -383,6 +383,17 @@ class AndroidMQTT:
             )
         else:
             await self.publish(RealtimeTopic.SYNC_CREATE_QUEUE, self._sync_create_queue_data)
+
+    async def _post_connect(self) -> None:
+        try:
+            await self._unsafe_post_connect()
+        except Exception:
+            # If we ever connect, but fail to send the SYNC_* message, we end up stuck with a "working"
+            # MQTT connection but no data flowing. Always retry in this situation. The listen method
+            # should detect & raise any connection issues, so looping here is OK.
+            self.log.exception("Error publishing MQTT queue SYNC request, retrying in 5s!")
+            await asyncio.sleep(5)
+            background_task.create(self._post_connect())
 
     def _on_publish_handler(self, client: MQTToTClient, _: Any, mid: int) -> None:
         try:
