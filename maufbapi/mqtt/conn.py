@@ -67,8 +67,6 @@ REQUEST_TIMEOUT = 60
 DEFAULT_KEEPALIVE = 60
 REQUEST_KEEPALIVE = 5
 
-RECONNECT_ATTEMPTS = 5
-
 
 # TODO add some custom stuff in these?
 class MQTTNotLoggedIn(Exception):
@@ -502,20 +500,11 @@ class AndroidMQTT:
     # endregion
 
     async def _reconnect(self) -> None:
-        if self._client.is_connected():
-            self.log.debug("Trying to reconnect to MQTT (currently connected)")
-        else:
-            self.log.debug("Trying to reconnect to MQTT (currently not connected)")
-        attempts = 0
-        while True:
-            try:
-                self._client.reconnect()
-                return
-            except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
-                self.log.exception("Error on attempt %d reconnecting to MQTT", attempts)
-                attempts += 1
-                if attempts > RECONNECT_ATTEMPTS:
-                    raise MQTTReconnectionError("MQTT reconnection failed") from e
+        try:
+            self._client.reconnect()
+        except (SocketError, OSError, pmc.WebsocketConnectionError) as e:
+            self.log.exception("Error reconnecting to MQTT")
+            raise MQTTReconnectionError("MQTT reconnection failed") from e
 
     def add_event_handler(
         self, evt_type: Type[T], handler: Callable[[T], Awaitable[None]]
@@ -553,7 +542,7 @@ class AndroidMQTT:
         finally:
             self.log.debug(f"Dispatcher loop {loop_id} stopped")
 
-    async def listen(self, seq_id: int, retry_limit: int = 5) -> None:
+    async def listen(self, seq_id: int, retry_limit: int = 10) -> None:
         self.seq_id = seq_id
 
         self.log.debug("Connecting to Messenger MQTT")
@@ -606,8 +595,8 @@ class AndroidMQTT:
             on_proxy_change=lambda: self._dispatch(ProxyUpdate()),
             max_retries=retry_limit,
             retryable_exceptions=(MQTTNotConnected, MQTTReconnectionError),
-            # Wait 1s * errors, max 10s for fast reconnect or die
-            max_wait_seconds=10,
+            # Wait 1s * errors, max 5s for fast reconnect or die
+            max_wait_seconds=5,
             multiply_wait_seconds=1,
         )
 
