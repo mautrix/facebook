@@ -63,8 +63,9 @@ T = TypeVar("T")
 no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 
-REQUEST_PUBLISH_TIMEOUT = 15
-REQUEST_RESPONSE_TIMEOUT = 60
+REQUEST_TIMEOUT = 60
+DEFAULT_KEEPALIVE = 60
+REQUEST_KEEPALIVE = 5
 
 RECONNECT_ATTEMPTS = 5
 
@@ -631,6 +632,18 @@ class AndroidMQTT:
         if not fut.done():
             fut.set_exception(asyncio.TimeoutError("MQTT request timed out"))
 
+    # The following two functions mutate the client keepalive (cheeky) to temporarily increase
+    # ping attempts during read/write to MQTT. If things are flowing this should change nothing,
+    # as pings only send when idle. It should, however, allow the client to detect a bad MQTT
+    # connection much quicker than the default keepalive.
+    def set_request_keepalive(self):
+        self._client._keepalive = REQUEST_KEEPALIVE
+
+    def maybe_reset_keepalive(self):
+        # Reset the keepalive back to the default value if we have no pending publish/receive
+        if not self._response_waiters and not self._publish_waiters:
+            self._client._keepalive = DEFAULT_KEEPALIVE
+
     def publish(
         self,
         topic: RealtimeTopic | str,
@@ -648,14 +661,14 @@ class AndroidMQTT:
             payload = zlib.compress(prefix + payload, level=9)
         elif prefix:
             payload = prefix + payload
+        self.set_request_keepalive()
         info = self._client.publish(
             topic.encoded if isinstance(topic, RealtimeTopic) else topic, payload, qos=1
         )
         fut = self._loop.create_future()
-        timeout_handle = self._loop.call_later(
-            REQUEST_PUBLISH_TIMEOUT, self._publish_cancel_later, fut
-        )
+        timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._publish_cancel_later, fut)
         fut.add_done_callback(lambda _: timeout_handle.cancel())
+        fut.add_done_callback(lambda _: self.maybe_reset_keepalive())
         self._publish_waiters[info.mid] = fut
         return fut
 
@@ -669,34 +682,15 @@ class AndroidMQTT:
         async with self._response_waiter_locks[response]:
             fut = self._loop.create_future()
             self._response_waiters[response] = fut
-            try:
-                await self.publish(topic, payload, prefix)
-            except asyncio.TimeoutError:
-                if topic == RealtimeTopic.SEND_MESSAGE:
-                    self.log.warning("Publish message timed out - try forcing reconnect")
-                    await self._reconnect()
-                else:
-                    self.log.warning(f"Publish {topic.value} timed out, waiting")
-            except MQTTNotConnected:
-                self.log.warning(
-                    "MQTT disconnected before PUBACK - wait a hot minute, we should get "
-                    "the response after we auto reconnect"
-                )
+            background_task.create(self.publish(topic, payload, prefix))
             self.log.debug(
-                f"Request published to {topic.value}, waiting for response {response.name}"
+                f"Request publish to {topic.value} queued, waiting for response {response.name}"
             )
-            if topic == RealtimeTopic.SEND_MESSAGE:
-                # If we don't have a response in req timeout / 2, force reconnect
-                reconnect_handle = self._loop.call_later(
-                    REQUEST_RESPONSE_TIMEOUT / 2,
-                    lambda: self._loop.create_task(self._reconnect()),
-                )
-                fut.add_done_callback(lambda _: reconnect_handle.cancel())
-            # If we don't have a response in req timeout, assume failed
             timeout_handle = self._loop.call_later(
-                REQUEST_RESPONSE_TIMEOUT, self._request_cancel_later, fut
+                REQUEST_TIMEOUT, self._request_cancel_later, fut
             )
             fut.add_done_callback(lambda _: timeout_handle.cancel())
+            fut.add_done_callback(lambda _: self.maybe_reset_keepalive())
             return await fut
 
     @staticmethod
