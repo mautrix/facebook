@@ -29,6 +29,7 @@ from .matrix import MatrixHandler
 from .portal import Portal
 from .presence import PresenceUpdater
 from .puppet import Puppet
+from .segment_analytics import init as init_segment
 from .user import User
 from .util.interval import get_interval
 from .version import linkified_version, version
@@ -66,6 +67,8 @@ class MessengerBridge(Bridge):
             secret = self.config["appservice.public.shared_secret"]
             segment_key = self.config["appservice.public.segment_key"]
             segment_user_id = self.config["appservice.public.segment_user_id"]
+            if segment_key:
+                init_segment(segment_key, segment_user_id)
             self.public_website = PublicBridgeWebsite(
                 loop=self.loop,
                 shared_secret=secret,
