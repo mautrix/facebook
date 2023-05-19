@@ -78,6 +78,7 @@ from .db import (
     UserPortal as UserPortal,
 )
 from .formatter import facebook_to_matrix, matrix_to_facebook
+from .segment_analytics import track
 
 if TYPE_CHECKING:
     from .__main__ import MessengerBridge
@@ -1476,6 +1477,7 @@ class Portal(DBPortal, BasePortal):
         message = await DBMessage.get_by_mxid(event_id, self.mxid)
         if message:
             if not message.fbid:
+                track(sender, "$unknown_message_fbid")
                 raise NotImplementedError("Tried to redact message whose fbid is unknown")
             try:
                 await message.delete()
@@ -1535,6 +1537,7 @@ class Portal(DBPortal, BasePortal):
             if not message:
                 raise NotImplementedError("reaction target message not found")
             elif not message.fbid:
+                track(sender, "$unknown_message_fbid")
                 raise NotImplementedError("facebook ID of target message is unknown")
 
             existing = await DBReaction.get_by_fbid(message.fbid, self.fb_receiver, sender.fbid)
