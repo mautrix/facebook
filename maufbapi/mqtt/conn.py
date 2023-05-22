@@ -63,7 +63,7 @@ T = TypeVar("T")
 no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESENCE)
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 
-REQUEST_TIMEOUT = 60
+REQUEST_TIMEOUT = 60 * 3
 DEFAULT_KEEPALIVE = 60
 REQUEST_KEEPALIVE = 5
 
