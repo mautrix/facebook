@@ -48,8 +48,6 @@ class PublicBridgeWebsite:
     def __init__(
         self,
         shared_secret: str,
-        segment_key: str | None,
-        segment_user_id: str | None,
         loop: asyncio.AbstractEventLoop,
     ) -> None:
         self.app = web.Application()
