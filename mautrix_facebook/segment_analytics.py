@@ -7,7 +7,7 @@ import aiohttp
 
 from mautrix.util import background_task
 
-from .. import user as u
+from . import user as u
 
 log = logging.getLogger("mau.web.public.analytics")
 segment_url: URL = URL("https://api.segment.io/v1/track")
