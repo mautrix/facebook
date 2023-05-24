@@ -598,6 +598,8 @@ class AndroidMQTT:
             # Wait 1s * errors, max 5s for fast reconnect or die
             max_wait_seconds=5,
             multiply_wait_seconds=1,
+            # If connection stable for >1h, reset the error counter
+            reset_after_seconds=3600,
         )
 
         if self._event_dispatcher_task:
