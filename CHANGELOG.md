@@ -1,3 +1,24 @@
+# v0.5.0 (2023-05-31)
+
+* Added config option to disable bridging `m.notice` messages
+  (thanks to [@jzapataikono] in [#280]).
+* Added options to automatically ratchet/delete megolm sessions to minimize
+  access to old messages.
+* Added option to not set room name/avatar even in encrypted rooms.
+* Added option to disable reply fallbacks entirely.
+* Added notice message when a call is received on Messenger.
+* Redid backfill system to support MSC2716.
+  * Note that using Synapse's MSC2716 implementation is not recommended, and
+    the bridge can still backfill messages without MSC2716.
+* Implemented appservice pinging using MSC2659.
+* Possibly improved MQTT connection handling.
+* Fixed bridging profile pictures for Instagram users.
+* Fixed MQTT connection failing in certain cases when Facebook returned weird
+  data in the chat list.
+
+[@jzapataikono]: https://github.com/jzapataikono
+[#280]: https://github.com/mautrix/facebook/pull/280
+
 # v0.4.1 (2022-11-15)
 
 * Improved unsupported message fallbacks and added support for more message
