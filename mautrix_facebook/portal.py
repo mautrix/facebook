@@ -274,7 +274,9 @@ class Portal(DBPortal, BasePortal):
         ):
             return
         self._sleeping_to_resync = True
-        self.log.debug(f"Scheduling resync through {source.mxid}/{source.fbid}")
+        self.log.debug(
+            f"Scheduling resync through {source.mxid}/{source.fbid} to fetch {target.fbid} info"
+        )
         self._scheduled_resync = asyncio.create_task(self._sleep_and_resync(source, 10))
 
     async def _sleep_and_resync(self, source: u.User, sleep: int) -> None:
