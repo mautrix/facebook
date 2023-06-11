@@ -408,6 +408,7 @@ class AndroidMQTT:
             return
         if not waiter.done():
             waiter.set_result(None)
+        self.maybe_reset_keepalive()
 
     # region Incoming event parsing
 
@@ -496,6 +497,8 @@ class AndroidMQTT:
         except Exception:
             self.log.exception("Error in incoming MQTT message handler")
             self.log.trace("Errored MQTT payload: %s", message.payload)
+        finally:
+            self.maybe_reset_keepalive()
 
     # endregion
 
@@ -659,7 +662,6 @@ class AndroidMQTT:
         fut = self._loop.create_future()
         timeout_handle = self._loop.call_later(REQUEST_TIMEOUT, self._publish_cancel_later, fut)
         fut.add_done_callback(lambda _: timeout_handle.cancel())
-        fut.add_done_callback(lambda _: self.maybe_reset_keepalive())
         self._publish_waiters[info.mid] = fut
         return fut
 
@@ -681,7 +683,6 @@ class AndroidMQTT:
                 REQUEST_TIMEOUT, self._request_cancel_later, fut
             )
             fut.add_done_callback(lambda _: timeout_handle.cancel())
-            fut.add_done_callback(lambda _: self.maybe_reset_keepalive())
             return await fut
 
     @staticmethod
