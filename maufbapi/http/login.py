@@ -53,10 +53,11 @@ class LoginAPI(BaseAndroidAPI):
 
     async def mobile_config_sessionless(self) -> MobileConfig:
         req = {
-            "query_hash": "0a97d448717ed4434c5f3c152f7f94893cfa691f2f9a5c40d8783ea30da6bbe9",
-            "one_query_hash": "52b26867babb064b6b8ff8147bc59f98351c38418b8a500b79c9448f73770bc3",
+            "query_hash": "d0f8e9b4483f166c1b165f83b5a77966cde32272caa1259af720ef1c255b8ebd",
+            "one_query_hash": "73b7bcf032789a3391f7fa4fa74a82835518b06761989db4b03a0ca168ebc707",
             "bool_opt_policy": "3",
             "device_id": self.state.device.uuid,
+            "family_device_id": self.state.device.fdid.upper(),
             "api_version": "8",
             "fetch_type": "SYNC_FULL",
             "unit_type": "1",

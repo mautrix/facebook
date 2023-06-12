@@ -27,11 +27,11 @@ from mautrix.types import SerializableAttrs
 @dataclass
 class AndroidApplication(SerializableAttrs):
     name: str = "Orca-Android"
-    version: str = "388.0.0.23.106"
+    version: str = "412.0.0.15.69"
     id: str = "com.facebook.orca"
     locale: str = "en_US"
-    build: int = 423808514
-    version_id: int = 5840539252670510
+    build: int = 481775700
+    version_id: int = 9479297928778044
 
     client_id = "256002347743983"
     client_secret = "374e60f8b9bb6b8cbb30f78030438895"

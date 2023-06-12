@@ -184,11 +184,12 @@ class AndroidMQTT:
 
     def _form_client_id(self, force_password: bool = False) -> bytes:
         subscribe_topics = [
-            RealtimeTopic.PRESENCE,
+            RealtimeTopic.PRESENCE,  # /t_p
             "/t_rtc",
+            "/mercury",
             "/t_rtc_log",
             "/webrtc_response",
-            RealtimeTopic.MESSAGE_SYNC,
+            "/delete_messages_notification",
             "/pp",
             "/webrtc",
             "/quick_promotion_refresh",
@@ -199,15 +200,16 @@ class AndroidMQTT:
             "/t_push",
             "/ixt_trigger",
             "/rs_resp",
-            RealtimeTopic.REGION_HINT,
+            RealtimeTopic.REGION_HINT,  # /t_region_hint
+            "/orca_message_notifications",
             "/t_trace",
-            RealtimeTopic.TYPING_NOTIFICATION,
+            RealtimeTopic.TYPING_NOTIFICATION,  # t_tn
             "/sr_res",
             "/t_sp",
             "/t_rtc_multi",
             "/ls_resp",
-            # RealtimeTopic.SEND_MESSAGE_RESP,
-            # RealtimeTopic.MARK_THREAD_READ_RESPONSE,
+            # Non-standard required by bridge
+            RealtimeTopic.MESSAGE_SYNC,  # /t_ms
         ]
 
         if self.enable_web_presence:

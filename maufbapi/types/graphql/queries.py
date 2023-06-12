@@ -40,10 +40,10 @@ class GraphQLMutation(GraphQLQuery, ABC):
 
 @dataclass
 class NTContext(SerializableAttrs):
-    styles_id: str = "f0533d91def8d61a3313ed598b05d1c6"
+    styles_id: str = "75ceb8745bb35e5b9592e8c0f326ff93"
     using_white_navbar: bool = True
     pixel_ratio: int = 3
-    bloks_version: str = "fc56cdee608566949092d23ea9734b8278cc3cf04203956a29db3898eca10b9e"
+    bloks_version: str = "767fdd9f0b95fc47193a332ff7e90f48e86e3d63fd412b2414fc5528dda2feb8"
     is_push_on: bool = True
 
 
