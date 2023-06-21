@@ -1413,7 +1413,11 @@ class Portal(DBPortal, BasePortal):
                     " to bridge media message reply metadata to Facebook"
                 )
         filename = message.body
-        if is_relay:
+        has_caption = is_relay
+        if "filename" in message and message["filename"] != message.body:
+            has_caption = True
+            filename = message["filename"]
+        if has_caption:
             caption = (await matrix_to_facebook(message, self.mxid, self.log)).text
         else:
             caption = None
