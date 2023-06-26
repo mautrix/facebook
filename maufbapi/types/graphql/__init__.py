@@ -44,7 +44,6 @@ from .responses import (
     MinimalSticker,
     MinimalThreadListResponse,
     MontageReplyData,
-    UserInfo,
     PageInfo,
     Participant,
     ParticipantID,
@@ -73,4 +72,5 @@ from .responses import (
     ThreadKey,
     ThreadListResponse,
     ThreadQueryResponse,
+    UserInfo,
 )

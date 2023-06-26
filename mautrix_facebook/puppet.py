@@ -22,14 +22,13 @@ import asyncio
 from yarl import URL
 
 from maufbapi.types.graphql import Participant, ParticipantType, Picture
+from maufbapi.types.graphql.queries import UsersQuery
+from maufbapi.types.graphql.responses import UserInfo
 from mautrix.appservice import IntentAPI
 from mautrix.bridge import BasePuppet, async_getter_lock
 from mautrix.types import ContentURI, RoomID, SyncToken, UserID
 from mautrix.util import magic
 from mautrix.util.simple_template import SimpleTemplate
-
-from maufbapi.types.graphql.queries import UsersQuery
-from maufbapi.types.graphql.responses import UserInfo
 
 from . import matrix as m, portal as p, user as u
 from .config import Config
@@ -206,11 +205,7 @@ class Puppet(DBPuppet, BasePuppet):
     def _get_displayname(cls, info: Participant | UserInfo) -> str:
         info = {}
         if isinstance(info, UserInfo):
-            info = {
-                "displayname": None,
-                "id": info.id,
-                "name": info.name or "Facebook user"
-            }
+            info = {"displayname": None, "id": info.id, "name": info.name or "Facebook user"}
         else:
             sn = info.structured_name
             info = {
