@@ -50,7 +50,7 @@ from ..types import (
     ThreadQuery,
     ThreadQueryResponse,
 )
-from ..types.graphql import OwnInfo, PageInfo, Thread, ThreadMessageID
+from ..types.graphql import UserInfo, PageInfo, Thread, ThreadMessageID
 from .base import BaseAndroidAPI
 from .errors import RateLimitExceeded, ResponseError
 from .login import LoginAPI
@@ -330,12 +330,19 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
                 return url
         return None
 
-    async def get_self(self) -> OwnInfo:
-        fields = ",".join(field.name for field in attr.fields(OwnInfo))
+    async def get_self(self) -> UserInfo:
+        fields = ",".join(field.name for field in attr.fields(UserInfo))
         url = (self.graph_url / str(self.state.session.uid)).with_query({"fields": fields})
         resp = await self.http_get(url)
         json_data = await self._handle_response(resp)
-        return OwnInfo.deserialize(json_data)
+        return UserInfo.deserialize(json_data)
+    
+    async def get_user(self, user_id: str) -> UserInfo:
+        fields = ",".join(field.name for field in attr.fields(UserInfo))
+        url = (self.graph_url / user_id).with_query({"fields": fields})
+        resp = await self.http_get(url)
+        json_data = await self._handle_response(resp)
+        return UserInfo.deserialize(json_data)
 
     async def logout(self) -> bool:
         headers = {

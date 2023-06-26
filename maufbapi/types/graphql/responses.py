@@ -671,7 +671,7 @@ class FileAttachmentURLResponse(SerializableAttrs):
 
 
 @dataclass(kw_only=True)
-class OwnInfo(SerializableAttrs):
+class UserInfo(SerializableAttrs):
     id: str
     locale: Optional[str] = None
     email: Optional[str] = None

@@ -28,6 +28,9 @@ from mautrix.types import ContentURI, RoomID, SyncToken, UserID
 from mautrix.util import magic
 from mautrix.util.simple_template import SimpleTemplate
 
+from maufbapi.types.graphql.queries import UsersQuery
+from maufbapi.types.graphql.responses import UserInfo
+
 from . import matrix as m, portal as p, user as u
 from .config import Config
 from .db import Puppet as DBPuppet
@@ -150,26 +153,27 @@ class Puppet(DBPuppet, BasePuppet):
         info: Participant = None,
         update_avatar: bool = True,
     ) -> Puppet:
-        if not info:
-            # if not self.should_sync:
-            #     return self
-            # FIXME
-            # info = await source.client.fetch_thread_info([self.fbid]).__anext__()
-            self.log.info("no info to update puppet :(")
-            return self
-        self._last_info_sync = datetime.now()
         try:
-            changed = await self.update_contact_info(info)
-            changed = await self._update_name(info) or changed
-            if update_avatar:
-                changed = (
-                    await self._update_photo(
-                        source,
-                        info.profile_pic_large,
-                        allow_graph=info.typename != ParticipantType.INSTAGRAM,
+            changed = False
+            self._last_info_sync = datetime.now()
+            if not info:
+                user = await source.client.get_user(self.fbid)
+                if not user:
+                    self.log.info("no info to update puppet :(")
+                    return self
+                changed = await self._update_name(user)
+            else:
+                changed = await self.update_contact_info(info)
+                changed = await self._update_name(info) or changed
+                if update_avatar:
+                    changed = (
+                        await self._update_photo(
+                            source,
+                            info.profile_pic_large,
+                            allow_graph=info.typename != ParticipantType.INSTAGRAM,
+                        )
+                        or changed
                     )
-                    or changed
-                )
             if changed:
                 await self.save()
         except Exception:
@@ -199,23 +203,31 @@ class Puppet(DBPuppet, BasePuppet):
         return True
 
     @classmethod
-    def _get_displayname(cls, info: Participant) -> str:
-        sn = info.structured_name
-        info = {
-            "displayname": None,
-            "id": info.id,
-            "name": info.name or "Facebook user",
-            "phonetic_name": sn.phonetic_name if sn else None,
-            "own_nickname": info.nickname_for_viewer,
-            **(sn.to_dict() if sn else {}),
-        }
+    def _get_displayname(cls, info: Participant | UserInfo) -> str:
+        info = {}
+        if isinstance(info, UserInfo):
+            info = {
+                "displayname": None,
+                "id": info.id,
+                "name": info.name or "Facebook user"
+            }
+        else:
+            sn = info.structured_name
+            info = {
+                "displayname": None,
+                "id": info.id,
+                "name": info.name or "Facebook user",
+                "phonetic_name": sn.phonetic_name if sn else None,
+                "own_nickname": info.nickname_for_viewer,
+                **(sn.to_dict() if sn else {}),
+            }
         for preference in cls.config["bridge.displayname_preference"]:
             if info.get(preference):
                 info["displayname"] = info.get(preference)
                 break
         return cls.config["bridge.displayname_template"].format(**info)
 
-    async def _update_name(self, info: Participant) -> bool:
+    async def _update_name(self, info: Participant | UserInfo) -> bool:
         name = self._get_displayname(info)
         if name != self.name or not self.name_set:
             self.name = name
