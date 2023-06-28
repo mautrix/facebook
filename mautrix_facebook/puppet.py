@@ -47,6 +47,7 @@ class Puppet(DBPuppet, BasePuppet):
     by_custom_mxid: dict[UserID, Puppet] = {}
 
     _last_info_sync: datetime | None
+    _name_fetch_attempted: bool
 
     def __init__(
         self,
@@ -78,6 +79,7 @@ class Puppet(DBPuppet, BasePuppet):
             base_url,
         )
         self._last_info_sync = None
+        self._name_fetch_attempted = False
 
         self.default_mxid = self.get_mxid_from_id(fbid)
         self.default_mxid_intent = self.az.intent.user(self.default_mxid)
@@ -147,18 +149,25 @@ class Puppet(DBPuppet, BasePuppet):
     async def update_info(
         self,
         source: u.User = None,
-        info: Participant = None,
+        info: Participant | None = None,
         update_avatar: bool = True,
     ) -> Puppet:
-        if not info:
-            # if not self.should_sync:
-            #     return self
-            # FIXME
-            # info = await source.client.fetch_thread_info([self.fbid]).__anext__()
-            self.log.info("no info to update puppet :(")
-            return self
-        self._last_info_sync = datetime.now()
+        if info is None:
+            if self._name_fetch_attempted:
+                return self
+            self.log.debug(
+                "Fetching user info to fill profile as name is missing during message handling"
+            )
+            self._name_fetch_attempted = True
         try:
+            if not info:
+                fetched_users = await source.client.fetch_user_info(self.fbid)
+                if not fetched_users:
+                    self.log.info("no info to update puppet :(")
+                    return self
+                info = fetched_users[0]
+                assert int(info.id) == self.fbid
+            self._last_info_sync = datetime.now()
             changed = await self.update_contact_info(info)
             changed = await self._update_name(info) or changed
             if update_avatar:

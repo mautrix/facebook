@@ -73,4 +73,5 @@ from .responses import (
     ThreadKey,
     ThreadListResponse,
     ThreadQueryResponse,
+    UsersQueryResponse,
 )

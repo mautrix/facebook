@@ -49,8 +49,10 @@ from ..types import (
     ThreadListResponse,
     ThreadQuery,
     ThreadQueryResponse,
+    UsersQuery,
+    UsersQueryResponse,
 )
-from ..types.graphql import OwnInfo, PageInfo, Thread, ThreadMessageID
+from ..types.graphql import PageInfo, Participant, Thread, ThreadMessageID
 from .base import BaseAndroidAPI
 from .errors import RateLimitExceeded, ResponseError
 from .login import LoginAPI
@@ -178,6 +180,14 @@ class AndroidAPI(LoginAPI, PostLoginAPI, UploadAPI, BaseAndroidAPI):
             response_type=ThreadQueryResponse,
         )
         return resp.message_threads
+
+    async def fetch_user_info(self, *user_ids: str | int, **kwargs) -> list[Participant]:
+        resp = await self.graphql(
+            UsersQuery(user_fbids=[str(i) for i in user_ids], **kwargs),
+            path=["data"],
+            response_type=UsersQueryResponse,
+        )
+        return resp.messaging_actors
 
     async def fetch_messages(self, thread_id: int, before_time_ms: int, **kwargs) -> MessageList:
         return await self.graphql(

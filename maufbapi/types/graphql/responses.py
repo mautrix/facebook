@@ -618,6 +618,11 @@ class ThreadQueryResponse(SerializableAttrs):
 
 
 @dataclass
+class UsersQueryResponse(SerializableAttrs):
+    messaging_actors: List[Participant]
+
+
+@dataclass
 class StickerPreviewResponse(SerializableAttrs):
     nodes: List[Sticker]
 

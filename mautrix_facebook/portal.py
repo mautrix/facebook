@@ -1760,6 +1760,8 @@ class Portal(DBPortal, BasePortal):
                 # TODO backfill immediate page without MSC2716
         if not await self._bridge_own_message_pm(source, sender, f"message {msg_id}"):
             return
+        if not sender.name:
+            await sender.update_info(source)
         intent = sender.intent_for(self)
         event_ids = []
         for event_type, content in await self.convert_facebook_message(

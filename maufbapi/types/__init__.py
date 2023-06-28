@@ -28,6 +28,7 @@ from .graphql import (
     ThreadQuery,
     ThreadQueryResponse,
     UsersQuery,
+    UsersQueryResponse,
 )
 from .login import LoginResponse, MobileConfig, PasswordKeyResponse
 from .media import UploadErrorData, UploadResponse
