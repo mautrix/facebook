@@ -104,6 +104,7 @@ BridgeState.human_readable_errors.update(
         "fb-connection-error": "Messenger disconnected unexpectedly",
         "fb-auth-error": "Authentication error from Messenger: {message}",
         "fb-disconnected": None,
+        "fb-sync-error": None,
         "fb-no-mqtt": "You're not connected to Messenger",
         "logged-out": "You're not logged into Messenger",
     }
@@ -141,6 +142,9 @@ class User(DBUser, BaseUser):
     _logged_in_info_time: float
     _last_seq_id_save: float
     _seq_id_save_task: asyncio.Task | None
+    _sync_error_ts: float
+    _sync_error_count: int
+    _try_default_seq_id: bool
 
     def __init__(
         self,
@@ -191,6 +195,10 @@ class User(DBUser, BaseUser):
         self._logged_in_info_time = 0
         self._last_seq_id_save = 0
         self._seq_id_save_task = None
+
+        self._sync_error_count = 0
+        self._sync_error_ts = 0
+        self._try_default_seq_id = False
 
         self.client = None
         self.mqtt = None
@@ -645,10 +653,14 @@ class User(DBUser, BaseUser):
         if len(thread_seq_ids) > 1 or (
             len(thread_seq_ids) == 1 and thread_seq_ids[0] != self.seq_id
         ):
-            self.seq_id = max(*thread_seq_ids, self.seq_id)
+            if self._sync_error_count > 1 and self._try_default_seq_id:
+                using = "Using default value due to repeated sync errors"
+            else:
+                self.seq_id = max(*thread_seq_ids, self.seq_id)
+                using = "Using highest value"
             self.log.warning(
                 f"Got more than one sequence ID in thread list: primary={resp.sync_sequence_id}, "
-                f"threads={thread_seq_ids}. Using highest value ({self.seq_id})"
+                f"threads={thread_seq_ids}. {using} ({self.seq_id})"
             )
         if self.mqtt:
             self.mqtt.seq_id = self.seq_id
@@ -1396,7 +1408,28 @@ class User(DBUser, BaseUser):
             self.connect_token_hash = None
             self.start_listen()
         else:
-            self.log.error(f"Message sync error: {evt.value}, resyncing...")
+            now = time.monotonic()
+            if self._sync_error_ts + 60 < now:
+                self._sync_error_count = 0
+            self._sync_error_ts = now
+            self._sync_error_count += 1
+            self._try_default_seq_id = evt == mqtt_t.MessageSyncError.QUEUE_UNDERFLOW
+            if self._sync_error_count > 2:
+                await asyncio.sleep(30)
+            elif self._sync_error_count > 5:
+                self.log.error(
+                    f"Message sync error: {evt.value} (error #{self._sync_error_count}), giving up"
+                )
+                await self.send_bridge_notice(
+                    f"Resyncing failed repeatedly due to {evt.value}",
+                    important=True,
+                    state_event=BridgeStateEvent.UNKNOWN_ERROR,
+                    error_code="fb-sync-error",
+                )
+                return
+            self.log.error(
+                f"Message sync error: {evt.value} (error #{self._sync_error_count}), resyncing..."
+            )
             await self.send_bridge_notice(f"Message sync error: {evt.value}, resyncing...")
             await self.sync_recent_threads()
 
