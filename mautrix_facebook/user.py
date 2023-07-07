@@ -1049,6 +1049,7 @@ class User(DBUser, BaseUser):
                     log=self.log.getChild("mqtt"),
                     connect_token_hash=self.connect_token_hash,
                     proxy_handler=self.proxy_handler,
+                    mqtt_keepalive=self.config["facebook.mqtt_keepalive"],
                 )
                 self.mqtt.seq_id_update_callback = self._update_seq_id
                 self.mqtt.region_hint_callback = self._update_region_hint

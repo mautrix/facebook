@@ -403,6 +403,8 @@ facebook:
     carrier: Verizon
     hni: 311390
 
+    mqtt_keepalive: 60
+
 # Python logging configuration.
 #
 # See section 16.7.2 of the Python documentation for more info:

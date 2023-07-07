@@ -64,7 +64,6 @@ no_prefix_topics = (RealtimeTopic.TYPING_NOTIFICATION, RealtimeTopic.ORCA_PRESEN
 fb_topic_regex = re.compile(r"^(?P<topic>/[a-z_]+|\d+)(?P<extra>[|/#].+)?$")
 
 REQUEST_TIMEOUT = 60 * 3
-DEFAULT_KEEPALIVE = 60
 REQUEST_KEEPALIVE = 5
 
 
@@ -111,6 +110,7 @@ class AndroidMQTT:
         log: TraceLogger | None = None,
         connect_token_hash: bytes | None = None,
         proxy_handler: ProxyHandler | None = None,
+        mqtt_keepalive: int = 60,
     ) -> None:
         self.seq_id = None
         self.seq_id_update_callback = None
@@ -144,7 +144,8 @@ class AndroidMQTT:
         # mqtt.max_queued_messages_set(0)  # Unlimited messages can be queued
         # mqtt.message_retry_set(20)  # Retry sending for at least 20 seconds
         # mqtt.reconnect_delay_set(min_delay=1, max_delay=120)
-        self._client.connect_async("edge-mqtt.facebook.com", 443, keepalive=60)
+        self._default_keepalive = mqtt_keepalive
+        self._client.connect_async("edge-mqtt.facebook.com", 443, keepalive=mqtt_keepalive)
         self._client.on_message = self._on_message_handler
         self._client.on_publish = self._on_publish_handler
         self._client.on_connect = self._on_connect_handler
@@ -638,7 +639,7 @@ class AndroidMQTT:
     def maybe_reset_keepalive(self):
         # Reset the keepalive back to the default value if we have no pending publish/receive
         if not self._response_waiters and not self._publish_waiters:
-            self._client._keepalive = DEFAULT_KEEPALIVE
+            self._client._keepalive = self._default_keepalive
 
     def publish(
         self,

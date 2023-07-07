@@ -154,6 +154,7 @@ class Config(BaseBridgeConfig):
         copy("facebook.connection_type")
         copy("facebook.carrier")
         copy("facebook.hni")
+        copy("facebook.mqtt_keepalive")
 
     def _get_permissions(self, key: str) -> tuple[bool, bool, bool, str]:
         level = self["bridge.permissions"].get(key, "")
