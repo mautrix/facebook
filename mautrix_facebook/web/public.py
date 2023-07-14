@@ -272,7 +272,7 @@ class PublicBridgeWebsite:
             )
         except OAuthException as e:
             track(user, "$login_failed", {"error": str(e)})
-            self.log.debug(f"Got OAuthException {e} for {user.mxid}")
+            self.log.debug(f"Got OAuthException {e} for {user.mxid}: {e.data}")
             return web.json_response({"error": str(e)}, headers=self._acao_headers, status=401)
 
     async def login_2fa(self, request: web.Request) -> web.Response:
@@ -320,7 +320,7 @@ class PublicBridgeWebsite:
             )
         except OAuthException as e:
             track(user, "$login_failed", {"error": str(e)})
-            self.log.debug(f"Got OAuthException {e} for {user.mxid} in 2fa stage")
+            self.log.debug(f"Got OAuthException {e} for {user.mxid} in 2fa stage: {e.data}")
             return web.json_response({"error": str(e)}, headers=self._acao_headers, status=401)
 
     async def login_approved(self, request: web.Request) -> web.Response:
@@ -345,7 +345,9 @@ class PublicBridgeWebsite:
             return web.json_response({"status": "logged-in"}, headers=self._acao_headers)
         except OAuthException as e:
             track(user, "$login_failed", {"error": str(e)})
-            self.log.debug(f"Got OAuthException {e} for {user.mxid} in checkpoint login stage")
+            self.log.debug(
+                f"Got OAuthException {e} for {user.mxid} in checkpoint login stage: {e.data}"
+            )
             return web.json_response({"error": str(e)}, headers=self._acao_headers, status=401)
 
     async def login_check_approved(self, request: web.Request) -> web.Response:
