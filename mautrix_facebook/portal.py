@@ -672,8 +672,9 @@ class Portal(DBPortal, BasePortal):
                     "content": self.get_encryption_state_event_json(),
                 }
             )
-            if self.is_direct:
-                invites.append(self.az.bot_mxid)
+            
+        if self.is_direct:
+            invites.append(self.az.bot_mxid)
 
         info = await self.update_info(source, info=info)
         if not info:
