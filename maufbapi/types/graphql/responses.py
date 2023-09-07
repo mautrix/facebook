@@ -416,7 +416,7 @@ class StoryAttachment(SerializableAttrs):
         )
         if not url:
             return None
-        return URL(url).with_query(None)
+        return URL(url)  # .with_query(None)
 
     @property
     def is_likely_bridgeable(self) -> bool:
