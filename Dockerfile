@@ -16,7 +16,7 @@ RUN apk add --no-cache \
       py3-unpaddedbase64 \
       py3-future \
       # proxy support
-      py3-aiohttp-socks \
+      #py3-aiohttp-socks \
       py3-pysocks \
       # Other dependencies
       ffmpeg \
