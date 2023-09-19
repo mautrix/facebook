@@ -2,7 +2,7 @@ FROM docker.io/alpine:3.18
 
 RUN apk add --no-cache \
       python3 py3-pip py3-setuptools py3-wheel \
-      py3-pillow \
+      #py3-pillow \
       py3-aiohttp \
       py3-magic \
       py3-ruamel.yaml \
@@ -26,7 +26,9 @@ RUN apk add --no-cache \
       bash \
       curl \
       jq \
-      yq
+      yq \
+  # Temporarily install pillow from edge repo to get up-to-date version
+  && apk add --no-cache py3-pillow --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
 COPY requirements.txt /opt/mautrix-facebook/requirements.txt
 COPY optional-requirements.txt /opt/mautrix-facebook/optional-requirements.txt
