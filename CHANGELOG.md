@@ -1,3 +1,15 @@
+# v0.5.1 (2023-09-19)
+
+* **Security:** Updated Pillow to 10.0.1.
+* Added support for double puppeting with arbitrary `as_token`s.
+  See [docs](https://docs.mau.fi/bridges/general/double-puppeting.html#appservice-method-new) for more info.
+* Added support for sending captions with [MSC2530].
+* Fixed profile info not being visible in community group chats.
+* Fixed permalinks being broken when bridging certain types of shared posts
+  from Facebook.
+
+[MSC2530]: https://github.com/matrix-org/matrix-spec-proposals/2530
+
 # v0.5.0 (2023-05-31)
 
 * Added config option to disable bridging `m.notice` messages
