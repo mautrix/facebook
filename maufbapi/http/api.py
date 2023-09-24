@@ -39,6 +39,7 @@ from ..types import (
     MinimalThreadListResponse,
     MoreMessagesQuery,
     MoreThreadsQuery,
+    OwnInfo,
     ReactionAction,
     SearchEntitiesNamedQuery,
     SearchEntitiesResponse,
