@@ -68,6 +68,7 @@ from mautrix.util.formatter import parse_html
 from mautrix.util.message_send_checkpoint import MessageSendCheckpointStatus
 
 from . import matrix as m, puppet as p, user as u
+from .analytics import track
 from .config import Config
 from .db import (
     Backfill,
@@ -78,7 +79,6 @@ from .db import (
     UserPortal as UserPortal,
 )
 from .formatter import facebook_to_matrix, matrix_to_facebook
-from .segment_analytics import track
 
 if TYPE_CHECKING:
     from .__main__ import MessengerBridge

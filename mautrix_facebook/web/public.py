@@ -31,7 +31,7 @@ from mautrix.types import UserID
 from mautrix.util.signed_token import verify_token
 
 from .. import puppet as pu, user as u
-from ..segment_analytics import track
+from ..analytics import track
 
 
 class InvalidTokenError(Exception):
