@@ -53,8 +53,16 @@ class Config(BaseBridgeConfig):
         else:
             copy("appservice.public.shared_secret")
         copy("appservice.public.allow_matrix_login")
-        copy("appservice.public.segment_key")
-        copy("appservice.public.segment_user_id")
+
+        copy("analytics.host")
+        if "appservice.provisioning.segment_key" in self:
+            base["analytics.token"] = self["appservice.provisioning.segment_key"]
+        else:
+            copy("analytics.token")
+        if "appservice.provisioning.segment_user_id" in self:
+            base["analytics.user_id"] = self["appservice.provisioning.segment_user_id"]
+        else:
+            copy("analytics.user_id")
 
         copy("metrics.enabled")
         copy("metrics.listen_port")
