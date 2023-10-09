@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from urllib.parse import urlunparse
 import logging
 
+from yarl import URL
 import aiohttp
 
 from mautrix.util import background_task
@@ -11,7 +11,7 @@ from . import user as u
 
 log = logging.getLogger("mau.web.public.analytics")
 http: aiohttp.ClientSession | None = None
-analytics_url: str | None = None
+analytics_url: URL | None = None
 analytics_token: str | None = None
 analytics_user_id: str | None = None
 
