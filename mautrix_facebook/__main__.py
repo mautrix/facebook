@@ -23,7 +23,6 @@ import time
 from mautrix.bridge import Bridge
 from mautrix.types import RoomID, UserID
 
-from .analytics import init as init_analytics
 from .config import Config
 from .db import init as init_db, upgrade_table
 from .matrix import MatrixHandler
@@ -34,6 +33,9 @@ from .user import User
 from .util.interval import get_interval
 from .version import linkified_version, version
 from .web import PublicBridgeWebsite
+
+# analytics is skipped to avoid a circular import
+from .analytics import init as init_analytics  # isort:skip
 
 
 class MessengerBridge(Bridge):
