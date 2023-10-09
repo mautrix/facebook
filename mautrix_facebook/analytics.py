@@ -38,7 +38,7 @@ def init(host: str | None, token: str | None, user_id: str | None = None):
     if not host or not token:
         return
     global analytics_url, analytics_token, analytics_user_id, http
-    analytics_url = urlunparse(("https", host, "/v1/track", "", "", ""))
+    analytics_url = URL.build(scheme="https", host=host, path="/v1/track")
     analytics_token = token
     analytics_user_id = user_id
     http = aiohttp.ClientSession()
