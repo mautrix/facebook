@@ -404,6 +404,10 @@ bridge:
             m.video: '<b>$sender_displayname</b> sent a video'
             m.location: '<b>$sender_displayname</b> sent a location'
 
+    # Whether to convert animated webp to gifs. Element for Android does not support
+    # Animated WebP (https://github.com/vector-im/element-android/issues/2695).
+    convert_animated_webp_attachments: false
+
 facebook:
     device_seed: generate
     default_region_hint: ODN
