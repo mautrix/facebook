@@ -37,15 +37,17 @@ from maufbapi.mqtt import (
 )
 from maufbapi.types import graphql, mqtt as mqtt_t
 from maufbapi.types.graphql.responses import Message, Thread
-from mautrix.bridge import BaseUser, async_getter_lock
+from mautrix.bridge import BaseUser, async_getter_lock, portal
 from mautrix.errors import MNotFound
 from mautrix.types import (
     EventID,
+    EventType,
     MessageType,
     PresenceState,
     PushActionType,
     PushRuleKind,
     PushRuleScope,
+    RoomDirectoryVisibility,
     RoomID,
     TextMessageEventContent,
     UserID,
@@ -127,6 +129,7 @@ class User(DBUser, BaseUser):
     seq_id: int | None
 
     _notice_room_lock: asyncio.Lock
+    _space_room_lock: asyncio.Lock
     _notice_send_lock: asyncio.Lock
     is_admin: bool
     permission_level: str
@@ -152,6 +155,7 @@ class User(DBUser, BaseUser):
         fbid: int | None = None,
         state: AndroidState | None = None,
         notice_room: RoomID | None = None,
+        space_room: RoomID | None = None,
         seq_id: int | None = None,
         connect_token_hash: bytes | None = None,
         oldest_backfilled_thread_ts: int | None = None,
@@ -163,6 +167,7 @@ class User(DBUser, BaseUser):
             fbid=fbid,
             state=state,
             notice_room=notice_room,
+            space_room=space_room,
             seq_id=seq_id,
             connect_token_hash=connect_token_hash,
             oldest_backfilled_thread_ts=oldest_backfilled_thread_ts,
@@ -536,6 +541,8 @@ class User(DBUser, BaseUser):
                 await puppet.switch_mxid(access_token="auto", mxid=self.mxid)
         except Exception:
             self.log.exception("Failed to automatically enable custom puppet")
+
+        await self._create_or_update_space()
 
         # Backfill requests are handled synchronously so as not to overload the homeserver.
         # Users can configure their backfill stages to be more or less aggressive with backfilling
@@ -996,6 +1003,45 @@ class User(DBUser, BaseUser):
         return await po.Portal.get_by_fbid(
             puppet.fbid, fb_receiver=self.fbid, create=create, fb_type=ThreadType.USER
         )
+
+    async def _create_or_update_space(self):
+        if not self.config["bridge.space_support.enable"]:
+            return
+
+        avatar_state_event_content = {"url": self.config["appservice.bot_avatar"]}
+        name_state_event_content = {"name": self.config["bridge.space_support.name"]}
+
+        if self.space_room:
+            await self.az.intent.send_state_event(
+                self.space_room, EventType.ROOM_AVATAR, avatar_state_event_content
+            )
+            await self.az.intent.send_state_event(
+                self.space_room, EventType.ROOM_NAME, name_state_event_content
+            )
+        else:
+            self.log.debug(f"Creating space for {self.fbid}, inviting {self.mxid}")
+            room = await self.az.intent.create_room(
+                is_direct=False,
+                invitees=[self.mxid],
+                creation_content={"type": "m.space"},
+                initial_state=[
+                    {
+                        "type": str(EventType.ROOM_NAME),
+                        "content": name_state_event_content,
+                    },
+                    {
+                        "type": str(EventType.ROOM_AVATAR),
+                        "content": avatar_state_event_content,
+                    },
+                ],
+            )
+            self.space_room = room
+            await self.save()
+            self.log.debug(f"Created space {room}")
+            try:
+                await self.az.intent.ensure_joined(room)
+            except Exception:
+                self.log.warning(f"Failed to add bridge bot to new space {room}")
 
     # region Facebook event handling
 
