@@ -16,6 +16,7 @@ from .graphql import (
     MoreMessagesQuery,
     MoreThreadsQuery,
     NTContext,
+    OwnInfo,
     ReactionAction,
     SearchEntitiesNamedQuery,
     SearchEntitiesResponse,
