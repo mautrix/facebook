@@ -8,6 +8,10 @@
 
 A Matrix-Facebook Messenger puppeting bridge.
 
+**This bridge is deprecated. [mautrix-meta] is recommended instead.**
+
+[mautrix-meta]: https://github.com/mautrix/meta
+
 ## Documentation
 All setup and usage instructions are located on
 [docs.mau.fi](https://docs.mau.fi/bridges/python/facebook/index.html).
